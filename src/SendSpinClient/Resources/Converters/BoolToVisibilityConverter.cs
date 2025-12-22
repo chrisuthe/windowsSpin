@@ -73,15 +73,33 @@ public class CountToVisibilityConverter : IValueConverter
 }
 
 /// <summary>
-/// Converts IsPlaying boolean to play/pause icon.
+/// Converts IsPlaying boolean to play/pause icon only.
+/// Used for main window buttons.
 /// </summary>
 public class PlayPauseIconConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
         var isPlaying = value is bool b && b;
-        // Using Unicode characters for play/pause icons
-        return isPlaying ? "\u23F8" : "\u25B6"; // ⏸ or ▶
+        return isPlaying ? "⏸" : "▶";
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+/// <summary>
+/// Converts IsPlaying boolean to play/pause text with icon.
+/// Used for tray context menu.
+/// </summary>
+public class PlayPauseTextConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        var isPlaying = value is bool b && b;
+        return isPlaying ? "⏸ Pause" : "▶ Play";
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
@@ -108,14 +126,14 @@ public class ConnectButtonTextConverter : IValueConverter
 }
 
 /// <summary>
-/// Converts IsMuted boolean to mute/unmute icon.
+/// Converts IsMuted boolean to mute/unmute text with icon.
 /// </summary>
 public class MuteIconConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
         var isMuted = value is bool b && b;
-        return isMuted ? "\uD83D\uDD07" : "\uD83D\uDD0A"; // 🔇 or 🔊
+        return isMuted ? "🔇 Unmute" : "🔊 Mute";
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
