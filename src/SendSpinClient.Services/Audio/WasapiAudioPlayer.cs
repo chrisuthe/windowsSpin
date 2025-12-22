@@ -31,20 +31,27 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     private WasapiOut? _wasapiOut;
     private AudioSampleProviderAdapter? _sampleProvider;
     private AudioFormat? _format;
+    private float _volume = 1.0f;
     private bool _isMuted;
 
     /// <inheritdoc/>
     public AudioPlayerState State { get; private set; } = AudioPlayerState.Uninitialized;
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Volume is applied in software via the sample provider rather than through
+    /// WASAPI endpoint volume. This avoids COM threading issues and provides
+    /// consistent behavior across different audio hardware.
+    /// </remarks>
     public float Volume
     {
-        get => _wasapiOut?.Volume ?? 1.0f;
+        get => _volume;
         set
         {
-            if (_wasapiOut != null)
+            _volume = Math.Clamp(value, 0f, 1f);
+            if (_sampleProvider != null)
             {
-                _wasapiOut.Volume = Math.Clamp(value, 0f, 1f);
+                _sampleProvider.Volume = _volume;
             }
         }
     }
@@ -123,8 +130,9 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
         ArgumentNullException.ThrowIfNull(source);
 
-        // Create NAudio adapter
+        // Create NAudio adapter with current volume/mute state
         _sampleProvider = new AudioSampleProviderAdapter(source, _format);
+        _sampleProvider.Volume = _volume;
         _sampleProvider.IsMuted = _isMuted;
 
         // Initialize WASAPI with our provider

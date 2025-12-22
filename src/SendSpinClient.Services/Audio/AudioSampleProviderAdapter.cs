@@ -22,6 +22,12 @@ internal sealed class AudioSampleProviderAdapter : ISampleProvider
     public WaveFormat WaveFormat { get; }
 
     /// <summary>
+    /// Gets or sets the volume multiplier (0.0 to 1.0).
+    /// Applied in software by multiplying samples.
+    /// </summary>
+    public float Volume { get; set; } = 1.0f;
+
+    /// <summary>
     /// Gets or sets whether output is muted.
     /// When muted, zeros are written instead of actual audio.
     /// </summary>
@@ -58,6 +64,19 @@ internal sealed class AudioSampleProviderAdapter : ISampleProvider
             return count;
         }
 
-        return _source.Read(buffer, offset, count);
+        var samplesRead = _source.Read(buffer, offset, count);
+
+        // Apply volume if not at full (avoid unnecessary multiply operations)
+        var volume = Volume;
+        if (volume < 0.999f)
+        {
+            var span = buffer.AsSpan(offset, samplesRead);
+            for (var i = 0; i < span.Length; i++)
+            {
+                span[i] *= volume;
+            }
+        }
+
+        return samplesRead;
     }
 }
