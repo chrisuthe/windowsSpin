@@ -205,11 +205,11 @@ public sealed class SendSpinClientService : ISendSpinClient
                     break;
 
                 case MessageTypes.StreamStart:
-                    HandleStreamStart(json);
+                    _ = HandleStreamStartAsync(json);
                     break;
 
                 case MessageTypes.StreamEnd:
-                    HandleStreamEnd(json);
+                    _ = HandleStreamEndAsync(json);
                     break;
 
                 case MessageTypes.StreamClear:
@@ -557,7 +557,7 @@ public sealed class SendSpinClientService : ISendSpinClient
         GroupStateChanged?.Invoke(this, _currentGroup);
     }
 
-    private async void HandleStreamStart(string json)
+    private async Task HandleStreamStartAsync(string json)
     {
         var message = MessageSerializer.Deserialize<StreamStartMessage>(json);
         if (message is null)
@@ -580,7 +580,7 @@ public sealed class SendSpinClientService : ISendSpinClient
         }
     }
 
-    private async void HandleStreamEnd(string json)
+    private async Task HandleStreamEndAsync(string json)
     {
         var message = MessageSerializer.Deserialize<StreamEndMessage>(json);
         _logger.LogInformation("Stream ended: {Reason}", message?.Reason ?? "unknown");

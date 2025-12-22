@@ -279,6 +279,38 @@ Logs include:
 - Clock synchronization statistics
 - Audio buffer status
 
+## Security Considerations
+
+This application is designed for **trusted local networks** (home/office LANs).
+
+### Network Security Model
+
+- **Unencrypted Communication**: WebSocket connections use `ws://` (not `wss://`). Audio data and control messages are transmitted in plain text on your local network.
+- **Network Binding**: The host service binds to all network interfaces (`0.0.0.0`) to allow connections from other devices on your network.
+- **mDNS Discovery**: Server discovery broadcasts are visible to all devices on the local network segment.
+
+### When to Use This App
+
+| Environment | Recommendation |
+|-------------|----------------|
+| Home network | ✅ **Safe** - Trusted environment |
+| Office LAN | ✅ **Safe** - Controlled network |
+| Shared housing (dorms) | ⚠️ **Use caution** - Others can see your client |
+| Public WiFi | ❌ **Not recommended** - Untrusted network |
+| VPN/tunneled connection | ⚠️ **Consider alternatives** - Latency may affect sync |
+
+### Firewall Configuration
+
+If using Windows Firewall, allow the following:
+- **mDNS Discovery**: UDP port 5353 (for automatic server discovery)
+- **WebSocket**: TCP port 8927 (default, or the port shown in your Music Assistant settings)
+
+The installer will prompt to add firewall rules automatically.
+
+### Privacy Note
+
+The client broadcasts its name via mDNS, which is visible to other devices on your network. By default, this uses your Windows machine name. A future version will allow configuring a custom display name.
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
