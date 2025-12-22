@@ -126,7 +126,26 @@ public class ConnectButtonTextConverter : IValueConverter
 }
 
 /// <summary>
+/// Converts IsMuted boolean to mute/unmute icon only.
+/// Used for main window buttons.
+/// </summary>
+public class MuteIconOnlyConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        var isMuted = value is bool b && b;
+        return isMuted ? "🔇" : "🔊";
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+/// <summary>
 /// Converts IsMuted boolean to mute/unmute text with icon.
+/// Used for tray context menu.
 /// </summary>
 public class MuteIconConverter : IValueConverter
 {
