@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Net;
 using System.Net.Http;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -35,54 +36,110 @@ public partial class MainViewModel : ViewModelBase
     private bool _isUpdatingFromServer;
     private CancellationTokenSource? _volumeDebouncesCts;
 
+    /// <summary>
+    /// Gets or sets whether the host service is running and advertising via mDNS.
+    /// </summary>
     [ObservableProperty]
     private bool _isHosting;
 
+    /// <summary>
+    /// Gets or sets the unique client identifier used for mDNS advertisement and server identification.
+    /// </summary>
     [ObservableProperty]
     private string? _clientId;
 
+    /// <summary>
+    /// Gets or sets the display name of the currently connected SendSpin server.
+    /// </summary>
     [ObservableProperty]
     private string? _connectedServerName;
 
+    /// <summary>
+    /// Gets or sets the metadata for the currently playing track (title, artist, album, etc.).
+    /// </summary>
     [ObservableProperty]
     private TrackMetadata? _currentTrack;
 
+    /// <summary>
+    /// Gets or sets the current playback state (Idle, Playing, Paused, Buffering, etc.).
+    /// </summary>
     [ObservableProperty]
     private PlaybackState _playbackState = PlaybackState.Idle;
 
+    /// <summary>
+    /// Gets or sets the current volume level (0-100).
+    /// Changes are debounced and sent to the server.
+    /// </summary>
     [ObservableProperty]
     private int _volume = 100;
 
+    /// <summary>
+    /// Gets or sets whether audio output is muted.
+    /// </summary>
     [ObservableProperty]
     private bool _isMuted;
 
+    /// <summary>
+    /// Gets or sets the current playback position in seconds.
+    /// </summary>
     [ObservableProperty]
     private double _position;
 
+    /// <summary>
+    /// Gets or sets the total duration of the current track in seconds.
+    /// </summary>
     [ObservableProperty]
     private double _duration;
 
+    /// <summary>
+    /// Gets or sets the album artwork image data as a byte array.
+    /// Null when no artwork is available.
+    /// </summary>
     [ObservableProperty]
     private byte[]? _albumArtwork;
 
+    /// <summary>
+    /// Gets or sets the status message displayed in the UI.
+    /// Shows connection state, errors, or "Now Playing" information.
+    /// </summary>
     [ObservableProperty]
     private string _statusMessage = "Starting...";
 
+    /// <summary>
+    /// Gets or sets the WebSocket URL for manual server connection.
+    /// Used for cross-subnet scenarios where mDNS discovery doesn't work.
+    /// </summary>
     [ObservableProperty]
-    private string _manualServerUrl = "ws://10.0.2.8:8927/sendspin";
+    private string _manualServerUrl = string.Empty;
 
+    /// <summary>
+    /// Gets or sets whether a connection attempt is currently in progress.
+    /// </summary>
     [ObservableProperty]
     private bool _isConnecting;
 
+    /// <summary>
+    /// Gets or sets the current audio codec description (e.g., "OPUS 48kHz", "FLAC 44.1kHz 24-bit").
+    /// Null when not playing audio.
+    /// </summary>
     [ObservableProperty]
     private string? _currentCodec;
 
     /// <summary>
-    /// List of connected SendSpin servers.
+    /// Gets the collection of currently connected SendSpin servers.
+    /// Updated when servers connect or disconnect via the host service.
     /// </summary>
     public ObservableCollection<ConnectedServerInfo> ConnectedServers { get; } = new();
 
+    /// <summary>
+    /// Gets whether the client is connected to any SendSpin server,
+    /// either via manual connection or through the host service.
+    /// </summary>
     public bool IsConnected => ConnectedServers.Count > 0 || _manualClient?.ConnectionState == ConnectionState.Connected;
+
+    /// <summary>
+    /// Gets whether audio is currently playing.
+    /// </summary>
     public bool IsPlaying => PlaybackState == PlaybackState.Playing;
 
     public MainViewModel(
@@ -264,6 +321,14 @@ public partial class MainViewModel : ViewModelBase
                 return;
             }
 
+            // Validate WebSocket scheme
+            if (serverUri.Scheme != "ws" && serverUri.Scheme != "wss")
+            {
+                StatusMessage = "URL must start with ws:// or wss://";
+                IsConnecting = false;
+                return;
+            }
+
             // Create the connection and client service
             _manualConnection = new SendSpinConnection(
                 _loggerFactory.CreateLogger<SendSpinConnection>());
@@ -428,10 +493,17 @@ public partial class MainViewModel : ViewModelBase
 
     private async Task FetchArtworkAsync(string url)
     {
+        // Validate URL before fetching to prevent SSRF attacks
+        if (!IsValidArtworkUrl(url, out var artworkUri))
+        {
+            _logger.LogWarning("Blocked artwork fetch from invalid or unsafe URL: {Url}", url);
+            return;
+        }
+
         try
         {
             _logger.LogDebug("Fetching artwork from {Url}", url);
-            var imageData = await _httpClient.GetByteArrayAsync(url);
+            var imageData = await _httpClient.GetByteArrayAsync(artworkUri);
 
             App.Current.Dispatcher.Invoke(() =>
             {
@@ -443,6 +515,39 @@ public partial class MainViewModel : ViewModelBase
         {
             _logger.LogWarning(ex, "Failed to fetch artwork from {Url}", url);
         }
+    }
+
+    /// <summary>
+    /// Validates that an artwork URL is safe to fetch.
+    /// Blocks non-HTTP schemes and localhost to prevent SSRF attacks.
+    /// </summary>
+    /// <param name="url">The URL to validate.</param>
+    /// <param name="uri">The parsed URI if valid.</param>
+    /// <returns>True if the URL is safe to fetch.</returns>
+    private static bool IsValidArtworkUrl(string url, out Uri? uri)
+    {
+        uri = null;
+
+        if (string.IsNullOrWhiteSpace(url))
+            return false;
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out uri))
+            return false;
+
+        // Only allow HTTP/HTTPS schemes
+        if (uri.Scheme != "http" && uri.Scheme != "https")
+            return false;
+
+        // Block localhost and loopback addresses to prevent accessing local services
+        var host = uri.Host.ToLowerInvariant();
+        if (host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]")
+            return false;
+
+        // Check for loopback IP addresses
+        if (IPAddress.TryParse(uri.Host, out var ip) && IPAddress.IsLoopback(ip))
+            return false;
+
+        return true;
     }
 
     private void OnManualClientArtworkReceived(object? sender, byte[] imageData)
@@ -815,5 +920,8 @@ public partial class MainViewModel : ViewModelBase
 
         // Stop host service
         await _hostService.StopAsync();
+
+        // Dispose HTTP client
+        _httpClient?.Dispose();
     }
 }

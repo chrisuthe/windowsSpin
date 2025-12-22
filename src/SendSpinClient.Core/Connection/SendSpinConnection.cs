@@ -327,7 +327,14 @@ public sealed class SendSpinConnection : ISendSpinConnection
             {
                 await _receiveTask.WaitAsync(TimeSpan.FromSeconds(2));
             }
-            catch { /* Ignore timeout */ }
+            catch (TimeoutException)
+            {
+                _logger.LogDebug("Receive task cleanup timeout (expected during shutdown)");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unexpected error during receive task cleanup");
+            }
         }
 
         _receiveCts?.Dispose();
