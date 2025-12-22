@@ -30,7 +30,7 @@ DisableProgramGroupPage=yes
 ; Output settings
 OutputDir=..\dist
 OutputBaseFilename=SendSpinClient-{#MyAppVersion}-Setup
-SetupIconFile=..\src\SendSpinClient\Resources\Icons\sendspinDesktop.ico
+SetupIconFile=..\src\SendSpinClient\Resources\Icons\sendspinTray.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 ; Compression
