@@ -344,9 +344,9 @@ public sealed class SendSpinHostService : IAsyncDisposable
 
     private class ActiveServerConnection
     {
-        public required string ServerId { get; init; }
-        public required SendSpinClientService Client { get; init; }
-        public required IncomingConnection Connection { get; init; }
+        required public string ServerId { get; init; }
+        required public SendSpinClientService Client { get; init; }
+        required public IncomingConnection Connection { get; init; }
         public DateTime ConnectedAt { get; init; }
     }
 }
@@ -356,8 +356,8 @@ public sealed class SendSpinHostService : IAsyncDisposable
 /// </summary>
 public record ConnectedServerInfo
 {
-    public required string ServerId { get; init; }
-    public required string ServerName { get; init; }
+    required public string ServerId { get; init; }
+    required public string ServerName { get; init; }
     public DateTime ConnectedAt { get; init; }
     public ClockSyncStatus? ClockSyncStatus { get; init; }
 }

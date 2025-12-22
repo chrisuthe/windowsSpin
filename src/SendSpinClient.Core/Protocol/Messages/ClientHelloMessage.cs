@@ -13,7 +13,7 @@ public sealed class ClientHelloMessage : IMessageWithPayload<ClientHelloPayload>
     public string Type => MessageTypes.ClientHello;
 
     [JsonPropertyName("payload")]
-    public required ClientHelloPayload Payload { get; init; }
+    required public ClientHelloPayload Payload { get; init; }
 
     /// <summary>
     /// Creates a ClientHelloMessage with the specified payload.
@@ -51,13 +51,13 @@ public sealed class ClientHelloPayload
     /// Unique client identifier (persistent across sessions).
     /// </summary>
     [JsonPropertyName("client_id")]
-    public required string ClientId { get; init; }
+    required public string ClientId { get; init; }
 
     /// <summary>
     /// Human-readable client name.
     /// </summary>
     [JsonPropertyName("name")]
-    public required string Name { get; init; }
+    required public string Name { get; init; }
 
     /// <summary>
     /// Protocol version (must be 1).
@@ -70,7 +70,7 @@ public sealed class ClientHelloPayload
     /// Each role includes version (e.g., "player@v1", "controller@v1").
     /// </summary>
     [JsonPropertyName("supported_roles")]
-    public required List<string> SupportedRoles { get; init; }
+    required public List<string> SupportedRoles { get; init; }
 
     /// <summary>
     /// Player role support details.
@@ -126,7 +126,7 @@ public sealed class PlayerSupport
 public sealed class AudioFormatSpec
 {
     [JsonPropertyName("codec")]
-    public required string Codec { get; init; }
+    required public string Codec { get; init; }
 
     [JsonPropertyName("channels")]
     public int Channels { get; init; } = 2;

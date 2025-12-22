@@ -240,6 +240,11 @@
                     <TextBlock Text="{Binding CurrentTrack.Artist, FallbackValue=''}"
                                Style="{StaticResource BodyText}"
                                TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding CurrentCodec}"
+                               Style="{StaticResource CaptionText}"
+                               Opacity="0.6"
+                               Margin="0,4,0,0"
+                               Visibility="{Binding CurrentCodec, Converter={StaticResource NullToVisibilityConverter}}"/>
                 </StackPanel>
             </Grid>
         </Border>

@@ -13,7 +13,7 @@ public sealed class ClientStateMessage : IMessageWithPayload<ClientStatePayload>
     public string Type => MessageTypes.ClientState;
 
     [JsonPropertyName("payload")]
-    public required ClientStatePayload Payload { get; init; }
+    required public ClientStatePayload Payload { get; init; }
 
     /// <summary>
     /// Creates a synchronized state message with player volume/mute.

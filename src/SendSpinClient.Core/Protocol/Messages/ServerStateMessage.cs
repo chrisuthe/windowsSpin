@@ -12,7 +12,7 @@ public sealed class ServerStateMessage : IMessageWithPayload<ServerStatePayload>
     public string Type => MessageTypes.ServerState;
 
     [JsonPropertyName("payload")]
-    public required ServerStatePayload Payload { get; init; }
+    required public ServerStatePayload Payload { get; init; }
 }
 
 /// <summary>

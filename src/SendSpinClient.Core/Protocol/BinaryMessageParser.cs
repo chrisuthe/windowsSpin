@@ -137,7 +137,7 @@ public sealed class AudioChunk
     /// <summary>
     /// Encoded audio data (Opus/FLAC/PCM).
     /// </summary>
-    public required byte[] EncodedData { get; init; }
+    required public byte[] EncodedData { get; init; }
 
     /// <summary>
     /// Decoded PCM samples (set after decoding).
@@ -168,5 +168,5 @@ public sealed class ArtworkChunk
     /// <summary>
     /// Raw image data (JPEG/PNG).
     /// </summary>
-    public required byte[] ImageData { get; init; }
+    required public byte[] ImageData { get; init; }
 }

@@ -33,10 +33,10 @@ public interface IMessageWithPayload<TPayload> : IMessage where TPayload : class
 public sealed class MessageEnvelope<TPayload> : IMessageWithPayload<TPayload> where TPayload : class
 {
     [JsonPropertyName("type")]
-    public required string Type { get; init; }
+    required public string Type { get; init; }
 
     [JsonPropertyName("payload")]
-    public required TPayload Payload { get; init; }
+    required public TPayload Payload { get; init; }
 }
 
 /// <summary>

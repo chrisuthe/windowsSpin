@@ -68,21 +68,22 @@ public sealed class SendSpinClientService : ISendSpinClient
         _handshakeTcs = new TaskCompletionSource<bool>();
 
         // Send client hello with proper payload envelope
-        // Support both Opus (preferred for streaming) and PCM
+        // Use audio formats from capabilities (order matters - server picks first supported)
         var hello = ClientHelloMessage.Create(
             clientId: _capabilities.ClientId,
             name: _capabilities.ClientName,
             supportedRoles: _capabilities.Roles,
             playerSupport: new PlayerSupport
             {
-                SupportedFormats = new List<AudioFormatSpec>
-                {
-                    // Opus 48kHz stereo - preferred for streaming (low bandwidth, good quality)
-                    new() { Codec = "opus", Channels = 2, SampleRate = 48000 },
-                    // PCM fallback
-                    new() { Codec = "pcm", Channels = 2, SampleRate = 44100, BitDepth = 16 },
-                    new() { Codec = "pcm", Channels = 2, SampleRate = 48000, BitDepth = 16 },
-                },
+                SupportedFormats = _capabilities.AudioFormats
+                    .Select(f => new AudioFormatSpec
+                    {
+                        Codec = f.Codec,
+                        Channels = f.Channels,
+                        SampleRate = f.SampleRate,
+                        BitDepth = f.BitDepth ?? 16,
+                    })
+                    .ToList(),
                 BufferCapacity = _capabilities.BufferCapacity,
                 SupportedCommands = new List<string> { "volume", "mute" }
             },

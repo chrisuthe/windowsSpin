@@ -16,7 +16,7 @@ public sealed class StreamRequestFormatMessage : ClientMessage
     /// Requested audio format.
     /// </summary>
     [JsonPropertyName("format")]
-    public required AudioFormat Format { get; init; }
+    required public AudioFormat Format { get; init; }
 
     /// <summary>
     /// Stream identifier.

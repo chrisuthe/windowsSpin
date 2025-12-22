@@ -79,6 +79,12 @@ using System.Threading.Tasks;
 #pragma warning disable CA1825 // Avoid zero-length array allocations
 #pragma warning disable CA1859 // Use concrete types when possible for improved performance
 #pragma warning disable CA2211 // Non-constant fields should not be visible
+#pragma warning disable SA1010 // Opening square brackets should not be preceded by a space
+#pragma warning disable SA1011 // Closing square bracket should not be preceded by a space
+#pragma warning disable SA1025 // Code should not contain multiple whitespace characters in a row
+#pragma warning disable SA1027 // Tabs and spaces should be used correctly
+#pragma warning disable SA1515 // Single-line comment should be preceded by blank line
+#pragma warning disable S3260 // Private classes should be sealed
 
 namespace SendSpinClient.Core.Audio.Codecs.ThirdParty;
 
