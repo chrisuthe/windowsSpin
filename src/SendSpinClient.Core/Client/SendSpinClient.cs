@@ -134,12 +134,24 @@ public sealed class SendSpinClientService : ISendSpinClient
 
     public async Task SendCommandAsync(string command, Dictionary<string, object>? parameters = null)
     {
-        var message = new ClientCommandMessage
+        // Extract volume and mute from parameters if present
+        int? volume = null;
+        bool? mute = null;
+
+        if (parameters != null)
         {
-            Command = command,
-            GroupId = _currentGroup?.GroupId,
-            Params = parameters
-        };
+            if (parameters.TryGetValue("volume", out var volObj) && volObj is int vol)
+            {
+                volume = vol;
+            }
+
+            if (parameters.TryGetValue("muted", out var muteObj) && muteObj is bool m)
+            {
+                mute = m;
+            }
+        }
+
+        var message = ClientCommandMessage.Create(command, volume, mute);
 
         _logger.LogDebug("Sending command: {Command}", command);
         await _connection.SendMessageAsync(message);
@@ -147,10 +159,11 @@ public sealed class SendSpinClientService : ISendSpinClient
 
     public async Task SetVolumeAsync(int volume)
     {
-        await SendCommandAsync(Commands.SetVolume, new Dictionary<string, object>
-        {
-            ["volume"] = Math.Clamp(volume, 0, 100)
-        });
+        var clampedVolume = Math.Clamp(volume, 0, 100);
+        var message = ClientCommandMessage.Create(Commands.Volume, volume: clampedVolume);
+
+        _logger.LogDebug("Setting volume to {Volume}", clampedVolume);
+        await _connection.SendMessageAsync(message);
     }
 
     private void OnConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs e)
@@ -175,9 +188,7 @@ public sealed class SendSpinClientService : ISendSpinClient
         try
         {
             var messageType = MessageSerializer.GetMessageType(json);
-            _logger.LogInformation("Received message type: {Type}\n{Json}",
-                messageType ?? "unknown",
-                json.Length > 1000 ? json[..1000] + "..." : json);
+            _logger.LogTrace("Received: {Type}", messageType);
 
             switch (messageType)
             {
@@ -207,6 +218,10 @@ public sealed class SendSpinClientService : ISendSpinClient
 
                 case MessageTypes.ServerState:
                     HandleServerState(json);
+                    break;
+
+                case MessageTypes.ServerCommand:
+                    HandleServerCommand(json);
                     break;
 
                 default:
@@ -440,8 +455,10 @@ public sealed class SendSpinClientService : ISendSpinClient
         if (message.Repeat is not null)
             _currentGroup.Repeat = message.Repeat;
 
-        _logger.LogDebug("Group update: {State}, {Track}",
+        _logger.LogDebug("Group update: {State}, Volume={Volume}, Muted={Muted}, Track={Track}",
             _currentGroup.PlaybackState,
+            _currentGroup.Volume,
+            _currentGroup.Muted,
             _currentGroup.Metadata?.ToString() ?? "no track");
 
         GroupStateChanged?.Invoke(this, _currentGroup);
@@ -480,19 +497,63 @@ public sealed class SendSpinClientService : ISendSpinClient
                 _currentGroup.Repeat = meta.Repeat;
         }
 
-        // Update controller state (volume, mute)
+        // Update controller state (volume, mute) and apply to audio pipeline
         if (payload.Controller is not null)
         {
             if (payload.Controller.Volume.HasValue)
+            {
                 _currentGroup.Volume = payload.Controller.Volume.Value;
+                _audioPipeline?.SetVolume(payload.Controller.Volume.Value);
+            }
             if (payload.Controller.Muted.HasValue)
+            {
                 _currentGroup.Muted = payload.Controller.Muted.Value;
+                _audioPipeline?.SetMuted(payload.Controller.Muted.Value);
+            }
         }
 
-        _logger.LogDebug("Server state update: {Track} by {Artist}",
+        _logger.LogDebug("Server state update: Volume={Volume}, Muted={Muted}, Track={Track} by {Artist}",
+            _currentGroup.Volume,
+            _currentGroup.Muted,
             _currentGroup.Metadata?.Title ?? "unknown",
             _currentGroup.Metadata?.Artist ?? "unknown");
 
+        GroupStateChanged?.Invoke(this, _currentGroup);
+    }
+
+    /// <summary>
+    /// Handles server/command messages that instruct the player to apply volume or mute changes.
+    /// These commands originate from controller clients and are relayed by the server to all players.
+    /// </summary>
+    private void HandleServerCommand(string json)
+    {
+        var message = MessageSerializer.Deserialize<ServerCommandMessage>(json);
+        if (message?.Payload?.Player is null)
+        {
+            _logger.LogDebug("server/command: No player command in message");
+            return;
+        }
+
+        var player = message.Payload.Player;
+        _currentGroup ??= new GroupState();
+
+        _logger.LogDebug("server/command: {Command}", player.Command);
+
+        // Apply volume change - update both state tracking and audio pipeline
+        if (player.Volume.HasValue)
+        {
+            _currentGroup.Volume = player.Volume.Value;
+            _audioPipeline?.SetVolume(player.Volume.Value);
+        }
+
+        // Apply mute change - update both state tracking and audio pipeline
+        if (player.Mute.HasValue)
+        {
+            _currentGroup.Muted = player.Mute.Value;
+            _audioPipeline?.SetMuted(player.Mute.Value);
+        }
+
+        // Notify UI of state change
         GroupStateChanged?.Invoke(this, _currentGroup);
     }
 

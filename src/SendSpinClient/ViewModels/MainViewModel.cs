@@ -32,6 +32,8 @@ public partial class MainViewModel : ViewModelBase
     private string? _lastArtworkUrl;
     private string? _autoConnectedServerId;
     private bool _autoReconnectEnabled = true;
+    private bool _isUpdatingFromServer;
+    private CancellationTokenSource? _volumeDebouncesCts;
 
     [ObservableProperty]
     private bool _isHosting;
@@ -152,7 +154,7 @@ public partial class MainViewModel : ViewModelBase
             var command = PlaybackState == PlaybackState.Playing
                 ? Commands.Pause
                 : Commands.Play;
-            await _hostService.SendCommandAsync(command);
+            await SendCommandToActiveClientAsync(command);
         }
         catch (Exception ex)
         {
@@ -167,7 +169,7 @@ public partial class MainViewModel : ViewModelBase
 
         try
         {
-            await _hostService.SendCommandAsync(Commands.Next);
+            await SendCommandToActiveClientAsync(Commands.Next);
         }
         catch (Exception ex)
         {
@@ -182,7 +184,7 @@ public partial class MainViewModel : ViewModelBase
 
         try
         {
-            await _hostService.SendCommandAsync(Commands.Previous);
+            await SendCommandToActiveClientAsync(Commands.Previous);
         }
         catch (Exception ex)
         {
@@ -197,7 +199,7 @@ public partial class MainViewModel : ViewModelBase
 
         try
         {
-            await _hostService.SendCommandAsync(Commands.SetMute, new Dictionary<string, object>
+            await SendCommandToActiveClientAsync(Commands.Mute, new Dictionary<string, object>
             {
                 ["muted"] = !IsMuted
             });
@@ -205,6 +207,29 @@ public partial class MainViewModel : ViewModelBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to toggle mute");
+        }
+    }
+
+    /// <summary>
+    /// Sends a command to the active client (manual client or host service).
+    /// </summary>
+    private async Task SendCommandToActiveClientAsync(string command, Dictionary<string, object>? parameters = null)
+    {
+        // Prefer manual client (discovery/manual connection mode)
+        if (_manualClient?.ConnectionState == ConnectionState.Connected)
+        {
+            _logger.LogDebug("Sending command {Command} via manual client", command);
+            await _manualClient.SendCommandAsync(command, parameters);
+        }
+        // Fall back to host service (server-initiated connection mode)
+        else if (ConnectedServers.Count > 0)
+        {
+            _logger.LogDebug("Sending command {Command} via host service", command);
+            await _hostService.SendCommandAsync(command, parameters);
+        }
+        else
+        {
+            _logger.LogWarning("No active connection to send command {Command}", command);
         }
     }
 
@@ -365,10 +390,13 @@ public partial class MainViewModel : ViewModelBase
     {
         App.Current.Dispatcher.Invoke(() =>
         {
-            PlaybackState = group.PlaybackState;
-            Volume = group.Volume;
-            IsMuted = group.Muted;
-            CurrentTrack = group.Metadata;
+            _isUpdatingFromServer = true;
+            try
+            {
+                PlaybackState = group.PlaybackState;
+                Volume = group.Volume;
+                IsMuted = group.Muted;
+                CurrentTrack = group.Metadata;
 
             if (group.Metadata?.Duration.HasValue == true)
             {
@@ -390,6 +418,11 @@ public partial class MainViewModel : ViewModelBase
             }
 
             _logger.LogDebug("Manual client group state updated: {State}", group.PlaybackState);
+            }
+            finally
+            {
+                _isUpdatingFromServer = false;
+            }
         });
     }
 
@@ -466,33 +499,41 @@ public partial class MainViewModel : ViewModelBase
     {
         App.Current.Dispatcher.Invoke(() =>
         {
-            PlaybackState = group.PlaybackState;
-            Volume = group.Volume;
-            IsMuted = group.Muted;
-            CurrentTrack = group.Metadata;
-
-            if (group.Metadata?.Duration.HasValue == true)
+            _isUpdatingFromServer = true;
+            try
             {
-                Duration = group.Metadata.Duration.Value;
-            }
+                PlaybackState = group.PlaybackState;
+                Volume = group.Volume;
+                IsMuted = group.Muted;
+                CurrentTrack = group.Metadata;
 
-            // Update status with now playing info
-            if (CurrentTrack != null)
+                if (group.Metadata?.Duration.HasValue == true)
+                {
+                    Duration = group.Metadata.Duration.Value;
+                }
+
+                // Update status with now playing info
+                if (CurrentTrack != null)
+                {
+                    StatusMessage = $"Now Playing: {CurrentTrack.Title ?? "Unknown"}\n" +
+                                   $"by {CurrentTrack.Artist ?? "Unknown Artist"}";
+                }
+
+                // Fetch artwork if URL changed
+                var artworkUrl = group.Metadata?.ArtworkUrl;
+                if (!string.IsNullOrEmpty(artworkUrl) && artworkUrl != _lastArtworkUrl)
+                {
+                    _lastArtworkUrl = artworkUrl;
+                    _ = FetchArtworkAsync(artworkUrl);
+                }
+
+                _logger.LogDebug("Group state updated: {State}, Track: {Track}",
+                    group.PlaybackState, group.Metadata?.ToString());
+            }
+            finally
             {
-                StatusMessage = $"Now Playing: {CurrentTrack.Title ?? "Unknown"}\n" +
-                               $"by {CurrentTrack.Artist ?? "Unknown Artist"}";
+                _isUpdatingFromServer = false;
             }
-
-            // Fetch artwork if URL changed
-            var artworkUrl = group.Metadata?.ArtworkUrl;
-            if (!string.IsNullOrEmpty(artworkUrl) && artworkUrl != _lastArtworkUrl)
-            {
-                _lastArtworkUrl = artworkUrl;
-                _ = FetchArtworkAsync(artworkUrl);
-            }
-
-            _logger.LogDebug("Group state updated: {State}, Track: {Track}",
-                group.PlaybackState, group.Metadata?.ToString());
         });
     }
 
@@ -626,9 +667,50 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsPlaying));
     }
 
+    partial void OnVolumeChanged(int value)
+    {
+        // Don't send commands when updating from server state
+        if (_isUpdatingFromServer || !IsConnected)
+            return;
+
+        // Debounce volume changes to avoid spamming the server
+        // Cancel any pending volume change and schedule a new one
+        _volumeDebouncesCts?.Cancel();
+        _volumeDebouncesCts = new CancellationTokenSource();
+        _ = SendVolumeChangeDebounced(value, _volumeDebouncesCts.Token);
+    }
+
+    private async Task SendVolumeChangeDebounced(int volume, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Wait briefly before sending to allow slider to settle
+            await Task.Delay(150, cancellationToken);
+
+            _logger.LogDebug("Sending volume change: {Volume}", volume);
+            await SendCommandToActiveClientAsync(Commands.Volume, new Dictionary<string, object>
+            {
+                ["volume"] = volume
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // Debounce cancelled, a newer value will be sent
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send volume change");
+        }
+    }
+
     public async Task ShutdownAsync()
     {
         _logger.LogInformation("Shutting down MainViewModel");
+
+        // Cancel any pending volume changes
+        _volumeDebouncesCts?.Cancel();
+        _volumeDebouncesCts?.Dispose();
+        _volumeDebouncesCts = null;
 
         // Stop server discovery
         await _serverDiscovery.StopAsync();
