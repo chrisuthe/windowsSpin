@@ -1,9 +1,12 @@
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using SendSpinClient.Core.Audio;
 using SendSpinClient.Core.Client;
 using SendSpinClient.Core.Discovery;
 using SendSpinClient.Core.Models;
+using SendSpinClient.Core.Synchronization;
+using SendSpinClient.Services.Audio;
 using SendSpinClient.ViewModels;
 
 namespace SendSpinClient;
@@ -62,6 +65,29 @@ public partial class App : Application
 
         // Client capabilities configuration
         services.AddSingleton<ClientCapabilities>();
+
+        // Clock synchronization for multi-room audio sync
+        services.AddSingleton<IClockSynchronizer, KalmanClockSynchronizer>();
+
+        // Audio pipeline components
+        services.AddSingleton<IAudioDecoderFactory, AudioDecoderFactory>();
+        services.AddTransient<IAudioPlayer, WasapiAudioPlayer>();
+
+        // Audio pipeline - orchestrates decoder, buffer, and player
+        services.AddSingleton<IAudioPipeline>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILogger<AudioPipeline>>();
+            var decoderFactory = sp.GetRequiredService<IAudioDecoderFactory>();
+            var clockSync = sp.GetRequiredService<IClockSynchronizer>();
+
+            return new AudioPipeline(
+                logger,
+                decoderFactory,
+                clockSync,
+                bufferFactory: (format, sync) => new TimedAudioBuffer(format, sync),
+                playerFactory: () => sp.GetRequiredService<IAudioPlayer>(),
+                sourceFactory: (buffer, timeFunc) => new BufferedAudioSampleSource(buffer, timeFunc));
+        });
 
         // Server discovery for client-initiated mode
         // Discovers Music Assistant servers via mDNS and auto-connects
