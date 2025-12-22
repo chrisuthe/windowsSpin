@@ -72,6 +72,9 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isConnecting;
 
+    [ObservableProperty]
+    private string? _currentCodec;
+
     /// <summary>
     /// List of connected SendSpin servers.
     /// </summary>
@@ -104,6 +107,9 @@ public partial class MainViewModel : ViewModelBase
         // Subscribe to server discovery events (client-initiated mode - primary)
         _serverDiscovery.ServerFound += OnDiscoveredServerFound;
         _serverDiscovery.ServerLost += OnDiscoveredServerLost;
+
+        // Subscribe to audio pipeline events for codec display
+        _audioPipeline.StateChanged += OnAudioPipelineStateChanged;
     }
 
     public async Task InitializeAsync()
@@ -496,6 +502,30 @@ public partial class MainViewModel : ViewModelBase
         {
             AlbumArtwork = imageData;
             _logger.LogDebug("Artwork received: {Length} bytes", imageData.Length);
+        });
+    }
+
+    private void OnAudioPipelineStateChanged(object? sender, AudioPipelineState state)
+    {
+        App.Current.Dispatcher.Invoke(() =>
+        {
+            var format = _audioPipeline.CurrentFormat;
+            if (state == AudioPipelineState.Idle || format == null)
+            {
+                CurrentCodec = null;
+            }
+            else
+            {
+                // Format codec nicely: "OPUS 48kHz" or "FLAC 44.1kHz 24-bit"
+                var codecName = format.Codec?.ToUpperInvariant() ?? "Unknown";
+                var sampleRate = format.SampleRate >= 1000
+                    ? $"{format.SampleRate / 1000.0:0.#}kHz"
+                    : $"{format.SampleRate}Hz";
+
+                CurrentCodec = format.BitDepth.HasValue && format.Codec?.ToLowerInvariant() != "opus"
+                    ? $"{codecName} {sampleRate} {format.BitDepth}-bit"
+                    : $"{codecName} {sampleRate}";
+            }
         });
     }
 

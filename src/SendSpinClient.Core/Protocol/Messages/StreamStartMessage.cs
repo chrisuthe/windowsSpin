@@ -39,8 +39,9 @@ public sealed class StreamStartPayload
 {
     /// <summary>
     /// Gets or sets the audio format for the incoming stream.
+    /// Note: Server sends this as "player" not "format".
     /// </summary>
-    [JsonPropertyName("format")]
+    [JsonPropertyName("player")]
     public AudioFormat Format { get; set; } = new();
 
     /// <summary>

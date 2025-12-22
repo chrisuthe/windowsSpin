@@ -14,7 +14,7 @@ public sealed class ClientCommandMessage : ClientMessage
     /// Command to execute (e.g., "play", "pause", "next", "previous").
     /// </summary>
     [JsonPropertyName("command")]
-    public required string Command { get; init; }
+    required public string Command { get; init; }
 
     /// <summary>
     /// Target group ID.

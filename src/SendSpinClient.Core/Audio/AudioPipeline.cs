@@ -57,6 +57,9 @@ public sealed class AudioPipeline : IAudioPipeline
     public AudioBufferStats? BufferStats => _buffer?.GetStats();
 
     /// <inheritdoc/>
+    public AudioFormat? CurrentFormat => _currentFormat;
+
+    /// <inheritdoc/>
     public event EventHandler<AudioPipelineState>? StateChanged;
 
     /// <inheritdoc/>

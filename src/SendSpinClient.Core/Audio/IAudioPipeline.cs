@@ -23,6 +23,11 @@ public interface IAudioPipeline : IAsyncDisposable
     AudioBufferStats? BufferStats { get; }
 
     /// <summary>
+    /// Gets the current audio format being decoded, or null if not streaming.
+    /// </summary>
+    AudioFormat? CurrentFormat { get; }
+
+    /// <summary>
     /// Starts the pipeline with the specified stream format.
     /// Called when stream/start is received.
     /// </summary>

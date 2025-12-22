@@ -8,27 +8,27 @@ public sealed class DiscoveredServer
     /// <summary>
     /// Unique server identifier from mDNS TXT record.
     /// </summary>
-    public required string ServerId { get; init; }
+    required public string ServerId { get; init; }
 
     /// <summary>
     /// Human-readable server name.
     /// </summary>
-    public required string Name { get; init; }
+    required public string Name { get; init; }
 
     /// <summary>
     /// Server hostname.
     /// </summary>
-    public required string Host { get; init; }
+    required public string Host { get; init; }
 
     /// <summary>
     /// Server port number.
     /// </summary>
-    public required int Port { get; init; }
+    required public int Port { get; init; }
 
     /// <summary>
     /// IP addresses for the server.
     /// </summary>
-    public required IReadOnlyList<string> IpAddresses { get; init; }
+    required public IReadOnlyList<string> IpAddresses { get; init; }
 
     /// <summary>
     /// Protocol version advertised by the server.

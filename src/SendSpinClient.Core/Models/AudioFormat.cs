@@ -37,6 +37,13 @@ public sealed class AudioFormat
     [JsonPropertyName("bitrate")]
     public int? Bitrate { get; set; }
 
+    /// <summary>
+    /// Codec-specific header data (base64 encoded).
+    /// For FLAC, this contains the STREAMINFO block.
+    /// </summary>
+    [JsonPropertyName("codec_header")]
+    public string? CodecHeader { get; set; }
+
     public override string ToString()
     {
         var bitInfo = Bitrate.HasValue ? $" @ {Bitrate}kbps" : BitDepth.HasValue ? $" {BitDepth}bit" : "";

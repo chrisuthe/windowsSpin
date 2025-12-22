@@ -31,12 +31,13 @@ public sealed class ClientCapabilities
 
     /// <summary>
     /// Audio formats the client can decode.
+    /// Order matters - server picks the first format it supports.
     /// </summary>
     public List<AudioFormat> AudioFormats { get; set; } = new()
     {
         new AudioFormat { Codec = "opus", SampleRate = 48000, Channels = 2, Bitrate = 256 },
-        new AudioFormat { Codec = "flac", SampleRate = 48000, Channels = 2 },
-        new AudioFormat { Codec = "pcm", SampleRate = 48000, Channels = 2, BitDepth = 16 }
+        new AudioFormat { Codec = "pcm", SampleRate = 48000, Channels = 2, BitDepth = 16 },
+        new AudioFormat { Codec = "flac", SampleRate = 48000, Channels = 2 },  // Last - server prefers earlier formats
     };
 
     /// <summary>
