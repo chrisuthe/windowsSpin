@@ -1,5 +1,5 @@
-// <copyright file="AudioDecoderFactory.cs" company="SendSpin">
-// Copyright (c) SendSpin. All rights reserved.
+// <copyright file="AudioDecoderFactory.cs" company="SendSpin Windows Client">
+// Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
 using SendSpinClient.Core.Audio.Codecs;
@@ -21,8 +21,7 @@ public sealed class AudioDecoderFactory : IAudioDecoderFactory
         {
             AudioCodecs.Opus => new OpusDecoder(format),
             AudioCodecs.Pcm => new PcmDecoder(format),
-            AudioCodecs.Flac => throw new NotSupportedException(
-                "FLAC decoding is not yet implemented. Consider using Opus or PCM format."),
+            AudioCodecs.Flac => new FlacDecoder(format),
             _ => throw new NotSupportedException($"Unsupported audio codec: {format.Codec}"),
         };
     }
@@ -36,7 +35,7 @@ public sealed class AudioDecoderFactory : IAudioDecoderFactory
         {
             AudioCodecs.Opus => true,
             AudioCodecs.Pcm => true,
-            AudioCodecs.Flac => false, // Future: implement with dedicated library
+            AudioCodecs.Flac => true,
             _ => false,
         };
     }
