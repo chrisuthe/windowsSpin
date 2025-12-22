@@ -2,7 +2,10 @@
 ; https://jrsoftware.org/isinfo.php
 
 #define MyAppName "SendSpin"
-#define MyAppVersion "1.0.0"
+; Version can be overridden from command line: /DMyAppVersion=x.x.x
+#ifndef MyAppVersion
+  #define MyAppVersion "1.0.0"
+#endif
 #define MyAppPublisher "chrisuthe"
 #define MyAppURL "https://github.com/chrisuthe/windowsSpin"
 #define MyAppExeName "SendSpinClient.exe"

@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: write
+
 env:
   DOTNET_VERSION: '8.0.x'
   PROJECT_PATH: 'src/SendSpinClient/SendSpinClient.csproj'
@@ -39,17 +42,20 @@ jobs:
         run: |
           dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained false -o src/SendSpinClient/bin/publish/win-x64
 
+      - name: Create dist directory
+        run: New-Item -ItemType Directory -Force -Path dist
+
       - name: Install Inno Setup
-        run: |
-          choco install innosetup -y
+        run: choco install innosetup -y
 
       - name: Build Installer
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} installer/SendSpinClient.iss
+          # List output to verify
+          Get-ChildItem -Path dist -Recurse
 
       - name: Create portable ZIP
-        run: |
-          Compress-Archive -Path src/SendSpinClient/bin/publish/win-x64/* -DestinationPath dist/SendSpinClient-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+        run: Compress-Archive -Path src/SendSpinClient/bin/publish/win-x64/* -DestinationPath dist/SendSpinClient-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
