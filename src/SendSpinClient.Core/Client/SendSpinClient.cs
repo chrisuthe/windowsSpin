@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using SendSpinClient.Core.Audio;
 using SendSpinClient.Core.Connection;
 using SendSpinClient.Core.Models;
 using SendSpinClient.Core.Protocol;
@@ -16,6 +17,7 @@ public sealed class SendSpinClientService : ISendSpinClient
     private readonly ISendSpinConnection _connection;
     private readonly ClientCapabilities _capabilities;
     private readonly IClockSynchronizer _clockSynchronizer;
+    private readonly IAudioPipeline? _audioPipeline;
 
     private TaskCompletionSource<bool>? _handshakeTcs;
     private GroupState? _currentGroup;
@@ -40,12 +42,14 @@ public sealed class SendSpinClientService : ISendSpinClient
         ILogger<SendSpinClientService> logger,
         ISendSpinConnection connection,
         IClockSynchronizer? clockSynchronizer = null,
-        ClientCapabilities? capabilities = null)
+        ClientCapabilities? capabilities = null,
+        IAudioPipeline? audioPipeline = null)
     {
         _logger = logger;
         _connection = connection;
         _clockSynchronizer = clockSynchronizer ?? new KalmanClockSynchronizer();
         _capabilities = capabilities ?? new ClientCapabilities();
+        _audioPipeline = audioPipeline;
 
         // Subscribe to connection events
         _connection.StateChanged += OnConnectionStateChanged;
@@ -414,9 +418,16 @@ public sealed class SendSpinClientService : ISendSpinClient
         if (message.PlaybackState.HasValue)
             _currentGroup.PlaybackState = message.PlaybackState.Value;
         if (message.Volume.HasValue)
+        {
             _currentGroup.Volume = message.Volume.Value;
+            _audioPipeline?.SetVolume(message.Volume.Value);
+        }
+
         if (message.Muted.HasValue)
+        {
             _currentGroup.Muted = message.Muted.Value;
+            _audioPipeline?.SetMuted(message.Muted.Value);
+        }
         if (message.Metadata is not null)
             _currentGroup.Metadata = message.Metadata;
         if (message.Shuffle.HasValue)
@@ -480,27 +491,53 @@ public sealed class SendSpinClientService : ISendSpinClient
         GroupStateChanged?.Invoke(this, _currentGroup);
     }
 
-    private void HandleStreamStart(string json)
+    private async void HandleStreamStart(string json)
     {
         var message = MessageSerializer.Deserialize<StreamStartMessage>(json);
-        if (message is null) return;
+        if (message is null)
+        {
+            return;
+        }
 
         _logger.LogInformation("Stream starting: {Format}", message.Format);
-        // TODO: Initialize audio decoder and buffer
+
+        if (_audioPipeline != null)
+        {
+            try
+            {
+                await _audioPipeline.StartAsync(message.Format, message.TargetTimestamp);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to start audio pipeline");
+            }
+        }
     }
 
-    private void HandleStreamEnd(string json)
+    private async void HandleStreamEnd(string json)
     {
         var message = MessageSerializer.Deserialize<StreamEndMessage>(json);
         _logger.LogInformation("Stream ended: {Reason}", message?.Reason ?? "unknown");
-        // TODO: Stop audio playback
+
+        if (_audioPipeline != null)
+        {
+            try
+            {
+                await _audioPipeline.StopAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to stop audio pipeline");
+            }
+        }
     }
 
     private void HandleStreamClear(string json)
     {
         var message = MessageSerializer.Deserialize<StreamClearMessage>(json);
         _logger.LogDebug("Stream clear (seek)");
-        // TODO: Clear audio buffer
+
+        _audioPipeline?.Clear(message?.TargetTimestamp);
     }
 
     private void OnBinaryMessageReceived(object? sender, ReadOnlyMemory<byte> data)
@@ -516,7 +553,12 @@ public sealed class SendSpinClientService : ISendSpinClient
         switch (category)
         {
             case BinaryMessageCategory.PlayerAudio:
-                // TODO: Enqueue audio chunk for playback
+                var audioChunk = BinaryMessageParser.ParseAudioChunk(data.Span);
+                if (audioChunk != null && _audioPipeline != null)
+                {
+                    _audioPipeline.ProcessAudioChunk(audioChunk);
+                }
+
                 _logger.LogTrace("Audio chunk: {Length} bytes @ {Timestamp}", payload.Length, timestamp);
                 break;
 
@@ -538,6 +580,12 @@ public sealed class SendSpinClientService : ISendSpinClient
     public async ValueTask DisposeAsync()
     {
         StopTimeSyncLoop();
+
+        // Stop audio pipeline
+        if (_audioPipeline != null)
+        {
+            await _audioPipeline.DisposeAsync();
+        }
 
         _connection.StateChanged -= OnConnectionStateChanged;
         _connection.TextMessageReceived -= OnTextMessageReceived;
