@@ -1,24 +1,46 @@
+// <copyright file="StreamClearMessage.cs" company="SendSpin">
+// Copyright (c) SendSpin. All rights reserved.
+// </copyright>
+
 using System.Text.Json.Serialization;
 
 namespace SendSpinClient.Core.Protocol.Messages;
 
 /// <summary>
 /// Message from server indicating audio buffers should be cleared.
-/// Typically sent when seeking to a new position.
+/// Uses envelope format: { "type": "stream/clear", "payload": { ... } }.
 /// </summary>
-public sealed class StreamClearMessage : ServerMessage
+public sealed class StreamClearMessage : IMessageWithPayload<StreamClearPayload>
 {
+    /// <inheritdoc/>
     [JsonPropertyName("type")]
-    public override string Type => MessageTypes.StreamClear;
+    public string Type => MessageTypes.StreamClear;
 
+    /// <inheritdoc/>
+    [JsonPropertyName("payload")]
+    public StreamClearPayload Payload { get; set; } = new();
+
+    // Convenience accessors
+    [JsonIgnore]
+    public string? StreamId => Payload.StreamId;
+
+    [JsonIgnore]
+    public long? TargetTimestamp => Payload.TargetTimestamp;
+}
+
+/// <summary>
+/// Payload for stream/clear message.
+/// </summary>
+public sealed class StreamClearPayload
+{
     /// <summary>
-    /// Stream identifier.
+    /// Gets or sets the stream identifier.
     /// </summary>
     [JsonPropertyName("stream_id")]
     public string? StreamId { get; set; }
 
     /// <summary>
-    /// New target timestamp after clear (if seeking).
+    /// Gets or sets the new target timestamp after clear (if seeking).
     /// </summary>
     [JsonPropertyName("target_timestamp")]
     public long? TargetTimestamp { get; set; }

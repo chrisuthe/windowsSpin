@@ -3,6 +3,7 @@ using System.Net.Http;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using SendSpinClient.Core.Audio;
 using SendSpinClient.Core.Client;
 using SendSpinClient.Core.Connection;
 using SendSpinClient.Core.Discovery;
@@ -24,6 +25,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly ILoggerFactory _loggerFactory;
     private readonly SendSpinHostService _hostService;
     private readonly MdnsServerDiscovery _serverDiscovery;
+    private readonly IAudioPipeline _audioPipeline;
     private readonly HttpClient _httpClient;
     private SendSpinClientService? _manualClient;
     private ISendSpinConnection? _manualConnection;
@@ -82,12 +84,14 @@ public partial class MainViewModel : ViewModelBase
         ILogger<MainViewModel> logger,
         ILoggerFactory loggerFactory,
         SendSpinHostService hostService,
-        MdnsServerDiscovery serverDiscovery)
+        MdnsServerDiscovery serverDiscovery,
+        IAudioPipeline audioPipeline)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
         _hostService = hostService;
         _serverDiscovery = serverDiscovery;
+        _audioPipeline = audioPipeline;
         _httpClient = new HttpClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(10);
 
@@ -235,7 +239,8 @@ public partial class MainViewModel : ViewModelBase
 
             _manualClient = new SendSpinClientService(
                 _loggerFactory.CreateLogger<SendSpinClientService>(),
-                _manualConnection);
+                _manualConnection,
+                audioPipeline: _audioPipeline);
 
             // Subscribe to events
             _manualClient.ConnectionStateChanged += OnManualClientConnectionStateChanged;
@@ -558,7 +563,8 @@ public partial class MainViewModel : ViewModelBase
 
             _manualClient = new SendSpinClientService(
                 _loggerFactory.CreateLogger<SendSpinClientService>(),
-                _manualConnection);
+                _manualConnection,
+                audioPipeline: _audioPipeline);
 
             // Subscribe to events
             _manualClient.ConnectionStateChanged += OnManualClientConnectionStateChanged;

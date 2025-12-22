@@ -1,3 +1,7 @@
+// <copyright file="StreamStartMessage.cs" company="SendSpin">
+// Copyright (c) SendSpin. All rights reserved.
+// </copyright>
+
 using System.Text.Json.Serialization;
 using SendSpinClient.Core.Models;
 
@@ -5,27 +9,48 @@ namespace SendSpinClient.Core.Protocol.Messages;
 
 /// <summary>
 /// Message from server indicating audio stream is starting.
-/// Contains format information for decoder initialization.
+/// Uses envelope format: { "type": "stream/start", "payload": { ... } }.
 /// </summary>
-public sealed class StreamStartMessage : ServerMessage
+public sealed class StreamStartMessage : IMessageWithPayload<StreamStartPayload>
 {
+    /// <inheritdoc/>
     [JsonPropertyName("type")]
-    public override string Type => MessageTypes.StreamStart;
+    public string Type => MessageTypes.StreamStart;
 
+    /// <inheritdoc/>
+    [JsonPropertyName("payload")]
+    public StreamStartPayload Payload { get; set; } = new();
+
+    // Convenience accessors
+    [JsonIgnore]
+    public AudioFormat Format => Payload.Format;
+
+    [JsonIgnore]
+    public string? StreamId => Payload.StreamId;
+
+    [JsonIgnore]
+    public long? TargetTimestamp => Payload.TargetTimestamp;
+}
+
+/// <summary>
+/// Payload for stream/start message.
+/// </summary>
+public sealed class StreamStartPayload
+{
     /// <summary>
-    /// Audio format for the incoming stream.
+    /// Gets or sets the audio format for the incoming stream.
     /// </summary>
     [JsonPropertyName("format")]
     public AudioFormat Format { get; set; } = new();
 
     /// <summary>
-    /// Stream identifier (for multi-stream scenarios).
+    /// Gets or sets the stream identifier (for multi-stream scenarios).
     /// </summary>
     [JsonPropertyName("stream_id")]
     public string? StreamId { get; set; }
 
     /// <summary>
-    /// Playback target timestamp in server time (microseconds).
+    /// Gets or sets the playback target timestamp in server time (microseconds).
     /// Audio chunks should be played at or after this time.
     /// </summary>
     [JsonPropertyName("target_timestamp")]
