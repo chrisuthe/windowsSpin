@@ -11,6 +11,7 @@ using SendSpinClient.Core.Discovery;
 using SendSpinClient.Core.Models;
 using SendSpinClient.Core.Protocol.Messages;
 using SendSpinClient.Core.Synchronization;
+using SendSpinClient.Services.Notifications;
 
 namespace SendSpinClient.ViewModels;
 
@@ -27,6 +28,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly SendSpinHostService _hostService;
     private readonly MdnsServerDiscovery _serverDiscovery;
     private readonly IAudioPipeline _audioPipeline;
+    private readonly INotificationService _notificationService;
     private readonly HttpClient _httpClient;
     private SendSpinClientService? _manualClient;
     private ISendSpinConnection? _manualConnection;
@@ -35,6 +37,12 @@ public partial class MainViewModel : ViewModelBase
     private bool _autoReconnectEnabled = true;
     private bool _isUpdatingFromServer;
     private CancellationTokenSource? _volumeDebouncesCts;
+
+    /// <summary>
+    /// Tracks the previous track identifier to detect actual track changes vs. metadata updates.
+    /// Uses a combination of title and artist since URI is not always available.
+    /// </summary>
+    private string? _previousTrackId;
 
     /// <summary>
     /// Gets or sets whether the host service is running and advertising via mDNS.
@@ -147,13 +155,15 @@ public partial class MainViewModel : ViewModelBase
         ILoggerFactory loggerFactory,
         SendSpinHostService hostService,
         MdnsServerDiscovery serverDiscovery,
-        IAudioPipeline audioPipeline)
+        IAudioPipeline audioPipeline,
+        INotificationService notificationService)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
         _hostService = hostService;
         _serverDiscovery = serverDiscovery;
         _audioPipeline = audioPipeline;
+        _notificationService = notificationService;
         _httpClient = new HttpClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(10);
 
@@ -421,6 +431,9 @@ public partial class MainViewModel : ViewModelBase
                 ConnectedServerName = _manualClient?.ServerName ?? "Unknown Server";
                 StatusMessage = $"Connected to {ConnectedServerName}";
                 OnPropertyChanged(nameof(IsConnected));
+
+                // Show toast notification for connection
+                _notificationService.ShowConnected(ConnectedServerName);
             }
             else if (e.NewState == ConnectionState.Disconnected)
             {
@@ -568,6 +581,9 @@ public partial class MainViewModel : ViewModelBase
             StatusMessage = $"Connected to {server.ServerName}";
             OnPropertyChanged(nameof(IsConnected));
 
+            // Show toast notification for connection
+            _notificationService.ShowConnected(server.ServerName);
+
             _logger.LogInformation("Server connected: {ServerName} ({ServerId})",
                 server.ServerName, server.ServerId);
         });
@@ -578,6 +594,8 @@ public partial class MainViewModel : ViewModelBase
         App.Current.Dispatcher.Invoke(() =>
         {
             var server = ConnectedServers.FirstOrDefault(s => s.ServerId == serverId);
+            string? disconnectedServerName = server?.ServerName;
+
             if (server != null)
             {
                 ConnectedServers.Remove(server);
@@ -590,6 +608,12 @@ public partial class MainViewModel : ViewModelBase
                 CurrentTrack = null;
                 PlaybackState = PlaybackState.Idle;
                 StatusMessage = $"Waiting for connections...\nClient ID: {ClientId}";
+
+                // Show toast notification for disconnection
+                if (!string.IsNullOrEmpty(disconnectedServerName))
+                {
+                    _notificationService.ShowDisconnected(disconnectedServerName);
+                }
             }
             else
             {
@@ -767,15 +791,56 @@ public partial class MainViewModel : ViewModelBase
 
     #endregion
 
+    /// <summary>
+    /// Called when the playback state changes.
+    /// Updates UI bindings and optionally shows a toast notification.
+    /// </summary>
+    /// <param name="value">The new playback state.</param>
     partial void OnPlaybackStateChanged(PlaybackState value)
     {
         OnPropertyChanged(nameof(IsPlaying));
         UpdateTrayToolTip();
+
+        // Show playback state notification (if enabled in settings)
+        // Note: Track change notifications are handled separately in OnCurrentTrackChanged
+        // to avoid duplicate notifications when both state and track change together
+        _notificationService.ShowPlaybackStateChanged(value, CurrentTrack);
     }
 
+    /// <summary>
+    /// Called when the current track changes.
+    /// Detects actual track changes (vs. metadata updates) and shows notifications.
+    /// </summary>
+    /// <param name="value">The new track metadata.</param>
     partial void OnCurrentTrackChanged(TrackMetadata? value)
     {
         UpdateTrayToolTip();
+
+        // Only show notification if this is actually a different track
+        // Use URI if available, otherwise fall back to title+artist combination
+        var currentTrackId = value?.Uri
+            ?? (value != null ? $"{value.Title}|{value.Artist}" : null);
+
+        if (value != null && !string.IsNullOrEmpty(currentTrackId) && currentTrackId != _previousTrackId)
+        {
+            _previousTrackId = currentTrackId;
+
+            // Clear old artwork immediately - new artwork will be fetched async if available
+            AlbumArtwork = null;
+            _lastArtworkUrl = null;
+
+            _logger.LogDebug("Track changed, showing notification: {TrackId}", currentTrackId);
+
+            // Show track change notification (without artwork - it's disabled for reliability)
+            _notificationService.ShowTrackChanged(value, null, null);
+        }
+        else if (value == null)
+        {
+            // Track cleared - reset artwork
+            AlbumArtwork = null;
+            _lastArtworkUrl = null;
+            _previousTrackId = null;
+        }
     }
 
     partial void OnConnectedServerNameChanged(string? value)

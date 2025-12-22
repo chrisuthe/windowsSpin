@@ -8,6 +8,7 @@ using SendSpinClient.Core.Discovery;
 using SendSpinClient.Core.Models;
 using SendSpinClient.Core.Synchronization;
 using SendSpinClient.Services.Audio;
+using SendSpinClient.Services.Notifications;
 using SendSpinClient.ViewModels;
 
 namespace SendSpinClient;
@@ -107,6 +108,33 @@ public partial class App : Application
             var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
             var capabilities = sp.GetRequiredService<ClientCapabilities>();
             return new SendSpinHostService(loggerFactory, capabilities);
+        });
+
+        // Notification service for toast notifications
+        // Uses Windows Toast API via Microsoft.Toolkit.Uwp.Notifications
+        services.AddSingleton<INotificationService>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILogger<WindowsToastNotificationService>>();
+
+            // Callback to check if main window is visible
+            // Used to suppress notifications when the app is in the foreground
+            bool IsWindowVisible()
+            {
+                try
+                {
+                    return Current.Dispatcher.Invoke(() =>
+                    {
+                        var window = Current.MainWindow;
+                        return window != null && window.IsVisible && window.IsActive;
+                    });
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
+            return new WindowsToastNotificationService(logger, IsWindowVisible);
         });
 
         // ViewModels
