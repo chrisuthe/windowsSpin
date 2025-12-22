@@ -29,6 +29,29 @@ This client can operate in two modes:
 - **System Tray Integration**: Runs in the background with system tray icon
 - **Modern WPF UI**: Clean, responsive user interface using MVVM pattern
 
+## Screenshots
+
+### Main Window
+The main interface displays album artwork, track information, and playback controls. Shows connection status to your Music Assistant server.
+
+<p align="center">
+  <img src="docs/ScreenShots/mainwindow.png" alt="Main Window" width="400">
+</p>
+
+### System Tray
+Quick access to playback controls without opening the main window. The app runs in the background and can be controlled entirely from the system tray.
+
+<p align="center">
+  <img src="docs/ScreenShots/TrayMenu.png" alt="System Tray Menu" width="350">
+</p>
+
+### Manual Connection
+For cross-subnet scenarios where mDNS discovery doesn't work, you can manually enter the server's WebSocket URL.
+
+<p align="center">
+  <img src="docs/ScreenShots/manualconnect.png" alt="Manual Connection" width="400">
+</p>
+
 ## Prerequisites
 
 ### Runtime Requirements
