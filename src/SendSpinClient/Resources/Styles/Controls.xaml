@@ -8,6 +8,7 @@
     <converters:CountToVisibilityConverter x:Key="CountToVisibilityConverter"/>
     <converters:PlayPauseIconConverter x:Key="PlayPauseIconConverter"/>
     <converters:ConnectButtonTextConverter x:Key="ConnectButtonTextConverter"/>
+    <converters:MuteIconOnlyConverter x:Key="MuteIconOnlyConverter"/>
     <converters:MuteIconConverter x:Key="MuteIconConverter"/>
     <converters:InverseBoolConverter x:Key="InverseBoolConverter"/>
 

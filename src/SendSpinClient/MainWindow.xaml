@@ -9,8 +9,8 @@
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="SendSpin Client"
         Icon="Resources/Icons/sendspinTray.png"
-        Height="500" Width="380"
-        MinHeight="400" MinWidth="320"
+        Height="580" Width="400"
+        MinHeight="500" MinWidth="350"
         Background="{StaticResource BackgroundDarkBrush}"
         WindowStyle="SingleBorderWindow">
 
@@ -19,104 +19,81 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Header -->
         <Border Grid.Row="0" Background="{StaticResource BackgroundBrush}" Padding="16">
-            <StackPanel>
-                <TextBlock Text="SendSpin" Style="{StaticResource HeaderText}"/>
-                <TextBlock Style="{StaticResource CaptionText}" Margin="0,4,0,0">
-                    <Run Text="Windows Client"/>
-                </TextBlock>
-            </StackPanel>
-        </Border>
-
-        <!-- Status Area -->
-        <Border Grid.Row="1" Margin="16,8">
             <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-                <!-- Status Message -->
-                <Border Grid.Row="0"
-                        Background="{StaticResource SurfaceBrush}"
-                        CornerRadius="8"
-                        Padding="16">
-                    <StackPanel>
-                        <!-- Hosting Status Icon -->
-                        <Border HorizontalAlignment="Center"
-                                Width="64" Height="64"
-                                CornerRadius="32"
-                                Margin="0,0,0,12">
-                            <Border.Style>
-                                <Style TargetType="Border">
-                                    <Setter Property="Background" Value="{StaticResource SurfaceLightBrush}"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                                            <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Border.Style>
-                            <TextBlock HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       FontSize="28">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Text" Value="&#x1F4E1;"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                                                <Setter Property="Text" Value="&#x1F3B5;"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                        </Border>
+                <!-- Title and subtitle -->
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <!-- Show server name when connected, "SendSpin" when disconnected -->
+                    <TextBlock>
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource HeaderText}">
+                                <Setter Property="Text" Value="SendSpin"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                        <Setter Property="Text" Value="{Binding ConnectedServerName}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <!-- Show "Connected" when connected, "Windows Client" when disconnected -->
+                    <TextBlock Margin="0,4,0,0">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionText}">
+                                <Setter Property="Text" Value="Windows Client"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                        <Setter Property="Text" Value="Connected"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
 
-                        <!-- Status Text -->
-                        <TextBlock Text="{Binding StatusMessage}"
-                                   Style="{StaticResource BodyText}"
-                                   TextAlignment="Center"
-                                   TextWrapping="Wrap"/>
-
-                        <!-- Connected Server Name -->
-                        <TextBlock Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}"
-                                   Margin="0,8,0,0"
-                                   Style="{StaticResource SubHeaderText}"
-                                   TextAlignment="Center">
-                            <Run Text="Connected to: "/>
-                            <Run Text="{Binding ConnectedServerName, Mode=OneWay}" FontWeight="Bold"/>
-                        </TextBlock>
-                    </StackPanel>
-                </Border>
-
-                <!-- Connected Servers List (when multiple) -->
-                <Border Grid.Row="1"
-                        Margin="0,8,0,0"
-                        Visibility="{Binding ConnectedServers.Count, Converter={StaticResource CountToVisibilityConverter}}">
-                    <StackPanel>
-                        <TextBlock Text="Connected Servers"
-                                   Style="{StaticResource CaptionText}"
-                                   Margin="0,0,0,4"/>
-                        <ItemsControl ItemsSource="{Binding ConnectedServers}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Background="{StaticResource SurfaceBrush}"
-                                            CornerRadius="4"
-                                            Padding="8"
-                                            Margin="0,2">
-                                        <TextBlock Text="{Binding ServerName}"
-                                                   Style="{StaticResource BodyText}"/>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </Border>
+                <!-- Disconnect button (visible when connected) -->
+                <Button Grid.Column="1"
+                        Content="Disconnect"
+                        Command="{Binding DisconnectFromServerCommand}"
+                        VerticalAlignment="Center"
+                        Padding="12,6"
+                        Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}"
+                        Background="Transparent"
+                        Foreground="{StaticResource TextSecondaryBrush}"
+                        BorderThickness="1"
+                        BorderBrush="{StaticResource SurfaceLightBrush}"
+                        Cursor="Hand">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="4"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
             </Grid>
         </Border>
 
@@ -197,25 +174,24 @@
         </Border>
 
         <!-- Now Playing Section -->
-        <Border Grid.Row="2"
+        <Border Grid.Row="1"
+                Margin="16,8"
                 Background="{StaticResource SurfaceBrush}"
-                Padding="16"
+                CornerRadius="8"
+                Padding="24"
+                VerticalAlignment="Top"
                 Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="60"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-
-                <!-- Album Art -->
-                <Border Grid.Column="0"
-                        Width="50" Height="50"
+            <StackPanel HorizontalAlignment="Center">
+                <!-- Large Centered Album Art -->
+                <Border HorizontalAlignment="Center"
+                        Width="180" Height="180"
                         Background="{StaticResource SurfaceLightBrush}"
-                        CornerRadius="4">
+                        CornerRadius="8"
+                        Margin="0,0,0,16">
                     <Grid>
                         <!-- Placeholder icon when no artwork -->
                         <TextBlock Text="&#x1F3B5;"
-                                   FontSize="24"
+                                   FontSize="64"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"
                                    Visibility="{Binding AlbumArtwork, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=inverse}"/>
@@ -233,25 +209,29 @@
                     </Grid>
                 </Border>
 
-                <!-- Track Info -->
-                <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding CurrentTrack.Title, FallbackValue='Not Playing'}"
-                               Style="{StaticResource SubHeaderText}"
-                               TextTrimming="CharacterEllipsis"/>
-                    <TextBlock Text="{Binding CurrentTrack.Artist, FallbackValue=''}"
-                               Style="{StaticResource BodyText}"
-                               TextTrimming="CharacterEllipsis"/>
-                    <TextBlock Text="{Binding CurrentCodec}"
-                               Style="{StaticResource CaptionText}"
-                               Opacity="0.6"
-                               Margin="0,4,0,0"
-                               Visibility="{Binding CurrentCodec, Converter={StaticResource NullToVisibilityConverter}}"/>
-                </StackPanel>
-            </Grid>
+                <!-- Track Info (centered below album art) -->
+                <TextBlock Text="{Binding CurrentTrack.Title, FallbackValue='Not Playing'}"
+                           Style="{StaticResource SubHeaderText}"
+                           TextAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           MaxWidth="280"/>
+                <TextBlock Text="{Binding CurrentTrack.Artist, FallbackValue=''}"
+                           Style="{StaticResource BodyText}"
+                           TextAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           Margin="0,4,0,0"
+                           MaxWidth="280"/>
+                <TextBlock Text="{Binding CurrentCodec}"
+                           Style="{StaticResource CaptionText}"
+                           TextAlignment="Center"
+                           Opacity="0.6"
+                           Margin="0,8,0,0"
+                           Visibility="{Binding CurrentCodec, Converter={StaticResource NullToVisibilityConverter}}"/>
+            </StackPanel>
         </Border>
 
         <!-- Controls -->
-        <Border Grid.Row="3" Background="{StaticResource BackgroundBrush}" Padding="16">
+        <Border Grid.Row="2" Background="{StaticResource BackgroundBrush}" Padding="16">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -292,7 +272,7 @@
                         </Grid.ColumnDefinitions>
 
                         <Button Grid.Column="0"
-                                Content="{Binding IsMuted, Converter={StaticResource MuteIconConverter}}"
+                                Content="{Binding IsMuted, Converter={StaticResource MuteIconOnlyConverter}}"
                                 Style="{StaticResource IconButton}"
                                 Width="32" Height="32"
                                 FontSize="16"
