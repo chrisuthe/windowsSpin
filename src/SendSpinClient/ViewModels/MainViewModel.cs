@@ -665,6 +665,17 @@ public partial class MainViewModel : ViewModelBase
     partial void OnPlaybackStateChanged(PlaybackState value)
     {
         OnPropertyChanged(nameof(IsPlaying));
+        UpdateTrayToolTip();
+    }
+
+    partial void OnCurrentTrackChanged(TrackMetadata? value)
+    {
+        UpdateTrayToolTip();
+    }
+
+    partial void OnConnectedServerNameChanged(string? value)
+    {
+        UpdateTrayToolTip();
     }
 
     partial void OnVolumeChanged(int value)
@@ -702,6 +713,90 @@ public partial class MainViewModel : ViewModelBase
             _logger.LogError(ex, "Failed to send volume change");
         }
     }
+
+    #region System Tray Support
+
+    /// <summary>
+    /// Gets the tooltip text for the system tray icon.
+    /// Shows connection status and current track if playing.
+    /// </summary>
+    public string TrayToolTip
+    {
+        get
+        {
+            if (!IsConnected)
+                return "SendSpin - Disconnected";
+
+            if (CurrentTrack != null && PlaybackState == PlaybackState.Playing)
+                return $"SendSpin - {CurrentTrack.Title ?? "Unknown"}\nby {CurrentTrack.Artist ?? "Unknown"}";
+
+            if (PlaybackState == PlaybackState.Paused)
+                return "SendSpin - Paused";
+
+            return $"SendSpin - Connected to {ConnectedServerName ?? "server"}";
+        }
+    }
+
+    /// <summary>
+    /// Command to show the main window.
+    /// </summary>
+    [RelayCommand]
+    private void ShowWindow()
+    {
+        var mainWindow = App.Current.MainWindow;
+        if (mainWindow != null)
+        {
+            mainWindow.Show();
+            mainWindow.WindowState = System.Windows.WindowState.Normal;
+            mainWindow.Activate();
+        }
+    }
+
+    /// <summary>
+    /// Command to hide the main window to system tray.
+    /// </summary>
+    [RelayCommand]
+    private void HideWindow()
+    {
+        App.Current.MainWindow?.Hide();
+    }
+
+    /// <summary>
+    /// Command to toggle main window visibility.
+    /// Used for tray icon left-click.
+    /// </summary>
+    [RelayCommand]
+    private void ToggleWindow()
+    {
+        var mainWindow = App.Current.MainWindow;
+        if (mainWindow != null && mainWindow.IsVisible)
+        {
+            mainWindow.Hide();
+        }
+        else
+        {
+            ShowWindow();
+        }
+    }
+
+    /// <summary>
+    /// Command to exit the application completely.
+    /// </summary>
+    [RelayCommand]
+    private void ExitApplication()
+    {
+        App.Current.Shutdown();
+    }
+
+    /// <summary>
+    /// Updates tray tooltip when relevant properties change.
+    /// </summary>
+    private void UpdateTrayToolTip()
+    {
+        OnPropertyChanged(nameof(TrayToolTip));
+    }
+
+    #endregion
 
     public async Task ShutdownAsync()
     {

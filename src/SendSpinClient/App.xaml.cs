@@ -1,4 +1,5 @@
 using System.Windows;
+using Hardcodet.Wpf.TaskbarNotification;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using SendSpinClient.Core.Audio;
@@ -18,6 +19,7 @@ public partial class App : Application
 {
     private ServiceProvider? _serviceProvider;
     private MainViewModel? _mainViewModel;
+    private TaskbarIcon? _trayIcon;
 
     /// <summary>
     /// Gets the current application instance.
@@ -43,13 +45,17 @@ public partial class App : Application
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
-        // Create and show main window
+        // Create main window (but don't show it - starts in tray)
         var mainWindow = new MainWindow();
         _mainViewModel = _serviceProvider.GetRequiredService<MainViewModel>();
         mainWindow.DataContext = _mainViewModel;
-        mainWindow.Show();
+        MainWindow = mainWindow;
 
-        // Initialize the view model
+        // Set up system tray icon
+        _trayIcon = (TaskbarIcon)FindResource("TrayIcon");
+        _trayIcon.DataContext = _mainViewModel;
+
+        // Initialize the view model (app starts hidden in system tray)
         _ = _mainViewModel.InitializeAsync();
     }
 
@@ -109,6 +115,9 @@ public partial class App : Application
 
     protected override async void OnExit(ExitEventArgs e)
     {
+        // Dispose tray icon to remove from system tray
+        _trayIcon?.Dispose();
+
         // Gracefully shutdown the host service
         if (_mainViewModel != null)
         {

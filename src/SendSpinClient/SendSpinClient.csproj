@@ -12,6 +12,8 @@
 
   <ItemGroup>
     <Resource Include="Resources\Icons\sendspinDesktop.png" />
+    <Resource Include="Resources\Icons\sendspinDesktop.ico" />
+    <Resource Include="Resources\Icons\sendspinTray.png" />
   </ItemGroup>
 
   <ItemGroup>
