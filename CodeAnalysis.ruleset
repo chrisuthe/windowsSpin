@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RuleSet Name="SendSpin Windows Client Rules" Description="Code analysis rules for the SendSpin Windows Client project." ToolsVersion="17.0">
+  <!-- Include all Microsoft rules -->
+  <Include Path="AllRules.ruleset" Action="Default" />
+
+  <!-- StyleCop Rules -->
+  <!-- Disable some overly strict rules -->
+  <Rules AnalyzerId="StyleCop.Analyzers" RuleNamespace="StyleCop.Analyzers">
+    <!-- SA1101: Prefix local calls with this - not necessary with modern C# -->
+    <Rule Id="SA1101" Action="None" />
+
+    <!-- SA1200: Using directives should be placed correctly - we use file-scoped namespaces -->
+    <Rule Id="SA1200" Action="None" />
+
+    <!-- SA1309: Field names should not begin with underscore - we use underscore prefix -->
+    <Rule Id="SA1309" Action="None" />
+
+    <!-- SA1413: Use trailing comma in multi-line initializers - personal preference -->
+    <Rule Id="SA1413" Action="None" />
+
+    <!-- SA1600: Elements should be documented - too strict for all elements -->
+    <Rule Id="SA1600" Action="Info" />
+
+    <!-- SA1601: Partial elements should be documented -->
+    <Rule Id="SA1601" Action="None" />
+
+    <!-- SA1602: Enumeration items should be documented -->
+    <Rule Id="SA1602" Action="Info" />
+
+    <!-- SA1633: File should have header - we don't require file headers -->
+    <Rule Id="SA1633" Action="None" />
+
+    <!-- SA1634-SA1641: File header rules - disabled -->
+    <Rule Id="SA1634" Action="None" />
+    <Rule Id="SA1635" Action="None" />
+    <Rule Id="SA1636" Action="None" />
+    <Rule Id="SA1637" Action="None" />
+    <Rule Id="SA1638" Action="None" />
+    <Rule Id="SA1639" Action="None" />
+    <Rule Id="SA1640" Action="None" />
+    <Rule Id="SA1641" Action="None" />
+
+    <!-- SA1402: File may only contain a single type - allow multiple related types -->
+    <Rule Id="SA1402" Action="Info" />
+
+    <!-- SA1649: File name should match first type name - suggestion only -->
+    <Rule Id="SA1649" Action="Info" />
+
+    <!-- SA1623: Property summary documentation should match accessors -->
+    <Rule Id="SA1623" Action="Info" />
+  </Rules>
+
+  <!-- Roslynator Rules -->
+  <Rules AnalyzerId="Roslynator.CSharp.Analyzers" RuleNamespace="Roslynator.CSharp.Analyzers">
+    <!-- RCS1194: Implement exception constructors - not always needed -->
+    <Rule Id="RCS1194" Action="Info" />
+
+    <!-- RCS1090: Add call to ConfigureAwait - not needed in WPF apps -->
+    <Rule Id="RCS1090" Action="None" />
+  </Rules>
+
+  <!-- SonarAnalyzer Rules -->
+  <Rules AnalyzerId="SonarAnalyzer.CSharp" RuleNamespace="SonarAnalyzer.CSharp">
+    <!-- S1135: Track uses of "TODO" tags - just informational -->
+    <Rule Id="S1135" Action="Info" />
+
+    <!-- S3925: ISerializable should be implemented correctly - not always applicable -->
+    <Rule Id="S3925" Action="Info" />
+
+    <!-- S1066: Collapsible if statements should be merged - suggestion only -->
+    <Rule Id="S1066" Action="Info" />
+  </Rules>
+
+  <!-- .NET Analyzers -->
+  <Rules AnalyzerId="Microsoft.CodeAnalysis.NetAnalyzers" RuleNamespace="Microsoft.CodeAnalysis.NetAnalyzers">
+    <!-- CA1062: Validate arguments of public methods - handled by nullable reference types -->
+    <Rule Id="CA1062" Action="None" />
+
+    <!-- CA1303: Do not pass literals as localized parameters - not localizing yet -->
+    <Rule Id="CA1303" Action="None" />
+
+    <!-- CA1812: Avoid uninstantiated internal classes - DI handles instantiation -->
+    <Rule Id="CA1812" Action="Info" />
+
+    <!-- CA1848: Use LoggerMessage delegates - suggestion for performance -->
+    <Rule Id="CA1848" Action="Info" />
+
+    <!-- CA2007: Do not directly await a Task - not needed in WPF -->
+    <Rule Id="CA2007" Action="None" />
+  </Rules>
+</RuleSet>
