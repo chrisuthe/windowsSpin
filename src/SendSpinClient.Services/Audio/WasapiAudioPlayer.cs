@@ -1,5 +1,5 @@
-// <copyright file="WasapiAudioPlayer.cs" company="SendSpin">
-// Copyright (c) SendSpin. All rights reserved.
+// <copyright file="WasapiAudioPlayer.cs" company="SendSpin Windows Client">
+// Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
 using Microsoft.Extensions.Logging;

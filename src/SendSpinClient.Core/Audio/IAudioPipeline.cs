@@ -1,5 +1,5 @@
-// <copyright file="IAudioPipeline.cs" company="SendSpin">
-// Copyright (c) SendSpin. All rights reserved.
+// <copyright file="IAudioPipeline.cs" company="SendSpin Windows Client">
+// Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
 using SendSpinClient.Core.Models;

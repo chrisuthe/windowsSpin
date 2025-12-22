@@ -98,15 +98,19 @@ Core protocol implementation and business logic. Platform-agnostic .NET 8.0 libr
 - **Discovery**: mDNS server discovery and advertisement (`MdnsServerDiscovery`, `MdnsServiceAdvertiser`)
 - **Protocol**: Message serialization and parsing (`MessageSerializer`, `BinaryMessageParser`)
 - **Synchronization**: Clock synchronization using Kalman filtering (`KalmanClockSynchronizer`)
+- **Audio**: Codec abstraction and decoders (`IAudioDecoder`, `AudioPipeline`)
+  - PCM decoder (16/24/32-bit)
+  - Opus decoder (via Concentus)
+  - FLAC decoder (via SimpleFlac)
 - **Models**: Data models for audio format, group state, playback state, and track metadata
 
 ### SendSpinClient.Services
-Windows-specific audio services (planned).
+Windows-specific audio services. Targets .NET 8.0 Windows.
 
-**Planned Components:**
-- NAudio-based audio output
-- Audio buffer management
-- Codec support (PCM, FLAC, Opus via Concentus)
+**Components:**
+- **Audio Output**: WASAPI-based audio playback via NAudio
+- **Audio Buffer Management**: Synchronized sample buffering with server timestamps
+- **Platform Integration**: Windows-specific audio device handling
 
 ### SendSpinClient
 WPF desktop application providing the user interface.
@@ -279,9 +283,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - [Music Assistant](https://music-assistant.io/) - The music streaming and multi-room platform
 - [SendSpin Protocol](https://github.com/music-assistant/sendspin) - The synchronization protocol specification
-- NAudio - Audio library for Windows
-- Fleck - WebSocket library
-- Zeroconf - mDNS/DNS-SD library
+- [NAudio](https://github.com/naudio/NAudio) - Audio library for Windows (WASAPI playback)
+- [Concentus](https://github.com/lostromb/concentus) - Pure C# Opus decoder
+- [SimpleFlac](https://github.com/jdpurcell/SimpleFlac) - Pure C# FLAC decoder (vendored)
+- [Zeroconf](https://github.com/novotnyllc/Zeroconf) - mDNS/DNS-SD library
 
 ## Related Projects
 

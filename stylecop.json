@@ -3,7 +3,7 @@
   "settings": {
     "documentationRules": {
       "companyName": "SendSpin Windows Client",
-      "copyrightText": "Copyright (c) {companyName}. All rights reserved.",
+      "copyrightText": "Licensed under the MIT License. See LICENSE file in the project root.",
       "xmlHeader": false,
       "documentExposedElements": true,
       "documentInternalElements": false,
