@@ -40,14 +40,14 @@ This client can operate in two modes:
 ## Installation
 
 ### Option 1: Download Release Binary (Coming Soon)
-1. Download the latest release from the [Releases](https://github.com/yourusername/windowsSpin/releases) page
+1. Download the latest release from the [Releases](https://github.com/chrisuthe/windowsSpin/releases) page
 2. Extract the archive to your preferred location
 3. Run `SendSpinClient.exe`
 
 ### Option 2: Build from Source
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/windowsSpin.git
+git clone https://github.com/chrisuthe/windowsSpin.git
 cd windowsSpin
 
 # Build the solution
@@ -292,7 +292,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Support
 
 For issues, questions, or feature requests **specific to this Windows client**:
-- Open an issue on [GitHub Issues](https://github.com/yourusername/windowsSpin/issues)
+- Open an issue on [GitHub Issues](https://github.com/chrisuthe/windowsSpin/issues)
 
 For general Music Assistant questions (not related to this client):
 - Join the [Music Assistant Discord](https://discord.gg/musicassistant)
