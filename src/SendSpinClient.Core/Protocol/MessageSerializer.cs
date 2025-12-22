@@ -56,6 +56,7 @@ public static class MessageSerializer
             MessageTypes.StreamEnd => JsonSerializer.Deserialize<StreamEndMessage>(json, s_options),
             MessageTypes.StreamClear => JsonSerializer.Deserialize<StreamClearMessage>(json, s_options),
             MessageTypes.GroupUpdate => JsonSerializer.Deserialize<GroupUpdateMessage>(json, s_options),
+            MessageTypes.ServerCommand => JsonSerializer.Deserialize<ServerCommandMessage>(json, s_options), // Player commands (volume/mute)
             _ => null // Unknown message type
         };
     }
