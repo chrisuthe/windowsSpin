@@ -8,6 +8,7 @@
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="SendSpin Client"
+        Icon="Resources/Icons/sendspinDesktop.png"
         Height="500" Width="380"
         MinHeight="400" MinWidth="320"
         Background="{StaticResource BackgroundDarkBrush}"
