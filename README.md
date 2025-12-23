@@ -4,7 +4,7 @@
   <img src="icon.png" alt="SendSpin Windows Client" width="128" height="128">
 </p>
 
-A Windows WPF client implementation for the [SendSpin protocol](https://https://www.sendspin-audio.com/), enabling synchronized multi-room audio playback with [Music Assistant](https://music-assistant.io/).
+A Windows WPF client implementation for the [SendSpin protocol](https://www.sendspin-audio.com/), enabling synchronized multi-room audio playback with [Music Assistant](https://music-assistant.io/).
 
 > **⚠️ Disclaimer:** This is an **independent, unofficial project** and is **not affiliated with, endorsed by, or associated with** the Music Assistant project or the official SendSpin protocol maintainers. This is a third-party implementation created for personal use and community benefit.
 
