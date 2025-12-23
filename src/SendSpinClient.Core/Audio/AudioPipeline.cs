@@ -49,6 +49,10 @@ public sealed class AudioPipeline : IAudioPipeline
     private AudioFormat? _currentFormat;
     private int _volume = 100;
     private bool _muted;
+    private DateTime? _bufferReadyTime;
+
+    // Maximum time to wait for clock sync convergence before starting playback anyway
+    private static readonly TimeSpan MaxConvergenceWait = TimeSpan.FromSeconds(3);
 
     /// <inheritdoc/>
     public AudioPipelineState State { get; private set; } = AudioPipelineState.Idle;
@@ -167,6 +171,7 @@ public sealed class AudioPipeline : IAudioPipeline
     {
         _buffer?.Clear();
         _decoder?.Reset();
+        _bufferReadyTime = null;
 
         if (State == AudioPipelineState.Playing)
         {
@@ -196,12 +201,28 @@ public sealed class AudioPipeline : IAudioPipeline
                 _buffer.Write(_decodeBuffer.AsSpan(0, samplesDecoded), chunk.ServerTimestamp);
 
                 // Check if we should start playback
-                // Wait for clock sync to converge before starting - prevents large initial offset errors
-                if (State == AudioPipelineState.Buffering
-                    && _buffer.IsReadyForPlayback
-                    && _clockSync.IsConverged)
+                if (State == AudioPipelineState.Buffering && _buffer.IsReadyForPlayback)
                 {
-                    StartPlayback();
+                    // Track when buffer first became ready
+                    _bufferReadyTime ??= DateTime.UtcNow;
+
+                    // Wait for clock sync to converge before starting - prevents large initial offset errors
+                    // But don't wait forever - start anyway after timeout (better to play than silence)
+                    var waitedForConvergence = DateTime.UtcNow - _bufferReadyTime.Value;
+                    if (_clockSync.IsConverged)
+                    {
+                        StartPlayback();
+                    }
+                    else if (waitedForConvergence >= MaxConvergenceWait)
+                    {
+                        var syncStatus = _clockSync.GetStatus();
+                        _logger.LogWarning(
+                            "Clock sync not converged after {WaitMs:F0}ms (measurements={Count}, uncertainty={UncertaintyMs:F2}ms), starting playback anyway",
+                            waitedForConvergence.TotalMilliseconds,
+                            syncStatus.MeasurementCount,
+                            syncStatus.OffsetUncertaintyMicroseconds / 1000.0);
+                        StartPlayback();
+                    }
                 }
             }
         }
@@ -263,6 +284,7 @@ public sealed class AudioPipeline : IAudioPipeline
         {
             var syncStatus = _clockSync.GetStatus();
             _player.Play();
+            _bufferReadyTime = null; // Reset for next buffering cycle
             SetState(AudioPipelineState.Playing);
             _logger.LogInformation(
                 "Starting playback: buffer={BufferMs:F0}ms, sync offset={OffsetMs:F2}ms (±{UncertaintyMs:F2}ms)",
@@ -298,6 +320,7 @@ public sealed class AudioPipeline : IAudioPipeline
         _sampleSource = null;
         _decodeBuffer = Array.Empty<float>();
         _currentFormat = null;
+        _bufferReadyTime = null;
     }
 
     private void OnPlayerStateChanged(object? sender, AudioPlayerState state)

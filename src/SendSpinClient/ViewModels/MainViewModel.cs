@@ -28,6 +28,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly SendSpinHostService _hostService;
     private readonly MdnsServerDiscovery _serverDiscovery;
     private readonly IAudioPipeline _audioPipeline;
+    private readonly IClockSynchronizer _clockSynchronizer;
     private readonly INotificationService _notificationService;
     private readonly HttpClient _httpClient;
     private SendSpinClientService? _manualClient;
@@ -156,6 +157,7 @@ public partial class MainViewModel : ViewModelBase
         SendSpinHostService hostService,
         MdnsServerDiscovery serverDiscovery,
         IAudioPipeline audioPipeline,
+        IClockSynchronizer clockSynchronizer,
         INotificationService notificationService)
     {
         _logger = logger;
@@ -163,6 +165,7 @@ public partial class MainViewModel : ViewModelBase
         _hostService = hostService;
         _serverDiscovery = serverDiscovery;
         _audioPipeline = audioPipeline;
+        _clockSynchronizer = clockSynchronizer;
         _notificationService = notificationService;
         _httpClient = new HttpClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(10);
@@ -346,6 +349,7 @@ public partial class MainViewModel : ViewModelBase
             _manualClient = new SendSpinClientService(
                 _loggerFactory.CreateLogger<SendSpinClientService>(),
                 _manualConnection,
+                clockSynchronizer: _clockSynchronizer,
                 audioPipeline: _audioPipeline);
 
             // Subscribe to events
@@ -764,6 +768,7 @@ public partial class MainViewModel : ViewModelBase
             _manualClient = new SendSpinClientService(
                 _loggerFactory.CreateLogger<SendSpinClientService>(),
                 _manualConnection,
+                clockSynchronizer: _clockSynchronizer,
                 audioPipeline: _audioPipeline);
 
             // Subscribe to events
