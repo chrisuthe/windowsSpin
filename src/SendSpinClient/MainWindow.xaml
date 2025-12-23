@@ -59,52 +59,104 @@
                     </TextBlock>
                 </StackPanel>
 
-                <!-- Disconnect button (visible when connected) -->
-                <Button Grid.Column="1"
-                        Content="Disconnect"
-                        Command="{Binding DisconnectFromServerCommand}"
-                        VerticalAlignment="Center"
-                        Padding="12,6"
-                        Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}"
-                        Background="Transparent"
-                        Foreground="{StaticResource TextSecondaryBrush}"
-                        BorderThickness="1"
-                        BorderBrush="{StaticResource SurfaceLightBrush}"
-                        Cursor="Hand">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}"
-                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                BorderThickness="{TemplateBinding BorderThickness}"
-                                                CornerRadius="4"
-                                                Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
+                <!-- Right side buttons -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- Disconnect button (visible when connected) -->
+                    <Button Content="Disconnect"
+                            Command="{Binding DisconnectFromServerCommand}"
+                            Padding="12,6"
+                            Margin="0,0,8,0"
+                            Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}"
+                            Background="Transparent"
+                            Foreground="{StaticResource TextSecondaryBrush}"
+                            BorderThickness="1"
+                            BorderBrush="{StaticResource SurfaceLightBrush}"
+                            Cursor="Hand">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="{TemplateBinding Background}"
+                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                    CornerRadius="4"
+                                                    Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+
+                    <!-- Settings gear icon (always visible) -->
+                    <Button Command="{Binding ToggleSettingsCommand}"
+                            ToolTip="Settings"
+                            Width="36" Height="36"
+                            Background="Transparent"
+                            Foreground="{StaticResource TextSecondaryBrush}"
+                            BorderThickness="0"
+                            Cursor="Hand">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="{TemplateBinding Background}"
+                                                    CornerRadius="4">
+                                                <TextBlock Text="&#x2699;"
+                                                           FontSize="20"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{TemplateBinding Foreground}"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                    </Trigger>
+                                    <DataTrigger Binding="{Binding IsSettingsOpen}" Value="True">
+                                        <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </StackPanel>
             </Grid>
         </Border>
 
-        <!-- Manual Connection Section (for cross-subnet scenarios) -->
+        <!-- Manual Connection Section (for cross-subnet scenarios) - hidden when settings open -->
         <Border Grid.Row="1"
                 Background="{StaticResource SurfaceBrush}"
                 CornerRadius="8"
                 Padding="12"
                 Margin="16,8"
-                VerticalAlignment="Bottom"
-                Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=inverse}">
+                VerticalAlignment="Bottom">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Style.Triggers>
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding IsConnected}" Value="False"/>
+                                <Condition Binding="{Binding IsSettingsOpen}" Value="False"/>
+                            </MultiDataTrigger.Conditions>
+                            <Setter Property="Visibility" Value="Visible"/>
+                        </MultiDataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
             <StackPanel>
                 <TextBlock Text="Manual Connection"
                            Style="{StaticResource CaptionText}"
@@ -173,14 +225,27 @@
             </StackPanel>
         </Border>
 
-        <!-- Now Playing Section -->
+        <!-- Now Playing Section - hidden when settings open -->
         <Border Grid.Row="1"
                 Margin="16,8"
                 Background="{StaticResource SurfaceBrush}"
                 CornerRadius="8"
                 Padding="24"
-                VerticalAlignment="Top"
-                Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
+                VerticalAlignment="Top">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Style.Triggers>
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding IsConnected}" Value="True"/>
+                                <Condition Binding="{Binding IsSettingsOpen}" Value="False"/>
+                            </MultiDataTrigger.Conditions>
+                            <Setter Property="Visibility" Value="Visible"/>
+                        </MultiDataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
             <StackPanel HorizontalAlignment="Center">
                 <!-- Large Centered Album Art -->
                 <Border HorizontalAlignment="Center"
@@ -228,6 +293,219 @@
                            Margin="0,8,0,0"
                            Visibility="{Binding CurrentCodec, Converter={StaticResource NullToVisibilityConverter}}"/>
             </StackPanel>
+        </Border>
+
+        <!-- Settings Panel -->
+        <Border Grid.Row="1"
+                Margin="16,8"
+                Background="{StaticResource SurfaceBrush}"
+                CornerRadius="8"
+                Padding="20"
+                VerticalAlignment="Stretch"
+                Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolToVisibilityConverter}}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Settings Header -->
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,16">
+                    <TextBlock Text="&#x2699;" FontSize="18" VerticalAlignment="Center" Margin="0,0,8,0"
+                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                    <TextBlock Text="Settings" Style="{StaticResource SubHeaderText}"/>
+                </StackPanel>
+
+                <!-- Settings Content -->
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                              Style="{StaticResource DarkScrollViewer}">
+                    <StackPanel>
+                        <!-- Logging Section -->
+                        <TextBlock Text="LOGGING" Style="{StaticResource CaptionText}"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   Margin="0,0,0,12"/>
+
+                        <!-- Log Level -->
+                        <StackPanel Margin="0,0,0,16">
+                            <TextBlock Text="Log Level" Style="{StaticResource BodyText}"/>
+                            <TextBlock Text="Controls verbosity of log output"
+                                       Style="{StaticResource CaptionText}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,2,0,0"/>
+                            <ComboBox Margin="0,8,0,0"
+                                      HorizontalAlignment="Stretch"
+                                      ItemsSource="{Binding AvailableLogLevels}"
+                                      SelectedItem="{Binding SettingsLogLevel}"
+                                      Style="{StaticResource DarkComboBox}"
+                                      ItemContainerStyle="{StaticResource DarkComboBoxItem}"/>
+                        </StackPanel>
+
+                        <!-- Enable File Logging -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="File Logging" Style="{StaticResource BodyText}"/>
+                                <TextBlock Text="Write logs to disk for troubleshooting"
+                                           Style="{StaticResource CaptionText}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Margin="0,2,0,0"/>
+                            </StackPanel>
+                            <CheckBox Grid.Column="1"
+                                      IsChecked="{Binding SettingsEnableFileLogging}"
+                                      VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <!-- Enable Console Logging -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Console Logging" Style="{StaticResource BodyText}"/>
+                                <TextBlock Text="Output logs to console (for debugging)"
+                                           Style="{StaticResource CaptionText}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Margin="0,2,0,0"/>
+                            </StackPanel>
+                            <CheckBox Grid.Column="1"
+                                      IsChecked="{Binding SettingsEnableConsoleLogging}"
+                                      VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <!-- Log Folder -->
+                        <Border Background="{StaticResource BackgroundDarkBrush}"
+                                CornerRadius="4"
+                                Padding="12"
+                                Margin="0,0,0,8">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Log Location" Style="{StaticResource CaptionText}"
+                                               Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Text="{Binding LogFilePath}"
+                                               Style="{StaticResource CaptionText}"
+                                               TextTrimming="CharacterEllipsis"
+                                               Margin="0,4,8,0"
+                                               ToolTip="{Binding LogFilePath}"/>
+                                </StackPanel>
+                                <Button Grid.Column="1"
+                                        Content="Open"
+                                        Command="{Binding OpenLogFolderCommand}"
+                                        Padding="12,6"
+                                        Background="Transparent"
+                                        Foreground="{StaticResource PrimaryLightBrush}"
+                                        BorderThickness="1"
+                                        BorderBrush="{StaticResource PrimaryBrush}"
+                                        Cursor="Hand"
+                                        VerticalAlignment="Center">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border Background="{TemplateBinding Background}"
+                                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                                CornerRadius="4"
+                                                                Padding="{TemplateBinding Padding}">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                            <Style.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
+                                                    <Setter Property="Foreground" Value="White"/>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                            </Grid>
+                        </Border>
+
+                        <!-- Restart Note -->
+                        <TextBlock Text="Note: Changes take effect after restarting the app."
+                                   Style="{StaticResource CaptionText}"
+                                   Foreground="{StaticResource WarningBrush}"
+                                   Margin="0,8,0,0"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- Settings Actions -->
+                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                    <Button Content="Cancel"
+                            Command="{Binding CloseSettingsCommand}"
+                            Padding="16,8"
+                            Margin="0,0,8,0"
+                            Background="Transparent"
+                            Foreground="{StaticResource TextSecondaryBrush}"
+                            BorderThickness="1"
+                            BorderBrush="{StaticResource SurfaceLightBrush}"
+                            Cursor="Hand">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="{TemplateBinding Background}"
+                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                    CornerRadius="4"
+                                                    Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Content="Save"
+                            Command="{Binding SaveSettingsCommand}"
+                            Padding="16,8"
+                            Background="{StaticResource PrimaryBrush}"
+                            Foreground="White"
+                            BorderThickness="0"
+                            Cursor="Hand">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="{TemplateBinding Background}"
+                                                    CornerRadius="4"
+                                                    Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Opacity" Value="0.9"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </StackPanel>
+            </Grid>
         </Border>
 
         <!-- Controls -->

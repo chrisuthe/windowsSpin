@@ -1,9 +1,14 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using SendSpinClient.Configuration;
 using SendSpinClient.Core.Audio;
 using SendSpinClient.Core.Client;
 using SendSpinClient.Core.Connection;
@@ -25,6 +30,7 @@ public partial class MainViewModel : ViewModelBase
 {
     private readonly ILogger<MainViewModel> _logger;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly IConfiguration _configuration;
     private readonly SendSpinHostService _hostService;
     private readonly MdnsServerDiscovery _serverDiscovery;
     private readonly IAudioPipeline _audioPipeline;
@@ -135,6 +141,50 @@ public partial class MainViewModel : ViewModelBase
     private string? _currentCodec;
 
     /// <summary>
+    /// Gets or sets whether the settings panel is currently visible.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isSettingsOpen;
+
+    /// <summary>
+    /// Gets or sets the current log level setting.
+    /// </summary>
+    [ObservableProperty]
+    private string _settingsLogLevel = "Information";
+
+    /// <summary>
+    /// Gets or sets whether file logging is enabled.
+    /// </summary>
+    [ObservableProperty]
+    private bool _settingsEnableFileLogging = true;
+
+    /// <summary>
+    /// Gets or sets whether console logging is enabled.
+    /// </summary>
+    [ObservableProperty]
+    private bool _settingsEnableConsoleLogging;
+
+    /// <summary>
+    /// Gets the path where log files are stored.
+    /// </summary>
+    public string LogFilePath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "SendSpin",
+        "logs");
+
+    /// <summary>
+    /// Gets the available log levels for the settings dropdown.
+    /// </summary>
+    public string[] AvailableLogLevels { get; } = new[]
+    {
+        "Verbose",
+        "Debug",
+        "Information",
+        "Warning",
+        "Error"
+    };
+
+    /// <summary>
     /// Gets the collection of currently connected SendSpin servers.
     /// Updated when servers connect or disconnect via the host service.
     /// </summary>
@@ -154,6 +204,7 @@ public partial class MainViewModel : ViewModelBase
     public MainViewModel(
         ILogger<MainViewModel> logger,
         ILoggerFactory loggerFactory,
+        IConfiguration configuration,
         SendSpinHostService hostService,
         MdnsServerDiscovery serverDiscovery,
         IAudioPipeline audioPipeline,
@@ -162,6 +213,7 @@ public partial class MainViewModel : ViewModelBase
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
+        _configuration = configuration;
         _hostService = hostService;
         _serverDiscovery = serverDiscovery;
         _audioPipeline = audioPipeline;
@@ -169,6 +221,9 @@ public partial class MainViewModel : ViewModelBase
         _notificationService = notificationService;
         _httpClient = new HttpClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(10);
+
+        // Load current logging settings
+        LoadLoggingSettings();
 
         // Subscribe to host events (server-initiated mode fallback)
         _hostService.ServerConnected += OnServerConnected;
@@ -888,6 +943,112 @@ public partial class MainViewModel : ViewModelBase
             _logger.LogError(ex, "Failed to send volume change");
         }
     }
+
+    #region Settings
+
+    /// <summary>
+    /// Loads the current logging settings from configuration.
+    /// </summary>
+    private void LoadLoggingSettings()
+    {
+        var settings = new LoggingSettings();
+        _configuration.GetSection(LoggingSettings.SectionName).Bind(settings);
+
+        SettingsLogLevel = settings.LogLevel ?? "Information";
+        SettingsEnableFileLogging = settings.EnableFileLogging;
+        SettingsEnableConsoleLogging = settings.EnableConsoleLogging;
+    }
+
+    /// <summary>
+    /// Toggles the settings panel visibility.
+    /// </summary>
+    [RelayCommand]
+    private void ToggleSettings()
+    {
+        IsSettingsOpen = !IsSettingsOpen;
+    }
+
+    /// <summary>
+    /// Closes the settings panel.
+    /// </summary>
+    [RelayCommand]
+    private void CloseSettings()
+    {
+        IsSettingsOpen = false;
+    }
+
+    /// <summary>
+    /// Saves the current settings to appsettings.json.
+    /// </summary>
+    [RelayCommand]
+    private async Task SaveSettingsAsync()
+    {
+        try
+        {
+            var appSettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
+
+            // Read existing settings or create new
+            JsonNode? root;
+            if (File.Exists(appSettingsPath))
+            {
+                var json = await File.ReadAllTextAsync(appSettingsPath);
+                root = JsonNode.Parse(json) ?? new JsonObject();
+            }
+            else
+            {
+                root = new JsonObject();
+            }
+
+            // Update logging section
+            var loggingSection = root["Logging"]?.AsObject() ?? new JsonObject();
+            loggingSection["LogLevel"] = SettingsLogLevel;
+            loggingSection["EnableFileLogging"] = SettingsEnableFileLogging;
+            loggingSection["EnableConsoleLogging"] = SettingsEnableConsoleLogging;
+            root["Logging"] = loggingSection;
+
+            // Write back with nice formatting
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var updatedJson = root.ToJsonString(options);
+            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+
+            _logger.LogInformation("Settings saved: LogLevel={LogLevel}, FileLogging={FileLogging}, ConsoleLogging={ConsoleLogging}",
+                SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging);
+
+            // Show success and close settings
+            StatusMessage = "Settings saved. Restart app for changes to take effect.";
+            IsSettingsOpen = false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save settings");
+            SetError($"Failed to save settings: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Opens the log folder in Windows Explorer.
+    /// </summary>
+    [RelayCommand]
+    private void OpenLogFolder()
+    {
+        try
+        {
+            var logPath = LogFilePath;
+            if (!Directory.Exists(logPath))
+            {
+                Directory.CreateDirectory(logPath);
+            }
+
+            System.Diagnostics.Process.Start("explorer.exe", logPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to open log folder");
+            SetError($"Failed to open log folder: {ex.Message}");
+        }
+    }
+
+    #endregion
 
     #region System Tray Support
 

@@ -114,4 +114,247 @@
         <Setter Property="FontFamily" Value="{StaticResource DefaultFont}"/>
     </Style>
 
+    <!-- Dark ComboBox Style -->
+    <Style x:Key="DarkComboBox" TargetType="ComboBox">
+        <Setter Property="Background" Value="{StaticResource BackgroundDarkBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource SurfaceLightBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="10,8"/>
+        <Setter Property="FontFamily" Value="{StaticResource DefaultFont}"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBox">
+                    <Grid>
+                        <ToggleButton x:Name="ToggleButton"
+                                      Background="{TemplateBinding Background}"
+                                      BorderBrush="{TemplateBinding BorderBrush}"
+                                      BorderThickness="{TemplateBinding BorderThickness}"
+                                      IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                      Focusable="False"
+                                      ClickMode="Press">
+                            <ToggleButton.Template>
+                                <ControlTemplate TargetType="ToggleButton">
+                                    <Border x:Name="Border"
+                                            Background="{TemplateBinding Background}"
+                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                            CornerRadius="4">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <ContentPresenter Grid.Column="0"/>
+                                            <Path x:Name="Arrow"
+                                                  Grid.Column="1"
+                                                  Data="M 0 0 L 4 4 L 8 0 Z"
+                                                  Fill="{StaticResource TextSecondaryBrush}"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"
+                                                  Margin="8,0,8,0"/>
+                                        </Grid>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Border" Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/>
+                                        </Trigger>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="Border" Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </ToggleButton.Template>
+                        </ToggleButton>
+                        <ContentPresenter x:Name="ContentSite"
+                                          IsHitTestVisible="False"
+                                          Content="{TemplateBinding SelectionBoxItem}"
+                                          ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                          ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                          Margin="12,8,28,8"
+                                          VerticalAlignment="Center"
+                                          HorizontalAlignment="Left"/>
+                        <Popup x:Name="Popup"
+                               Placement="Bottom"
+                               IsOpen="{TemplateBinding IsDropDownOpen}"
+                               AllowsTransparency="True"
+                               Focusable="False"
+                               PopupAnimation="Slide">
+                            <Grid x:Name="DropDown"
+                                  SnapsToDevicePixels="True"
+                                  MinWidth="{TemplateBinding ActualWidth}"
+                                  MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                <Border x:Name="DropDownBorder"
+                                        Background="{StaticResource SurfaceBrush}"
+                                        BorderBrush="{StaticResource SurfaceLightBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Margin="0,2,0,0"/>
+                                <ScrollViewer Margin="4,6" SnapsToDevicePixels="True">
+                                    <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                </ScrollViewer>
+                            </Grid>
+                        </Popup>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Dark ComboBoxItem Style -->
+    <Style x:Key="DarkComboBoxItem" TargetType="ComboBoxItem">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="Padding" Value="10,8"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="Border"
+                            Background="{TemplateBinding Background}"
+                            Padding="{TemplateBinding Padding}"
+                            CornerRadius="3">
+                        <ContentPresenter/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Border" Property="Background" Value="{StaticResource SurfaceLightBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Border" Property="Background" Value="{StaticResource PrimaryBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Dark ScrollBar Thumb -->
+    <Style x:Key="DarkScrollBarThumb" TargetType="Thumb">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="IsTabStop" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Thumb">
+                    <Border x:Name="ThumbBorder"
+                            Background="{StaticResource SurfaceLightBrush}"
+                            CornerRadius="3"
+                            Margin="2"/>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource TextMutedBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource PrimaryBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Dark ScrollBar Line Button (arrows - hidden for modern look) -->
+    <Style x:Key="DarkScrollBarLineButton" TargetType="RepeatButton">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RepeatButton">
+                    <Border Height="0" Width="0"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Dark ScrollBar Page Button (track background) -->
+    <Style x:Key="DarkScrollBarPageButton" TargetType="RepeatButton">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="IsTabStop" Value="False"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RepeatButton">
+                    <Border Background="Transparent"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Dark Vertical ScrollBar -->
+    <Style x:Key="DarkScrollBar" TargetType="ScrollBar">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="Width" Value="8"/>
+        <Setter Property="MinWidth" Value="8"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollBar">
+                    <Grid x:Name="GridRoot" Background="{TemplateBinding Background}">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Style="{StaticResource DarkScrollBarPageButton}"
+                                              Command="ScrollBar.PageUpCommand"/>
+                            </Track.DecreaseRepeatButton>
+                            <Track.Thumb>
+                                <Thumb Style="{StaticResource DarkScrollBarThumb}"/>
+                            </Track.Thumb>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Style="{StaticResource DarkScrollBarPageButton}"
+                                              Command="ScrollBar.PageDownCommand"/>
+                            </Track.IncreaseRepeatButton>
+                        </Track>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Orientation" Value="Horizontal">
+                            <Setter Property="Width" Value="Auto"/>
+                            <Setter Property="Height" Value="8"/>
+                            <Setter Property="MinHeight" Value="8"/>
+                            <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Dark ScrollViewer Style -->
+    <Style x:Key="DarkScrollViewer" TargetType="ScrollViewer">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollViewer">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <ScrollContentPresenter Grid.Column="0" Grid.Row="0"
+                                                CanContentScroll="{TemplateBinding CanContentScroll}"/>
+                        <ScrollBar x:Name="PART_VerticalScrollBar"
+                                   Grid.Column="1" Grid.Row="0"
+                                   Style="{StaticResource DarkScrollBar}"
+                                   Value="{TemplateBinding VerticalOffset}"
+                                   Maximum="{TemplateBinding ScrollableHeight}"
+                                   ViewportSize="{TemplateBinding ViewportHeight}"
+                                   Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"/>
+                        <ScrollBar x:Name="PART_HorizontalScrollBar"
+                                   Grid.Column="0" Grid.Row="1"
+                                   Style="{StaticResource DarkScrollBar}"
+                                   Orientation="Horizontal"
+                                   Value="{TemplateBinding HorizontalOffset}"
+                                   Maximum="{TemplateBinding ScrollableWidth}"
+                                   ViewportSize="{TemplateBinding ViewportWidth}"
+                                   Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}"/>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
 </ResourceDictionary>
