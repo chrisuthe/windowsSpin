@@ -38,6 +38,10 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
     private const int MinMeasurementsForConvergence = 5;
     private const double MaxOffsetUncertaintyForConvergence = 1000.0; // 1ms uncertainty threshold
 
+    // Drift reliability threshold - don't apply drift until uncertainty is below this
+    // At 50 μs/s uncertainty, drift compensation won't cause more than ~50μs error per second
+    private const double MaxDriftUncertaintyForReliable = 50.0; // μs/s
+
     /// <summary>
     /// Current estimated clock offset in microseconds.
     /// server_time = client_time + Offset
@@ -83,6 +87,23 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
             {
                 return _measurementCount >= MinMeasurementsForConvergence
                        && Math.Sqrt(_offsetVariance) < MaxOffsetUncertaintyForConvergence;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether the drift estimate is reliable enough to use for time conversions.
+    /// Drift estimation requires longer time periods to be accurate, so we don't
+    /// apply drift compensation until the filter is confident in the estimate.
+    /// </summary>
+    public bool IsDriftReliable
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _measurementCount >= MinMeasurementsForConvergence
+                       && Math.Sqrt(_driftVariance) < MaxDriftUncertaintyForReliable;
             }
         }
     }
@@ -246,11 +267,20 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
     {
         lock (_lock)
         {
-            // Account for drift since last update
+            // Account for drift since last update, but only if drift estimate is reliable
+            // Early drift estimates are essentially noise and can make timing worse
             if (_lastUpdateTime > 0)
             {
                 double elapsedSeconds = (clientTime - _lastUpdateTime) / 1_000_000.0;
-                double currentOffset = _offset + _drift * elapsedSeconds;
+
+                // Only apply drift compensation when we're confident in the estimate
+                bool driftReliable = _measurementCount >= MinMeasurementsForConvergence
+                                    && Math.Sqrt(_driftVariance) < MaxDriftUncertaintyForReliable;
+
+                double currentOffset = driftReliable
+                    ? _offset + _drift * elapsedSeconds
+                    : _offset;
+
                 return clientTime + (long)currentOffset;
             }
             return clientTime + (long)_offset;
@@ -283,8 +313,10 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
                 OffsetMicroseconds = _offset,
                 DriftMicrosecondsPerSecond = _drift,
                 OffsetUncertaintyMicroseconds = Math.Sqrt(_offsetVariance),
+                DriftUncertaintyMicrosecondsPerSecond = Math.Sqrt(_driftVariance),
                 MeasurementCount = _measurementCount,
-                IsConverged = IsConverged
+                IsConverged = IsConverged,
+                IsDriftReliable = IsDriftReliable
             };
         }
     }
@@ -347,6 +379,11 @@ public record ClockSyncStatus
     public double OffsetUncertaintyMicroseconds { get; init; }
 
     /// <summary>
+    /// Uncertainty (standard deviation) of drift in microseconds per second.
+    /// </summary>
+    public double DriftUncertaintyMicrosecondsPerSecond { get; init; }
+
+    /// <summary>
     /// Number of measurements processed.
     /// </summary>
     public int MeasurementCount { get; init; }
@@ -355,6 +392,11 @@ public record ClockSyncStatus
     /// Whether synchronization has converged.
     /// </summary>
     public bool IsConverged { get; init; }
+
+    /// <summary>
+    /// Whether drift estimate is reliable enough for compensation.
+    /// </summary>
+    public bool IsDriftReliable { get; init; }
 
     /// <summary>
     /// Offset in milliseconds for display.
