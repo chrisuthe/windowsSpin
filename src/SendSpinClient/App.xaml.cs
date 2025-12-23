@@ -1,7 +1,10 @@
+using System.IO;
 using System.Windows;
 using Hardcodet.Wpf.TaskbarNotification;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using SendSpinClient.Configuration;
 using SendSpinClient.Core.Audio;
 using SendSpinClient.Core.Client;
 using SendSpinClient.Core.Discovery;
@@ -10,6 +13,8 @@ using SendSpinClient.Core.Synchronization;
 using SendSpinClient.Services.Audio;
 using SendSpinClient.Services.Notifications;
 using SendSpinClient.ViewModels;
+using Serilog;
+using Serilog.Events;
 
 namespace SendSpinClient;
 
@@ -19,6 +24,7 @@ namespace SendSpinClient;
 public partial class App : Application
 {
     private ServiceProvider? _serviceProvider;
+    private IConfiguration? _configuration;
     private MainViewModel? _mainViewModel;
     private TaskbarIcon? _trayIcon;
 
@@ -35,6 +41,15 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Load configuration from appsettings.json
+        _configuration = new ConfigurationBuilder()
+            .SetBasePath(AppDomain.CurrentDomain.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+            .Build();
+
+        // Configure Serilog from settings
+        ConfigureSerilog(_configuration);
 
         // Configure services
         var services = new ServiceCollection();
@@ -62,12 +77,15 @@ public partial class App : Application
 
     private void ConfigureServices(IServiceCollection services)
     {
-        // Logging - enable console output for debugging
+        // Register configuration
+        services.AddSingleton(_configuration!);
+        services.Configure<LoggingSettings>(_configuration!.GetSection(LoggingSettings.SectionName));
+
+        // Logging - use Serilog with configuration from appsettings.json
         services.AddLogging(builder =>
         {
-            builder.SetMinimumLevel(LogLevel.Debug);
-            builder.AddDebug();
-            builder.AddConsole();
+            builder.ClearProviders();
+            builder.AddSerilog(dispose: true);
         });
 
         // Client capabilities configuration
@@ -141,6 +159,61 @@ public partial class App : Application
         services.AddTransient<MainViewModel>();
     }
 
+    private static void ConfigureSerilog(IConfiguration configuration)
+    {
+        var settings = new LoggingSettings();
+        configuration.GetSection(LoggingSettings.SectionName).Bind(settings);
+
+        // Parse log level from configuration
+        var logLevel = settings.LogLevel?.ToLowerInvariant() switch
+        {
+            "verbose" or "trace" => LogEventLevel.Verbose,
+            "debug" => LogEventLevel.Debug,
+            "information" or "info" => LogEventLevel.Information,
+            "warning" or "warn" => LogEventLevel.Warning,
+            "error" => LogEventLevel.Error,
+            "fatal" or "critical" => LogEventLevel.Fatal,
+            _ => LogEventLevel.Information
+        };
+
+        var logConfig = new LoggerConfiguration()
+            .MinimumLevel.Is(logLevel)
+            .Enrich.FromLogContext();
+
+        // Always add debug output for development
+        logConfig.WriteTo.Debug(outputTemplate: settings.OutputTemplate);
+
+        // Console logging (disabled by default for WPF)
+        if (settings.EnableConsoleLogging)
+        {
+            logConfig.WriteTo.Console(outputTemplate: settings.OutputTemplate);
+        }
+
+        // File logging with rotation
+        if (settings.EnableFileLogging)
+        {
+            var logDirectory = settings.GetEffectiveLogDirectory();
+            Directory.CreateDirectory(logDirectory);
+
+            var logFilePath = Path.Combine(logDirectory, "sendspin-.log");
+
+            logConfig.WriteTo.File(
+                path: logFilePath,
+                rollingInterval: RollingInterval.Day,
+                fileSizeLimitBytes: settings.MaxFileSizeMB * 1024 * 1024,
+                retainedFileCountLimit: settings.RetainedFileCount,
+                rollOnFileSizeLimit: true,
+                outputTemplate: settings.OutputTemplate,
+                shared: true);
+        }
+
+        Log.Logger = logConfig.CreateLogger();
+        Log.Information("SendSpin Client starting. Log level: {LogLevel}, File logging: {FileLogging}, Log directory: {LogDir}",
+            settings.LogLevel,
+            settings.EnableFileLogging,
+            settings.EnableFileLogging ? settings.GetEffectiveLogDirectory() : "N/A");
+    }
+
     protected override async void OnExit(ExitEventArgs e)
     {
         // Dispose tray icon to remove from system tray
@@ -153,6 +226,11 @@ public partial class App : Application
         }
 
         _serviceProvider?.Dispose();
+
+        // Flush and close Serilog to ensure all logs are written
+        Log.Information("SendSpin Client shutting down");
+        await Log.CloseAndFlushAsync();
+
         base.OnExit(e);
     }
 
