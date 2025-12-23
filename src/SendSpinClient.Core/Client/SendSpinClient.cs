@@ -23,8 +23,13 @@ public sealed class SendSpinClientService : ISendSpinClient
     private GroupState? _currentGroup;
     private CancellationTokenSource? _timeSyncCts;
     private Task? _timeSyncTask;
-    private long _lastSentTimestamp;
 
+    // Burst sync configuration - send multiple messages and use smallest RTT
+    private const int BurstSize = 8;
+    private const int BurstIntervalMs = 50; // 50ms between burst messages
+    private readonly object _burstLock = new();
+    private readonly List<(long t1, long t2, long t3, long t4, double rtt)> _burstResults = new();
+    private readonly HashSet<long> _pendingBurstTimestamps = new();
 
     public ConnectionState ConnectionState => _connection.State;
     public string? ServerId { get; private set; }
@@ -311,28 +316,29 @@ public sealed class SendSpinClientService : ISendSpinClient
 
     /// <summary>
     /// Calculates the next time sync interval based on synchronization quality.
-    /// Matches aiosendspin's adaptive interval strategy.
+    /// Uses longer intervals when well-synced to improve drift measurement signal-to-noise ratio.
     /// </summary>
     private int GetAdaptiveTimeSyncIntervalMs()
     {
         var status = _clockSynchronizer.GetStatus();
 
-        // If not enough measurements yet, sync rapidly
+        // If not enough measurements yet, sync rapidly (but after burst, so this is inter-burst interval)
         if (status.MeasurementCount < 3)
-            return 200; // 200ms - aggressive initial sync
+            return 500; // 500ms between initial bursts
 
         // Uncertainty in milliseconds
         var uncertaintyMs = status.OffsetUncertaintyMicroseconds / 1000.0;
 
-        // Adaptive intervals based on sync quality (matching aiosendspin)
+        // Adaptive intervals based on sync quality
+        // Longer intervals when synced = better drift signal detection over time
         if (uncertaintyMs < 1.0)
-            return 3000;  // Well synchronized: 3s
+            return 10000; // Well synchronized: 10s (allows drift to accumulate measurably)
         else if (uncertaintyMs < 2.0)
-            return 1000;  // Good sync: 1s
+            return 5000;  // Good sync: 5s
         else if (uncertaintyMs < 5.0)
-            return 500;   // Moderate sync: 500ms
+            return 2000;  // Moderate sync: 2s
         else
-            return 200;   // Poor sync: 200ms
+            return 1000;  // Poor sync: 1s
     }
 
     private async Task TimeSyncLoopAsync(CancellationToken cancellationToken)
@@ -341,17 +347,17 @@ public sealed class SendSpinClientService : ISendSpinClient
         {
             while (!cancellationToken.IsCancellationRequested && _connection.State == ConnectionState.Connected)
             {
-                // Send time sync message
-                await SendTimeSyncAsync(cancellationToken);
+                // Send burst of time sync messages
+                await SendTimeSyncBurstAsync(cancellationToken);
 
                 // Calculate adaptive interval based on current sync quality
                 var intervalMs = GetAdaptiveTimeSyncIntervalMs();
 
-                _logger.LogTrace("Next time sync in {Interval}ms (uncertainty: {Uncertainty:F2}ms)",
+                _logger.LogTrace("Next time sync burst in {Interval}ms (uncertainty: {Uncertainty:F2}ms)",
                     intervalMs,
                     _clockSynchronizer.GetStatus().OffsetUncertaintyMicroseconds / 1000.0);
 
-                // Wait for the interval
+                // Wait for the interval before next burst
                 await Task.Delay(intervalMs, cancellationToken);
             }
         }
@@ -365,18 +371,52 @@ public sealed class SendSpinClientService : ISendSpinClient
         }
     }
 
-    private async Task SendTimeSyncAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Sends a burst of time sync messages and waits for responses.
+    /// Only the measurement with the smallest RTT is used (best quality).
+    /// </summary>
+    private async Task SendTimeSyncBurstAsync(CancellationToken cancellationToken)
     {
         if (_connection.State != ConnectionState.Connected)
             return;
 
         try
         {
-            var timeMessage = ClientTimeMessage.CreateNow();
-            _lastSentTimestamp = timeMessage.ClientTransmitted;
+            // Clear previous burst results
+            lock (_burstLock)
+            {
+                _burstResults.Clear();
+                _pendingBurstTimestamps.Clear();
+            }
 
-            await _connection.SendMessageAsync(timeMessage, cancellationToken);
-            _logger.LogTrace("Sent client/time: T1={T1}", _lastSentTimestamp);
+            // Send burst of messages
+            for (int i = 0; i < BurstSize; i++)
+            {
+                if (cancellationToken.IsCancellationRequested || _connection.State != ConnectionState.Connected)
+                    break;
+
+                var timeMessage = ClientTimeMessage.CreateNow();
+
+                lock (_burstLock)
+                {
+                    _pendingBurstTimestamps.Add(timeMessage.ClientTransmitted);
+                }
+
+                await _connection.SendMessageAsync(timeMessage, cancellationToken);
+                _logger.LogTrace("Sent burst message {Index}/{Total}: T1={T1}", i + 1, BurstSize, timeMessage.ClientTransmitted);
+
+                // Wait between burst messages (except after last one)
+                if (i < BurstSize - 1)
+                {
+                    await Task.Delay(BurstIntervalMs, cancellationToken);
+                }
+            }
+
+            // Wait for responses to arrive (give extra time after last send)
+            await Task.Delay(BurstIntervalMs * 2, cancellationToken);
+
+            // Process the best result from the burst
+            ProcessBurstResults();
         }
         catch (OperationCanceledException)
         {
@@ -384,7 +424,60 @@ public sealed class SendSpinClientService : ISendSpinClient
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to send time sync message");
+            _logger.LogWarning(ex, "Failed to send time sync burst");
+        }
+    }
+
+    /// <summary>
+    /// Processes collected burst results and feeds the best measurement to the Kalman filter.
+    /// </summary>
+    private void ProcessBurstResults()
+    {
+        (long t1, long t2, long t3, long t4, double rtt) bestResult;
+        int totalResults;
+
+        lock (_burstLock)
+        {
+            totalResults = _burstResults.Count;
+            if (totalResults == 0)
+            {
+                _logger.LogDebug("No burst results to process");
+                return;
+            }
+
+            // Find the measurement with smallest RTT (best quality)
+            bestResult = _burstResults.OrderBy(r => r.rtt).First();
+            _burstResults.Clear();
+            _pendingBurstTimestamps.Clear();
+        }
+
+        _logger.LogDebug("Processing best of {Count} burst results: RTT={RTT:F0}μs",
+            totalResults, bestResult.rtt);
+
+        // Track if we were already converged before this measurement
+        bool wasConverged = _clockSynchronizer.IsConverged;
+
+        // Feed only the best measurement to the Kalman filter
+        _clockSynchronizer.ProcessMeasurement(bestResult.t1, bestResult.t2, bestResult.t3, bestResult.t4);
+
+        // Log the sync status periodically
+        var status = _clockSynchronizer.GetStatus();
+        if (status.MeasurementCount <= 10 || status.MeasurementCount % 10 == 0)
+        {
+            _logger.LogInformation(
+                "Clock sync: offset={Offset:F2}ms (±{Uncertainty:F2}ms), drift={Drift:F2}μs/s, converged={Converged}, driftReliable={DriftReliable}",
+                status.OffsetMilliseconds,
+                status.OffsetUncertaintyMicroseconds / 1000.0,
+                status.DriftMicrosecondsPerSecond,
+                status.IsConverged,
+                status.IsDriftReliable);
+        }
+
+        // Notify when first converged
+        if (!wasConverged && _clockSynchronizer.IsConverged)
+        {
+            _logger.LogInformation("Clock synchronization converged after {Count} measurements", status.MeasurementCount);
+            ClockSyncConverged?.Invoke(this, status);
         }
     }
 
@@ -401,30 +494,26 @@ public sealed class SendSpinClientService : ISendSpinClient
         var t2 = message.ServerReceived;
         var t3 = message.ServerTransmitted;
 
-        // Track if we were already converged before this measurement
-        bool wasConverged = _clockSynchronizer.IsConverged;
+        // Calculate RTT: (T4 - T1) - (T3 - T2) = network round-trip excluding server processing
+        double rtt = (t4 - t1) - (t3 - t2);
 
-        // Process through Kalman filter
+        lock (_burstLock)
+        {
+            // Check if this is a response to a burst message we sent
+            if (_pendingBurstTimestamps.Contains(t1))
+            {
+                // Collect this result for later processing
+                _burstResults.Add((t1, t2, t3, t4, rtt));
+                _pendingBurstTimestamps.Remove(t1);
+                _logger.LogTrace("Collected burst response: RTT={RTT:F0}μs ({Count} collected)",
+                    rtt, _burstResults.Count);
+                return;
+            }
+        }
+
+        // If not part of a burst (shouldn't happen normally), process immediately
+        _logger.LogDebug("Processing non-burst time response: RTT={RTT:F0}μs", rtt);
         _clockSynchronizer.ProcessMeasurement(t1, t2, t3, t4);
-
-        // Log the sync status periodically
-        var status = _clockSynchronizer.GetStatus();
-        if (status.MeasurementCount <= 10 || status.MeasurementCount % 10 == 0)
-        {
-            _logger.LogInformation(
-                "Clock sync: offset={Offset:F2}ms (±{Uncertainty:F2}ms), drift={Drift:F2}μs/s, converged={Converged}",
-                status.OffsetMilliseconds,
-                status.OffsetUncertaintyMicroseconds / 1000.0,
-                status.DriftMicrosecondsPerSecond,
-                status.IsConverged);
-        }
-
-        // Notify when first converged
-        if (!wasConverged && _clockSynchronizer.IsConverged)
-        {
-            _logger.LogInformation("Clock synchronization converged after {Count} measurements", status.MeasurementCount);
-            ClockSyncConverged?.Invoke(this, status);
-        }
     }
 
     private void HandleGroupUpdate(string json)
