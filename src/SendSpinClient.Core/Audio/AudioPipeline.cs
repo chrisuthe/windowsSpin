@@ -196,7 +196,10 @@ public sealed class AudioPipeline : IAudioPipeline
                 _buffer.Write(_decodeBuffer.AsSpan(0, samplesDecoded), chunk.ServerTimestamp);
 
                 // Check if we should start playback
-                if (State == AudioPipelineState.Buffering && _buffer.IsReadyForPlayback)
+                // Wait for clock sync to converge before starting - prevents large initial offset errors
+                if (State == AudioPipelineState.Buffering
+                    && _buffer.IsReadyForPlayback
+                    && _clockSync.IsConverged)
                 {
                     StartPlayback();
                 }
@@ -258,11 +261,14 @@ public sealed class AudioPipeline : IAudioPipeline
 
         try
         {
+            var syncStatus = _clockSync.GetStatus();
             _player.Play();
             SetState(AudioPipelineState.Playing);
             _logger.LogInformation(
-                "Buffer ready ({BufferMs:F0}ms), starting playback",
-                _buffer?.BufferedMilliseconds ?? 0);
+                "Starting playback: buffer={BufferMs:F0}ms, sync offset={OffsetMs:F2}ms (±{UncertaintyMs:F2}ms)",
+                _buffer?.BufferedMilliseconds ?? 0,
+                syncStatus.OffsetMilliseconds,
+                syncStatus.OffsetUncertaintyMicroseconds / 1000.0);
         }
         catch (Exception ex)
         {
