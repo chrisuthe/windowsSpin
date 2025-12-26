@@ -171,6 +171,13 @@ public sealed class SendSpinClientService : ISendSpinClient
         await _connection.SendMessageAsync(message);
     }
 
+    /// <inheritdoc/>
+    public void ClearAudioBuffer()
+    {
+        _logger.LogDebug("Clearing audio buffer for immediate sync parameter effect");
+        _audioPipeline?.Clear();
+    }
+
     private void OnConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs e)
     {
         _logger.LogDebug("Connection state: {OldState} -> {NewState}", e.OldState, e.NewState);
@@ -655,6 +662,11 @@ public sealed class SendSpinClientService : ISendSpinClient
         }
 
         _logger.LogInformation("Stream starting: {Format}", message.Format);
+
+        // Re-sync clock before starting playback to ensure accurate timing
+        // This is critical after pause/resume where the sync may have drifted
+        _logger.LogDebug("Triggering clock re-sync burst before stream start");
+        await SendTimeSyncBurstAsync(CancellationToken.None);
 
         if (_audioPipeline != null)
         {

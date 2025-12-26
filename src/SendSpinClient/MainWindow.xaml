@@ -434,11 +434,45 @@
                         </Border>
 
                         <!-- Restart Note -->
-                        <TextBlock Text="Note: Changes take effect after restarting the app."
+                        <TextBlock Text="Note: Logging changes take effect after restart."
                                    Style="{StaticResource CaptionText}"
                                    Foreground="{StaticResource WarningBrush}"
                                    Margin="0,8,0,16"
                                    TextWrapping="Wrap"/>
+
+                        <!-- Audio Section -->
+                        <TextBlock Text="AUDIO SYNC" Style="{StaticResource CaptionText}"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   Margin="0,0,0,12"/>
+
+                        <!-- Static Delay -->
+                        <StackPanel Margin="0,0,0,16">
+                            <TextBlock Text="Static Delay" Style="{StaticResource BodyText}"/>
+                            <TextBlock Text="Adjust timing to sync with other players. Positive = play later."
+                                       Style="{StaticResource CaptionText}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,2,0,0"
+                                       TextWrapping="Wrap"/>
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Slider Grid.Column="0"
+                                        Minimum="-1000" Maximum="1000"
+                                        Value="{Binding SettingsStaticDelayMs}"
+                                        TickFrequency="100"
+                                        IsSnapToTickEnabled="False"
+                                        VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding SettingsStaticDelayMs, StringFormat={}{0:+0;-0;0} ms}"
+                                           Style="{StaticResource CaptionText}"
+                                           Width="60"
+                                           TextAlignment="Right"
+                                           VerticalAlignment="Center"
+                                           Margin="8,0,0,0"/>
+                            </Grid>
+                        </StackPanel>
 
                         <!-- Diagnostics Section -->
                         <TextBlock Text="DIAGNOSTICS" Style="{StaticResource CaptionText}"

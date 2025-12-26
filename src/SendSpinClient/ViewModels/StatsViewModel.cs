@@ -118,6 +118,18 @@ public partial class StatsViewModel : ViewModelBase
     #region Clock Sync Properties
 
     /// <summary>
+    /// Gets the clock sync status display (e.g., "Synchronized", "Syncing...").
+    /// </summary>
+    [ObservableProperty]
+    private string _clockSyncStatusDisplay = "Not synced";
+
+    /// <summary>
+    /// Gets the color for the clock sync status.
+    /// </summary>
+    [ObservableProperty]
+    private Brush _clockSyncStatusColor = Brushes.Gray;
+
+    /// <summary>
     /// Gets the clock offset display string.
     /// </summary>
     [ObservableProperty]
@@ -140,6 +152,12 @@ public partial class StatsViewModel : ViewModelBase
     /// </summary>
     [ObservableProperty]
     private int _measurementCount;
+
+    /// <summary>
+    /// Gets the static delay display string.
+    /// </summary>
+    [ObservableProperty]
+    private string _staticDelayDisplay = "0 ms";
 
     #endregion
 
@@ -287,6 +305,23 @@ public partial class StatsViewModel : ViewModelBase
     {
         var status = _clockSynchronizer.GetStatus();
 
+        // Sync status indicator
+        if (status.IsConverged)
+        {
+            ClockSyncStatusDisplay = "✓ Synchronized";
+            ClockSyncStatusColor = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)); // Green
+        }
+        else if (status.MeasurementCount > 0)
+        {
+            ClockSyncStatusDisplay = "Syncing...";
+            ClockSyncStatusColor = new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
+        }
+        else
+        {
+            ClockSyncStatusDisplay = "Not synced";
+            ClockSyncStatusColor = Brushes.Gray;
+        }
+
         ClockOffsetDisplay = $"{status.OffsetMilliseconds:+0.00;-0.00} ms";
         ClockUncertaintyDisplay = $"{status.OffsetUncertaintyMicroseconds / 1000.0:F2} ms";
 
@@ -296,6 +331,9 @@ public partial class StatsViewModel : ViewModelBase
         DriftRateDisplay = $"{driftPpm:+0.00;-0.00} ppm";
 
         MeasurementCount = status.MeasurementCount;
+
+        // Static delay (from clock synchronizer)
+        StaticDelayDisplay = $"{_clockSynchronizer.StaticDelayMs:+0;-0;0} ms";
     }
 
     private static string FormatSampleCount(long samples)
