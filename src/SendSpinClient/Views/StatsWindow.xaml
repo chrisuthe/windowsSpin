@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="Stats for Nerds"
-        Height="520" Width="420"
+        Height="550" Width="420"
         MinHeight="400" MinWidth="350"
         Background="#1a1a2e"
         WindowStartupLocation="CenterOwner">
@@ -154,19 +154,30 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Clock Offset" Style="{StaticResource StatLabel}"/>
-                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ClockOffsetDisplay}" Style="{StaticResource StatValue}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Status" Style="{StaticResource StatLabel}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ClockSyncStatusDisplay}"
+                                   Style="{StaticResource StatValue}"
+                                   Foreground="{Binding ClockSyncStatusColor}"/>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Uncertainty" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
-                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ClockUncertaintyDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Clock Offset" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ClockOffsetDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
 
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Drift Rate" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
-                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DriftRateDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Uncertainty" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ClockUncertaintyDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
 
-                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Measurements" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
-                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding MeasurementCount}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Drift Rate" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DriftRateDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Measurements" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding MeasurementCount}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Static Delay" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding StaticDelayDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"
+                                   Foreground="#60a5fa"/>
                     </Grid>
                 </Border>
 

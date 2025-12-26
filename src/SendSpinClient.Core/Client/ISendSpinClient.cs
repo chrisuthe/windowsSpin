@@ -60,6 +60,12 @@ public interface ISendSpinClient : IAsyncDisposable
     Task SetVolumeAsync(int volume);
 
     /// <summary>
+    /// Clears the audio buffer, causing the pipeline to restart buffering.
+    /// Use this when audio sync parameters change and you want immediate effect.
+    /// </summary>
+    void ClearAudioBuffer();
+
+    /// <summary>
     /// Event raised when connection state changes.
     /// </summary>
     event EventHandler<ConnectionStateChangedEventArgs>? ConnectionStateChanged;

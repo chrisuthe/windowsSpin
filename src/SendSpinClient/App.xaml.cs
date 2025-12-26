@@ -92,7 +92,17 @@ public partial class App : Application
         services.AddSingleton<ClientCapabilities>();
 
         // Clock synchronization for multi-room audio sync
-        services.AddSingleton<IClockSynchronizer, KalmanClockSynchronizer>();
+        services.AddSingleton<IClockSynchronizer>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILogger<KalmanClockSynchronizer>>();
+            var clockSync = new KalmanClockSynchronizer(logger);
+
+            // Apply static delay from configuration
+            var staticDelayMs = _configuration!.GetValue<double>("Audio:StaticDelayMs", 0);
+            clockSync.StaticDelayMs = staticDelayMs;
+
+            return clockSync;
+        });
 
         // Audio pipeline components
         services.AddSingleton<IAudioDecoderFactory, AudioDecoderFactory>();

@@ -166,6 +166,13 @@ public partial class MainViewModel : ViewModelBase
     private bool _settingsEnableConsoleLogging;
 
     /// <summary>
+    /// Gets or sets the static delay in milliseconds for audio sync tuning.
+    /// Positive values delay playback (play later), negative advance it (play earlier).
+    /// </summary>
+    [ObservableProperty]
+    private double _settingsStaticDelayMs;
+
+    /// <summary>
     /// Gets the path where log files are stored.
     /// </summary>
     public string LogFilePath => Path.Combine(
@@ -909,6 +916,99 @@ public partial class MainViewModel : ViewModelBase
         UpdateTrayToolTip();
     }
 
+    private CancellationTokenSource? _staticDelayClearCts;
+    private CancellationTokenSource? _staticDelaySaveCts;
+
+    /// <summary>
+    /// Called when the static delay setting changes.
+    /// Applies the new delay immediately to the clock synchronizer.
+    /// Buffer clear and save are debounced to avoid issues while dragging slider.
+    /// </summary>
+    partial void OnSettingsStaticDelayMsChanged(double value)
+    {
+        // Apply delay value immediately (this is cheap)
+        _clockSynchronizer.StaticDelayMs = value;
+
+        // Debounce buffer clear - only clear after user stops adjusting for 300ms
+        _staticDelayClearCts?.Cancel();
+        _staticDelayClearCts = new CancellationTokenSource();
+        var clearCts = _staticDelayClearCts;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(300, clearCts.Token);
+                if (!clearCts.Token.IsCancellationRequested)
+                {
+                    _audioPipeline.Clear();
+                    _logger.LogDebug("Static delay changed to {DelayMs}ms, audio buffer cleared", value);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Slider still being adjusted, ignore
+            }
+        });
+
+        // Debounce auto-save - save after user stops adjusting for 1 second
+        _staticDelaySaveCts?.Cancel();
+        _staticDelaySaveCts = new CancellationTokenSource();
+        var saveCts = _staticDelaySaveCts;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(1000, saveCts.Token);
+                if (!saveCts.Token.IsCancellationRequested)
+                {
+                    await SaveStaticDelayAsync(value);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Slider still being adjusted, ignore
+            }
+        });
+    }
+
+    /// <summary>
+    /// Saves only the static delay setting to appsettings.json.
+    /// </summary>
+    private async Task SaveStaticDelayAsync(double value)
+    {
+        try
+        {
+            var appSettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
+
+            JsonNode? root;
+            if (File.Exists(appSettingsPath))
+            {
+                var json = await File.ReadAllTextAsync(appSettingsPath);
+                root = JsonNode.Parse(json) ?? new JsonObject();
+            }
+            else
+            {
+                root = new JsonObject();
+            }
+
+            var audioSection = root["Audio"]?.AsObject() ?? new JsonObject();
+            audioSection["StaticDelayMs"] = value;
+            root["Audio"] = audioSection;
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var updatedJson = root.ToJsonString(options);
+            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+
+            _logger.LogInformation("Static delay saved: {DelayMs}ms", value);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to auto-save static delay");
+        }
+    }
+
     partial void OnVolumeChanged(int value)
     {
         // Don't send commands when updating from server state
@@ -948,7 +1048,7 @@ public partial class MainViewModel : ViewModelBase
     #region Settings
 
     /// <summary>
-    /// Loads the current logging settings from configuration.
+    /// Loads the current logging and audio settings from configuration.
     /// </summary>
     private void LoadLoggingSettings()
     {
@@ -958,6 +1058,9 @@ public partial class MainViewModel : ViewModelBase
         SettingsLogLevel = settings.LogLevel ?? "Information";
         SettingsEnableFileLogging = settings.EnableFileLogging;
         SettingsEnableConsoleLogging = settings.EnableConsoleLogging;
+
+        // Load audio settings
+        SettingsStaticDelayMs = _configuration.GetValue<double>("Audio:StaticDelayMs", 0);
     }
 
     /// <summary>
@@ -1007,16 +1110,22 @@ public partial class MainViewModel : ViewModelBase
             loggingSection["EnableConsoleLogging"] = SettingsEnableConsoleLogging;
             root["Logging"] = loggingSection;
 
+            // Update audio section
+            var audioSection = root["Audio"]?.AsObject() ?? new JsonObject();
+            audioSection["StaticDelayMs"] = SettingsStaticDelayMs;
+            root["Audio"] = audioSection;
+
             // Write back with nice formatting
             var options = new JsonSerializerOptions { WriteIndented = true };
             var updatedJson = root.ToJsonString(options);
             await File.WriteAllTextAsync(appSettingsPath, updatedJson);
 
-            _logger.LogInformation("Settings saved: LogLevel={LogLevel}, FileLogging={FileLogging}, ConsoleLogging={ConsoleLogging}",
-                SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging);
+            _logger.LogInformation("Settings saved: LogLevel={LogLevel}, FileLogging={FileLogging}, ConsoleLogging={ConsoleLogging}, StaticDelayMs={StaticDelayMs}",
+                SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging, SettingsStaticDelayMs);
 
             // Show success and close settings
-            StatusMessage = "Settings saved. Restart app for changes to take effect.";
+            // Static delay takes effect immediately; logging changes require restart
+            StatusMessage = "Settings saved. Logging changes require restart.";
             IsSettingsOpen = false;
         }
         catch (Exception ex)

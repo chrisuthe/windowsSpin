@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using SendSpinClient.Core.Synchronization;
 
 namespace SendSpinClient.Core.Protocol.Messages;
 
@@ -34,13 +35,22 @@ public sealed class ClientTimeMessage : IMessageWithPayload<ClientTimePayload>
     }
 
     /// <summary>
-    /// Gets the current monotonic timestamp in microseconds.
-    /// Uses Stopwatch for high precision.
+    /// Gets the current timestamp in microseconds using the shared high-precision timer.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// CRITICAL: This MUST use the same timer as audio playback timing (HighPrecisionTimer).
+    /// Previously this used raw Stopwatch ticks while audio used Unix-based time from
+    /// HighPrecisionTimer, causing a time base mismatch of billions of seconds!
+    /// </para>
+    /// <para>
+    /// The clock offset calculation works correctly as long as T1/T4 (client times)
+    /// are in the same time base as the audio playback timer.
+    /// </para>
+    /// </remarks>
     public static long GetCurrentTimestampMicroseconds()
     {
-        return System.Diagnostics.Stopwatch.GetTimestamp() * 1_000_000L
-               / System.Diagnostics.Stopwatch.Frequency;
+        return HighPrecisionTimer.Shared.GetCurrentTimeMicroseconds();
     }
 }
 

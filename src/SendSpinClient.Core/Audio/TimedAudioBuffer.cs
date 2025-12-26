@@ -432,31 +432,33 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     /// <remarks>
     /// <para>
     /// Sync error calculation:
-    /// - Expected position: Based on elapsed local time since playback started
+    /// - Expected position: Based on elapsed SERVER time since playback started
     /// - Actual position: Based on samples we've actually output
     /// - Error = Expected - Actual (positive = we're behind, negative = we're ahead)
     /// </para>
     /// <para>
-    /// This is similar to how the Python CLI tracks sync error, enabling future
-    /// drift correction via sample drop/insert.
+    /// CRITICAL: We must use ClientToServerTime to convert current local time to server time.
+    /// Simply adding elapsed local time assumes clocks run at the same rate, which is wrong
+    /// if there's drift. Without this correction, the sync error accumulates incorrectly
+    /// on each play/pause/play cycle, causing progressive desync.
     /// </para>
     /// </remarks>
     private void CalculateSyncError(long currentLocalTime)
     {
-        // How much local time has elapsed since playback started?
-        var elapsedLocalTimeMicroseconds = currentLocalTime - _playbackStartLocalTime;
+        // Convert current local time to server time, properly accounting for drift
+        // This is critical: we can't just add elapsed local time because clocks drift!
+        var currentServerTime = _clockSync.ClientToServerTime(currentLocalTime);
 
-        // What server timestamp SHOULD we be at based on elapsed time?
-        // (Apply clock offset/drift to convert local elapsed time to server elapsed time)
-        var expectedServerTime = _playbackStartServerTime + elapsedLocalTimeMicroseconds;
+        // How much server time has elapsed since playback started?
+        var elapsedServerTimeMicroseconds = currentServerTime - _playbackStartServerTime;
 
         // What server timestamp ARE we at based on samples output?
         // Each sample represents a fixed duration of server time
         var actualServerTimeDelta = (long)(_samplesPlayedSinceStart * _microsecondsPerSample);
-        var actualServerTime = _playbackStartServerTime + actualServerTimeDelta;
 
         // Sync error: positive means we're behind (playing late), negative means ahead (playing early)
-        _currentSyncErrorMicroseconds = expectedServerTime - actualServerTime;
+        // Compare elapsed server time (what we SHOULD have played) vs actual output (what we DID play)
+        _currentSyncErrorMicroseconds = elapsedServerTimeMicroseconds - actualServerTimeDelta;
     }
 
     /// <summary>

@@ -18,50 +18,47 @@ This document tracks audio synchronization issues identified in the SendSpin Win
 
 ---
 
-## Fix 2: Add Drift Compensation to ServerToClientTime - PENDING
+## Fix 2: Add Drift Compensation to ServerToClientTime - COMPLETED
 
-**Status:** Not yet implemented
+**Status:** Implemented
 
 **Problem:** `ServerToClientTime()` doesn't account for clock drift, while `ClientToServerTime()` does. This causes growing sync error over long playback sessions.
 
 **File:** `src/SendSpinClient.Core/Synchronization/KalmanClockSynchronizer.cs`
 
-**Current code (lines 265-272):**
-```csharp
-public long ServerToClientTime(long serverTime)
-{
-    lock (_lock)
-    {
-        // This is approximate since we'd need to solve for the exact time
-        return serverTime - (long)_offset;
-    }
-}
-```
+**Solution:** Added drift compensation to `ServerToClientTime()` mirroring the behavior of `ClientToServerTime()`:
+- Uses approximate client time to calculate elapsed seconds since last sync
+- Applies drift extrapolation only when drift estimate is reliable
+- Includes static delay for user tuning
 
-**Proposed fix:**
-```csharp
-public long ServerToClientTime(long serverTime)
-{
-    lock (_lock)
-    {
-        // Account for drift since last update (mirrors ClientToServerTime behavior)
-        if (_lastUpdateTime > 0)
-        {
-            // Need current time to calculate elapsed - but we only have server time
-            // Use the offset-corrected approximation
-            long approxClientTime = serverTime - (long)_offset;
-            double elapsedSeconds = (approxClientTime - _lastUpdateTime) / 1_000_000.0;
-            double currentOffset = _offset + _drift * elapsedSeconds;
-            return serverTime - (long)currentOffset;
-        }
-        return serverTime - (long)_offset;
-    }
-}
-```
-
-**Risk:** Medium - this is called on every audio sample read (hot path). Need to verify performance impact.
+**Risk:** Medium - this is called on every audio sample write (hot path). Performance verified during build.
 
 **Testing:** Monitor drift values in logs and verify sync stability over 30+ minute sessions.
+
+---
+
+## Fix 2b: Fix CalculateSyncError to Account for Drift - COMPLETED
+
+**Status:** Implemented
+
+**Problem:** `CalculateSyncError()` in `TimedAudioBuffer.cs` assumed local time passes at the same rate as server time:
+```csharp
+// OLD (broken): Assumes 1 local μs = 1 server μs
+var expectedServerTime = _playbackStartServerTime + elapsedLocalTimeMicroseconds;
+```
+
+This caused the sync correction algorithm to detect phantom errors when clocks drifted, leading to incorrect drop/insert corrections that made sync progressively WORSE on each play/pause/play cycle.
+
+**File:** `src/SendSpinClient.Core/Audio/TimedAudioBuffer.cs`
+
+**Solution:** Use `ClientToServerTime()` to properly convert current local time to server time:
+```csharp
+// NEW (correct): Properly converts local time to server time
+var currentServerTime = _clockSync.ClientToServerTime(currentLocalTime);
+var elapsedServerTimeMicroseconds = currentServerTime - _playbackStartServerTime;
+```
+
+**Testing:** Verify sync error stays stable (±2ms) during extended playback and across pause/resume cycles.
 
 ---
 

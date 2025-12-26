@@ -33,6 +33,7 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
     private readonly double _processNoiseOffset;   // How much offset can change per second
     private readonly double _processNoiseDrift;    // How much drift rate can change per second
     private readonly double _measurementNoise;     // Expected measurement noise (RTT variance)
+    private long _staticDelayMicroseconds;         // User-configurable playback delay
 
     // Convergence tracking
     private const int MinMeasurementsForConvergence = 5;
@@ -292,13 +293,54 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
     /// </summary>
     /// <param name="serverTime">Server time in microseconds.</param>
     /// <returns>Estimated client time in microseconds.</returns>
+    /// <remarks>
+    /// <para>
+    /// Includes static delay: positive delay means play LATER (adds to client time).
+    /// This allows manual tuning to sync with other players.
+    /// </para>
+    /// <para>
+    /// Applies drift compensation when drift estimate is reliable, mirroring
+    /// the behavior of ClientToServerTime. This is critical for accurate audio
+    /// timestamp conversion during long playback sessions.
+    /// </para>
+    /// </remarks>
     public long ServerToClientTime(long serverTime)
     {
         lock (_lock)
         {
-            // This is approximate since we'd need to solve for the exact time
-            return serverTime - (long)_offset;
+            // Account for drift since last update (mirrors ClientToServerTime behavior)
+            // This is critical for audio sync - without drift compensation, timestamps
+            // drift apart during playback causing progressive sync errors
+            if (_lastUpdateTime > 0)
+            {
+                // We need elapsed time since last update to extrapolate drift.
+                // Use the approximate client time to calculate elapsed seconds.
+                long approxClientTime = serverTime - (long)_offset;
+                double elapsedSeconds = (approxClientTime - _lastUpdateTime) / 1_000_000.0;
+
+                // Only apply drift when we're confident in the estimate
+                bool driftReliable = _measurementCount >= MinMeasurementsForConvergence
+                                    && Math.Sqrt(_driftVariance) < MaxDriftUncertaintyForReliable;
+
+                double currentOffset = driftReliable
+                    ? _offset + _drift * elapsedSeconds
+                    : _offset;
+
+                return serverTime - (long)currentOffset + _staticDelayMicroseconds;
+            }
+
+            return serverTime - (long)_offset + _staticDelayMicroseconds;
         }
+    }
+
+    /// <summary>
+    /// Gets or sets the static delay in milliseconds.
+    /// Positive values delay playback (play later), negative values advance it (play earlier).
+    /// </summary>
+    public double StaticDelayMs
+    {
+        get => _staticDelayMicroseconds / 1000.0;
+        set => _staticDelayMicroseconds = (long)(value * 1000);
     }
 
     /// <summary>
@@ -356,6 +398,12 @@ public interface IClockSynchronizer
     /// Gets the current sync status.
     /// </summary>
     ClockSyncStatus GetStatus();
+
+    /// <summary>
+    /// Gets or sets the static delay in milliseconds.
+    /// Positive values delay playback (play later), negative values advance it (play earlier).
+    /// </summary>
+    double StaticDelayMs { get; set; }
 }
 
 /// <summary>
