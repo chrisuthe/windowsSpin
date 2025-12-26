@@ -109,7 +109,10 @@ public partial class App : Application
                 logger,
                 decoderFactory,
                 clockSync,
-                bufferFactory: (format, sync) => new TimedAudioBuffer(format, sync),
+                // Use 8 second buffer to match Python CLI's unbounded queue approach
+                // Server sends audio ~5 seconds ahead, so we need room to accumulate
+                // without constant overflow. Sync correction handles buffer depth.
+                bufferFactory: (format, sync) => new TimedAudioBuffer(format, sync, bufferCapacityMs: 8000),
                 playerFactory: () => sp.GetRequiredService<IAudioPlayer>(),
                 sourceFactory: (buffer, timeFunc) => new BufferedAudioSampleSource(buffer, timeFunc));
         });

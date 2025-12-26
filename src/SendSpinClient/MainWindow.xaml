@@ -437,8 +437,49 @@
                         <TextBlock Text="Note: Changes take effect after restarting the app."
                                    Style="{StaticResource CaptionText}"
                                    Foreground="{StaticResource WarningBrush}"
-                                   Margin="0,8,0,0"
+                                   Margin="0,8,0,16"
                                    TextWrapping="Wrap"/>
+
+                        <!-- Diagnostics Section -->
+                        <TextBlock Text="DIAGNOSTICS" Style="{StaticResource CaptionText}"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   Margin="0,0,0,12"/>
+
+                        <Button Command="{Binding OpenStatsWindowCommand}"
+                                Padding="12,10"
+                                HorizontalAlignment="Stretch"
+                                Background="{StaticResource SurfaceLightBrush}"
+                                Foreground="{StaticResource TextPrimaryBrush}"
+                                BorderThickness="0"
+                                Cursor="Hand">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border Background="{TemplateBinding Background}"
+                                                        CornerRadius="4"
+                                                        Padding="{TemplateBinding Padding}">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="&#x1F4CA;" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                        <StackPanel>
+                                                            <TextBlock Text="Stats for Nerds" FontWeight="SemiBold"/>
+                                                            <TextBlock Text="Real-time audio sync diagnostics"
+                                                                       FontSize="11" Opacity="0.7"/>
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
                     </StackPanel>
                 </ScrollViewer>
 

@@ -17,6 +17,7 @@ using SendSpinClient.Core.Models;
 using SendSpinClient.Core.Protocol.Messages;
 using SendSpinClient.Core.Synchronization;
 using SendSpinClient.Services.Notifications;
+using SendSpinClient.Views;
 
 namespace SendSpinClient.ViewModels;
 
@@ -1045,6 +1046,29 @@ public partial class MainViewModel : ViewModelBase
         {
             _logger.LogError(ex, "Failed to open log folder");
             SetError($"Failed to open log folder: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Opens the Stats for Nerds diagnostic window.
+    /// </summary>
+    [RelayCommand]
+    private void OpenStatsWindow()
+    {
+        try
+        {
+            var statsViewModel = new StatsViewModel(_audioPipeline, _clockSynchronizer);
+            var statsWindow = new StatsWindow(statsViewModel)
+            {
+                Owner = App.Current.MainWindow,
+            };
+            statsWindow.Show();
+            _logger.LogDebug("Stats window opened");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to open stats window");
+            SetError($"Failed to open stats window: {ex.Message}");
         }
     }
 
