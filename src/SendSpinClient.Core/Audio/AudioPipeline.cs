@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using SendSpinClient.Core.Models;
 using SendSpinClient.Core.Protocol;
@@ -39,6 +40,7 @@ public sealed class AudioPipeline : IAudioPipeline
     private readonly Func<AudioFormat, IClockSynchronizer, ITimedAudioBuffer> _bufferFactory;
     private readonly Func<IAudioPlayer> _playerFactory;
     private readonly Func<ITimedAudioBuffer, Func<long>, IAudioSampleSource> _sourceFactory;
+    private readonly IHighPrecisionTimer _precisionTimer;
 
     private IAudioDecoder? _decoder;
     private ITimedAudioBuffer? _buffer;
@@ -50,9 +52,14 @@ public sealed class AudioPipeline : IAudioPipeline
     private int _volume = 100;
     private bool _muted;
     private DateTime? _bufferReadyTime;
+    private long _lastSyncLogTime;
+    private long _chunksProcessed;
 
     // Maximum time to wait for clock sync convergence before starting playback anyway
     private static readonly TimeSpan MaxConvergenceWait = TimeSpan.FromSeconds(3);
+
+    // How often to log sync status during playback (microseconds)
+    private const long SyncLogIntervalMicroseconds = 5_000_000; // 5 seconds
 
     /// <inheritdoc/>
     public AudioPipelineState State { get; private set; } = AudioPipelineState.Idle;
@@ -78,13 +85,15 @@ public sealed class AudioPipeline : IAudioPipeline
     /// <param name="bufferFactory">Factory for creating timed audio buffers.</param>
     /// <param name="playerFactory">Factory for creating audio players.</param>
     /// <param name="sourceFactory">Factory for creating sample sources.</param>
+    /// <param name="precisionTimer">High-precision timer for accurate timing (optional, uses shared instance if null).</param>
     public AudioPipeline(
         ILogger<AudioPipeline> logger,
         IAudioDecoderFactory decoderFactory,
         IClockSynchronizer clockSync,
         Func<AudioFormat, IClockSynchronizer, ITimedAudioBuffer> bufferFactory,
         Func<IAudioPlayer> playerFactory,
-        Func<ITimedAudioBuffer, Func<long>, IAudioSampleSource> sourceFactory)
+        Func<ITimedAudioBuffer, Func<long>, IAudioSampleSource> sourceFactory,
+        IHighPrecisionTimer? precisionTimer = null)
     {
         _logger = logger;
         _decoderFactory = decoderFactory;
@@ -92,6 +101,19 @@ public sealed class AudioPipeline : IAudioPipeline
         _bufferFactory = bufferFactory;
         _playerFactory = playerFactory;
         _sourceFactory = sourceFactory;
+        _precisionTimer = precisionTimer ?? HighPrecisionTimer.Shared;
+
+        // Log timer precision at startup
+        if (HighPrecisionTimer.IsHighResolution)
+        {
+            _logger.LogDebug(
+                "Using high-precision timer with {Resolution:F2}ns resolution",
+                HighPrecisionTimer.GetResolutionNanoseconds());
+        }
+        else
+        {
+            _logger.LogWarning("High-resolution timing not available, sync accuracy may be reduced");
+        }
     }
 
     /// <inheritdoc/>
@@ -120,6 +142,12 @@ public sealed class AudioPipeline : IAudioPipeline
 
             // Create timed buffer
             _buffer = _bufferFactory(format, _clockSync);
+
+            // Subscribe to buffer reanchor event (if buffer supports it)
+            if (_buffer is TimedAudioBuffer timedBuffer)
+            {
+                timedBuffer.ReanchorRequired += OnReanchorRequired;
+            }
 
             // Create audio player
             _player = _playerFactory();
@@ -199,6 +227,13 @@ public sealed class AudioPipeline : IAudioPipeline
             {
                 // Add decoded samples to buffer with server timestamp
                 _buffer.Write(_decodeBuffer.AsSpan(0, samplesDecoded), chunk.ServerTimestamp);
+                _chunksProcessed++;
+
+                // Periodically log sync error during playback
+                if (State == AudioPipelineState.Playing)
+                {
+                    LogSyncStatusIfNeeded();
+                }
 
                 // Check if we should start playback
                 if (State == AudioPipelineState.Buffering && _buffer.IsReadyForPlayback)
@@ -264,13 +299,16 @@ public sealed class AudioPipeline : IAudioPipeline
     }
 
     /// <summary>
-    /// Gets the current local time in microseconds.
+    /// Gets the current local time in microseconds using high-precision timer.
     /// Used by the sample source to know when to release audio.
     /// </summary>
-    private static long GetCurrentLocalTimeMicroseconds()
+    /// <remarks>
+    /// Uses Stopwatch-based timing instead of DateTimeOffset for microsecond precision.
+    /// DateTimeOffset.UtcNow only has ~15ms resolution on Windows.
+    /// </remarks>
+    private long GetCurrentLocalTimeMicroseconds()
     {
-        // Use high-precision time - milliseconds * 1000 to microseconds
-        return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000;
+        return _precisionTimer.GetCurrentTimeMicroseconds();
     }
 
     private void StartPlayback()
@@ -285,12 +323,19 @@ public sealed class AudioPipeline : IAudioPipeline
             var syncStatus = _clockSync.GetStatus();
             _player.Play();
             _bufferReadyTime = null; // Reset for next buffering cycle
+
+            // Reset sync monitoring counters
+            _lastSyncLogTime = _precisionTimer.GetCurrentTimeMicroseconds();
+            _chunksProcessed = 0;
+
             SetState(AudioPipelineState.Playing);
             _logger.LogInformation(
-                "Starting playback: buffer={BufferMs:F0}ms, sync offset={OffsetMs:F2}ms (±{UncertaintyMs:F2}ms)",
+                "Starting playback: buffer={BufferMs:F0}ms, sync offset={OffsetMs:F2}ms (±{UncertaintyMs:F2}ms), " +
+                "timer resolution={ResolutionNs:F0}ns",
                 _buffer?.BufferedMilliseconds ?? 0,
                 syncStatus.OffsetMilliseconds,
-                syncStatus.OffsetUncertaintyMicroseconds / 1000.0);
+                syncStatus.OffsetUncertaintyMicroseconds / 1000.0,
+                HighPrecisionTimer.GetResolutionNanoseconds());
         }
         catch (Exception ex)
         {
@@ -311,6 +356,12 @@ public sealed class AudioPipeline : IAudioPipeline
             _player = null;
         }
 
+        // Unsubscribe from buffer events
+        if (_buffer is TimedAudioBuffer timedBuffer)
+        {
+            timedBuffer.ReanchorRequired -= OnReanchorRequired;
+        }
+
         _decoder?.Dispose();
         _decoder = null;
 
@@ -321,6 +372,20 @@ public sealed class AudioPipeline : IAudioPipeline
         _decodeBuffer = Array.Empty<float>();
         _currentFormat = null;
         _bufferReadyTime = null;
+    }
+
+    private void OnReanchorRequired(object? sender, EventArgs e)
+    {
+        var stats = _buffer?.GetStats();
+        _logger.LogWarning(
+            "Re-anchoring required: sync error {SyncErrorMs:F1}ms exceeds threshold. " +
+            "Dropped={Dropped}, Inserted={Inserted}. Clearing buffer for resync.",
+            stats?.SyncErrorMs ?? 0,
+            stats?.SamplesDroppedForSync ?? 0,
+            stats?.SamplesInsertedForSync ?? 0);
+
+        // Clear and restart buffering
+        Clear();
     }
 
     private void OnPlayerStateChanged(object? sender, AudioPlayerState state)
@@ -344,6 +409,66 @@ public sealed class AudioPipeline : IAudioPipeline
             _logger.LogDebug("Pipeline state: {OldState} -> {NewState}", State, newState);
             State = newState;
             StateChanged?.Invoke(this, newState);
+        }
+    }
+
+    /// <summary>
+    /// Logs sync status periodically during playback for monitoring drift.
+    /// </summary>
+    private void LogSyncStatusIfNeeded()
+    {
+        var currentTime = _precisionTimer.GetCurrentTimeMicroseconds();
+
+        // Only log every SyncLogIntervalMicroseconds
+        if (currentTime - _lastSyncLogTime < SyncLogIntervalMicroseconds)
+        {
+            return;
+        }
+
+        _lastSyncLogTime = currentTime;
+        var stats = _buffer?.GetStats();
+        var clockStatus = _clockSync.GetStatus();
+
+        if (stats is { IsPlaybackActive: true })
+        {
+            var syncErrorMs = stats.SyncErrorMs;
+            var absError = Math.Abs(syncErrorMs);
+
+            // Format correction mode for logging
+            var correctionInfo = stats.CurrentCorrectionMode switch
+            {
+                SyncCorrectionMode.Dropping => $"DROPPING (dropped={stats.SamplesDroppedForSync})",
+                SyncCorrectionMode.Inserting => $"INSERTING (inserted={stats.SamplesInsertedForSync})",
+                _ => "none",
+            };
+
+            // Use appropriate log level based on sync error magnitude
+            if (absError > 50) // > 50ms - significant drift
+            {
+                _logger.LogWarning(
+                    "Sync drift detected: error={SyncErrorMs:+0.00;-0.00}ms, correction={Correction}, " +
+                    "buffer={BufferMs:F0}ms, chunks={Chunks}",
+                    syncErrorMs,
+                    correctionInfo,
+                    stats.BufferedMs,
+                    _chunksProcessed);
+            }
+            else if (absError > 10) // > 10ms - noticeable
+            {
+                _logger.LogInformation(
+                    "Sync status: error={SyncErrorMs:+0.00;-0.00}ms, correction={Correction}, " +
+                    "buffer={BufferMs:F0}ms",
+                    syncErrorMs,
+                    correctionInfo,
+                    stats.BufferedMs);
+            }
+            else // < 10ms - good sync
+            {
+                _logger.LogDebug(
+                    "Sync OK: error={SyncErrorMs:+0.00;-0.00}ms, buffer={BufferMs:F0}ms",
+                    syncErrorMs,
+                    stats.BufferedMs);
+            }
         }
     }
 }

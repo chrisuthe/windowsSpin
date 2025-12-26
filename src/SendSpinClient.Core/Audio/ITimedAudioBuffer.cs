@@ -100,4 +100,61 @@ public record AudioBufferStats
     /// Gets the total samples read from the buffer.
     /// </summary>
     public long TotalSamplesRead { get; init; }
+
+    /// <summary>
+    /// Gets the current sync error in microseconds.
+    /// Positive = playing late (behind schedule), Negative = playing early (ahead of schedule).
+    /// </summary>
+    /// <remarks>
+    /// This is the difference between where playback SHOULD be based on elapsed time
+    /// versus where it actually IS based on samples output. Used to detect drift
+    /// that may require correction via sample drop/insert.
+    /// </remarks>
+    public long SyncErrorMicroseconds { get; init; }
+
+    /// <summary>
+    /// Gets the sync error in milliseconds (convenience property).
+    /// </summary>
+    public double SyncErrorMs => SyncErrorMicroseconds / 1000.0;
+
+    /// <summary>
+    /// Gets whether playback is currently active.
+    /// </summary>
+    public bool IsPlaybackActive { get; init; }
+
+    /// <summary>
+    /// Gets the number of samples dropped for sync correction (to speed up playback).
+    /// </summary>
+    public long SamplesDroppedForSync { get; init; }
+
+    /// <summary>
+    /// Gets the number of samples inserted for sync correction (to slow down playback).
+    /// </summary>
+    public long SamplesInsertedForSync { get; init; }
+
+    /// <summary>
+    /// Gets the current sync correction mode.
+    /// </summary>
+    public SyncCorrectionMode CurrentCorrectionMode { get; init; }
+}
+
+/// <summary>
+/// Indicates the current sync correction mode.
+/// </summary>
+public enum SyncCorrectionMode
+{
+    /// <summary>
+    /// No correction needed - sync error within deadband.
+    /// </summary>
+    None,
+
+    /// <summary>
+    /// Dropping samples to catch up (playing too slow).
+    /// </summary>
+    Dropping,
+
+    /// <summary>
+    /// Inserting samples to slow down (playing too fast).
+    /// </summary>
+    Inserting,
 }
