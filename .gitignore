@@ -149,3 +149,4 @@ secrets.json
 
 # Windows temp/short filenames
 *~*
+*.mp4
