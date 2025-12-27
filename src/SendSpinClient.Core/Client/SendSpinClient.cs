@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using SendSpinClient.Core.Audio;
 using SendSpinClient.Core.Connection;
+using SendSpinClient.Core.Extensions;
 using SendSpinClient.Core.Models;
 using SendSpinClient.Core.Protocol;
 using SendSpinClient.Core.Protocol.Messages;
@@ -217,11 +218,11 @@ public sealed class SendSpinClientService : ISendSpinClient
                     break;
 
                 case MessageTypes.StreamStart:
-                    _ = HandleStreamStartAsync(json);
+                    HandleStreamStartAsync(json).SafeFireAndForget(_logger);
                     break;
 
                 case MessageTypes.StreamEnd:
-                    _ = HandleStreamEndAsync(json);
+                    HandleStreamEndAsync(json).SafeFireAndForget(_logger);
                     break;
 
                 case MessageTypes.StreamClear:
@@ -274,7 +275,7 @@ public sealed class SendSpinClientService : ISendSpinClient
 
         // Send initial client state (required by protocol after server/hello)
         // This tells the server we're synchronized and ready
-        _ = SendInitialClientStateAsync();
+        SendInitialClientStateAsync().SafeFireAndForget(_logger);
 
         // Start time synchronization loop with adaptive intervals
         StartTimeSyncLoop();

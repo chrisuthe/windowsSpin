@@ -164,11 +164,12 @@ public sealed class SendSpinHostService : IAsyncDisposable
 
     private async void OnServerConnected(object? sender, IWebSocketConnection webSocket)
     {
-        var connectionId = Guid.NewGuid().ToString("N")[..8];
-        _logger.LogInformation("New server connection: {ConnectionId}", connectionId);
-
+        // All code must be inside try-catch since async void exceptions crash the app
+        string? connectionId = null;
         try
         {
+            connectionId = Guid.NewGuid().ToString("N")[..8];
+            _logger.LogInformation("New server connection: {ConnectionId}", connectionId);
             // Create connection wrapper for Fleck socket
             var connection = new IncomingConnection(
                 _loggerFactory.CreateLogger<IncomingConnection>(),
@@ -259,7 +260,7 @@ public sealed class SendSpinHostService : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error handling server connection {ConnectionId}", connectionId);
+            _logger.LogError(ex, "Error handling server connection {ConnectionId}", connectionId ?? "unknown");
         }
     }
 
