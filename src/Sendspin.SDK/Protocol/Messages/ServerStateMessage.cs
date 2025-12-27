@@ -81,21 +81,25 @@ public sealed class PlaybackProgress
 {
     /// <summary>
     /// Current position in milliseconds.
+    /// Using double to handle servers that send numeric values as floats.
     /// </summary>
     [JsonPropertyName("track_progress")]
-    public int TrackProgress { get; init; }
+    public double? TrackProgress { get; init; }
 
     /// <summary>
     /// Total duration in milliseconds.
+    /// Using double to handle servers that send numeric values as floats.
+    /// Nullable for streams with unknown duration.
     /// </summary>
     [JsonPropertyName("track_duration")]
-    public int TrackDuration { get; init; }
+    public double? TrackDuration { get; init; }
 
     /// <summary>
     /// Playback speed (1000 = normal speed).
+    /// Using double to handle servers that send numeric values as floats.
     /// </summary>
     [JsonPropertyName("playback_speed")]
-    public int PlaybackSpeed { get; init; } = 1000;
+    public double? PlaybackSpeed { get; init; }
 }
 
 /// <summary>

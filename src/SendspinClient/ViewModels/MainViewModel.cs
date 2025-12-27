@@ -403,6 +403,9 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private async Task ConnectToServerAsync()
     {
+        // Clear any previous error when starting a new connection attempt
+        ClearError();
+
         if (string.IsNullOrWhiteSpace(ManualServerUrl))
         {
             StatusMessage = "Please enter a server URL";
@@ -851,6 +854,9 @@ public partial class MainViewModel : ViewModelBase
 
     private async Task AutoConnectToServerAsync(DiscoveredServer server)
     {
+        // Clear any previous error when starting a new connection attempt
+        ClearError();
+
         if (IsConnected)
         {
             _logger.LogDebug("Already connected, skipping auto-connect");
