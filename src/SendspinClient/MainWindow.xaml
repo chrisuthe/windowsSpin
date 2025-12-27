@@ -9,8 +9,8 @@
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="Sendspin Client"
         Icon="Resources/Icons/sendspinDesktop.ico"
-        Height="580" Width="400"
-        MinHeight="500" MinWidth="350"
+        Height="630" Width="400"
+        MinHeight="550" MinWidth="350"
         Background="{StaticResource BackgroundDarkBrush}"
         WindowStyle="SingleBorderWindow">
 
