@@ -5,8 +5,8 @@
 using Microsoft.Extensions.Logging;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
-using SendSpinClient.Core.Audio;
-using SendSpinClient.Core.Models;
+using SendSpin.SDK.Audio;
+using SendSpin.SDK.Models;
 
 namespace SendSpinClient.Services.Audio;
 

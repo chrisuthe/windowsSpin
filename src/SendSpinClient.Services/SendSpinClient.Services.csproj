@@ -15,7 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\SendSpinClient.Core\SendSpinClient.Core.csproj" />
+    <ProjectReference Include="..\SendSpin.SDK\SendSpin.SDK.csproj" />
   </ItemGroup>
 
 </Project>

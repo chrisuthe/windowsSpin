@@ -2,8 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
-using SendSpinClient.Core.Audio;
-using SendSpinClient.Core.Models;
+using SendSpin.SDK.Audio;
+using SendSpin.SDK.Models;
 
 namespace SendSpinClient.Services.Audio;
 
