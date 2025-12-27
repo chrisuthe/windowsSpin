@@ -24,6 +24,7 @@ public sealed class SendSpinClientService : ISendSpinClient
     private GroupState? _currentGroup;
     private CancellationTokenSource? _timeSyncCts;
     private Task? _timeSyncTask;
+    private bool _disposed;
 
     // Burst sync configuration - send multiple messages and use smallest RTT
     private const int BurstSize = 8;
@@ -65,6 +66,7 @@ public sealed class SendSpinClientService : ISendSpinClient
 
     public async Task ConnectAsync(Uri serverUri, CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         _logger.LogInformation("Connecting to {Uri}", serverUri);
 
         // Connect WebSocket
@@ -126,6 +128,8 @@ public sealed class SendSpinClientService : ISendSpinClient
 
     public async Task DisconnectAsync(string reason = "user_request")
     {
+        if (_disposed) return;
+
         _logger.LogInformation("Disconnecting: {Reason}", reason);
 
         // Stop time sync loop
@@ -747,12 +751,16 @@ public sealed class SendSpinClientService : ISendSpinClient
 
     public async ValueTask DisposeAsync()
     {
+        if (_disposed) return;
+        _disposed = true;
+
         StopTimeSyncLoop();
 
-        // Stop audio pipeline
+        // NOTE: We do NOT dispose _audioPipeline here - it's a shared singleton
+        // managed by the DI container. We only stop playback if active.
         if (_audioPipeline != null)
         {
-            await _audioPipeline.DisposeAsync();
+            await _audioPipeline.StopAsync();
         }
 
         _connection.StateChanged -= OnConnectionStateChanged;

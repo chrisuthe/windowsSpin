@@ -41,6 +41,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly HttpClient _httpClient;
     private SendSpinClientService? _manualClient;
     private ISendSpinConnection? _manualConnection;
+    private readonly SemaphoreSlim _cleanupLock = new(1, 1);
     private string? _lastArtworkUrl;
     private string? _autoConnectedServerId;
     private bool _autoReconnectEnabled = true;
@@ -390,21 +391,29 @@ public partial class MainViewModel : ViewModelBase
 
         try
         {
-            // Parse the URL
-            if (!Uri.TryCreate(ManualServerUrl, UriKind.Absolute, out var serverUri))
+            // Normalize the URL - auto-prepend ws:// if no scheme provided
+            var urlToParse = ManualServerUrl.Trim();
+            if (!urlToParse.StartsWith("ws://", StringComparison.OrdinalIgnoreCase) &&
+                !urlToParse.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
             {
-                StatusMessage = "Invalid URL format";
+                urlToParse = "ws://" + urlToParse;
+            }
+
+            // Parse the URL
+            if (!Uri.TryCreate(urlToParse, UriKind.Absolute, out var serverUri))
+            {
+                StatusMessage = "Invalid URL format. Example: 10.0.2.8:8927";
                 IsConnecting = false;
                 return;
             }
 
-            // Validate WebSocket scheme
-            if (serverUri.Scheme != "ws" && serverUri.Scheme != "wss")
+            // Ensure the path includes /sendspin if not specified
+            if (string.IsNullOrEmpty(serverUri.AbsolutePath) || serverUri.AbsolutePath == "/")
             {
-                StatusMessage = "URL must start with ws:// or wss://";
-                IsConnecting = false;
-                return;
+                serverUri = new Uri(serverUri, "/sendspin");
             }
+
+            _logger.LogInformation("Normalized URL: {OriginalUrl} -> {NormalizedUrl}", ManualServerUrl, serverUri);
 
             // Create the connection and client service
             _manualConnection = new SendSpinConnection(
@@ -466,8 +475,15 @@ public partial class MainViewModel : ViewModelBase
 
     private async Task CleanupManualClientAsync()
     {
-        if (_manualClient != null)
+        // Use semaphore to prevent concurrent cleanup calls from racing
+        // This can happen when connection failure triggers both an event handler
+        // and an exception handler that both try to cleanup
+        await _cleanupLock.WaitAsync();
+        try
         {
+            if (_manualClient == null)
+                return;
+
             _manualClient.ConnectionStateChanged -= OnManualClientConnectionStateChanged;
             _manualClient.GroupStateChanged -= OnManualClientGroupStateChanged;
             _manualClient.ArtworkReceived -= OnManualClientArtworkReceived;
@@ -484,6 +500,10 @@ public partial class MainViewModel : ViewModelBase
 
             _manualClient = null;
             _manualConnection = null;
+        }
+        finally
+        {
+            _cleanupLock.Release();
         }
     }
 
@@ -1280,11 +1300,18 @@ public partial class MainViewModel : ViewModelBase
         _volumeDebouncesCts?.Dispose();
         _volumeDebouncesCts = null;
 
+        // Cancel any pending static delay debounce
+        _staticDelayClearCts?.Cancel();
+        _staticDelayClearCts?.Dispose();
+        _staticDelaySaveCts?.Cancel();
+        _staticDelaySaveCts?.Dispose();
+
         // Stop server discovery
         await _serverDiscovery.StopAsync();
 
         // Cleanup manual client
         await CleanupManualClientAsync();
+        _cleanupLock.Dispose();
 
         // Stop host service
         await _hostService.StopAsync();
