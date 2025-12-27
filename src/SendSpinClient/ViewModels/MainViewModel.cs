@@ -38,7 +38,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly IAudioPipeline _audioPipeline;
     private readonly IClockSynchronizer _clockSynchronizer;
     private readonly INotificationService _notificationService;
-    private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
     private SendSpinClientService? _manualClient;
     private ISendSpinConnection? _manualConnection;
     private readonly SemaphoreSlim _cleanupLock = new(1, 1);
@@ -219,7 +219,8 @@ public partial class MainViewModel : ViewModelBase
         MdnsServerDiscovery serverDiscovery,
         IAudioPipeline audioPipeline,
         IClockSynchronizer clockSynchronizer,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -229,8 +230,7 @@ public partial class MainViewModel : ViewModelBase
         _audioPipeline = audioPipeline;
         _clockSynchronizer = clockSynchronizer;
         _notificationService = notificationService;
-        _httpClient = new HttpClient();
-        _httpClient.Timeout = TimeSpan.FromSeconds(10);
+        _httpClientFactory = httpClientFactory;
 
         // Load current logging settings
         LoadLoggingSettings();
@@ -604,7 +604,8 @@ public partial class MainViewModel : ViewModelBase
         try
         {
             _logger.LogDebug("Fetching artwork from {Url}", url);
-            var imageData = await _httpClient.GetByteArrayAsync(artworkUri);
+            using var httpClient = _httpClientFactory.CreateClient("Artwork");
+            var imageData = await httpClient.GetByteArrayAsync(artworkUri);
 
             App.Current.Dispatcher.Invoke(() =>
             {
@@ -1316,7 +1317,6 @@ public partial class MainViewModel : ViewModelBase
         // Stop host service
         await _hostService.StopAsync();
 
-        // Dispose HTTP client
-        _httpClient?.Dispose();
+        // Note: HttpClient is managed by IHttpClientFactory, no manual disposal needed
     }
 }

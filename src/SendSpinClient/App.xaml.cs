@@ -141,6 +141,13 @@ public partial class App : Application
             return new SendSpinHostService(loggerFactory, capabilities);
         });
 
+        // HTTP client factory for proper HttpClient lifecycle management
+        // Named client "Artwork" is used for fetching album artwork
+        services.AddHttpClient("Artwork", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+
         // Notification service for toast notifications
         // Uses Windows Toast API via Microsoft.Toolkit.Uwp.Notifications
         services.AddSingleton<INotificationService>(sp =>
