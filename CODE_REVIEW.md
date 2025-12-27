@@ -134,7 +134,7 @@ private async void OnServerConnected(object? sender, IWebSocketConnection webSoc
 
 ---
 
-### 4. [ ] Task.Run Event Invocation Outside Lock Can Race
+### 4. [x] Task.Run Event Invocation Outside Lock Can Race (FIXED)
 
 **File:** `src/SendSpinClient.Core/Audio/TimedAudioBuffer.cs:251`
 
