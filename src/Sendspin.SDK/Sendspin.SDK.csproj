@@ -8,18 +8,18 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
     <Description>Cross-platform SDK for the Sendspin synchronized multi-room audio protocol. Connect to Music Assistant servers and play synchronized audio across multiple devices.</Description>
     <PackageTags>sendspin;audio;multiroom;sync;music-assistant;streaming</PackageTags>
-    <PackageProjectUrl>https://github.com/music-assistant/sendspin</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/music-assistant/sendspin</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/chrisuthe/windowsSpin</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/chrisuthe/windowsSpin</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageReleaseNotes>Initial release of the Sendspin SDK.</PackageReleaseNotes>
+    <PackageReleaseNotes>Fixed package metadata URLs to point to correct repository.</PackageReleaseNotes>
     <Copyright>Copyright © 2024 Sendspin Contributors</Copyright>
 
     <!-- Enable source link for debugging -->
