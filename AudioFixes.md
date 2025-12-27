@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document tracks audio synchronization issues identified in the SendSpin Windows Client. The time sync was reported as being 5 seconds ahead by testers.
+This document tracks audio synchronization issues identified in the Sendspin Windows Client. The time sync was reported as being 5 seconds ahead by testers.
 
 ---
 
@@ -14,7 +14,7 @@ This document tracks audio synchronization issues identified in the SendSpin Win
 
 **Solution:** Added `_clockSync.IsConverged` check before starting playback.
 
-**File:** `src/SendSpinClient.Core/Audio/AudioPipeline.cs:198-205`
+**File:** `src/SendspinClient.Core/Audio/AudioPipeline.cs:198-205`
 
 ---
 
@@ -24,7 +24,7 @@ This document tracks audio synchronization issues identified in the SendSpin Win
 
 **Problem:** `ServerToClientTime()` doesn't account for clock drift, while `ClientToServerTime()` does. This causes growing sync error over long playback sessions.
 
-**File:** `src/SendSpinClient.Core/Synchronization/KalmanClockSynchronizer.cs`
+**File:** `src/SendspinClient.Core/Synchronization/KalmanClockSynchronizer.cs`
 
 **Solution:** Added drift compensation to `ServerToClientTime()` mirroring the behavior of `ClientToServerTime()`:
 - Uses approximate client time to calculate elapsed seconds since last sync
@@ -49,7 +49,7 @@ var expectedServerTime = _playbackStartServerTime + elapsedLocalTimeMicroseconds
 
 This caused the sync correction algorithm to detect phantom errors when clocks drifted, leading to incorrect drop/insert corrections that made sync progressively WORSE on each play/pause/play cycle.
 
-**File:** `src/SendSpinClient.Core/Audio/TimedAudioBuffer.cs`
+**File:** `src/SendspinClient.Core/Audio/TimedAudioBuffer.cs`
 
 **Solution:** Use `ClientToServerTime()` to properly convert current local time to server time:
 ```csharp
@@ -86,17 +86,17 @@ The audio pipeline has these latency sources:
 ### Key Files
 
 1. **TimedAudioBuffer.cs** - Where playback timing decision is made
-   - Path: `src/SendSpinClient.Core/Audio/TimedAudioBuffer.cs`
+   - Path: `src/SendspinClient.Core/Audio/TimedAudioBuffer.cs`
    - Line 171: `if (currentLocalTime < firstSegment.LocalPlaybackTime - 5000)` (5ms early tolerance)
    - This is where latency compensation should be applied
 
 2. **WasapiAudioPlayer.cs** - WASAPI output configuration
-   - Path: `src/SendSpinClient.Services/Audio/WasapiAudioPlayer.cs`
+   - Path: `src/SendspinClient.Services/Audio/WasapiAudioPlayer.cs`
    - Line 100-102: Creates WasapiOut with 50ms latency
    - Can query actual latency via NAudio
 
 3. **AudioPipeline.cs** - Orchestrates the pipeline
-   - Path: `src/SendSpinClient.Core/Audio/AudioPipeline.cs`
+   - Path: `src/SendspinClient.Core/Audio/AudioPipeline.cs`
    - Creates TimedAudioBuffer and WasapiAudioPlayer
 
 ### Implementation Approach
@@ -206,8 +206,8 @@ Check that:
 
 ## Related Code References
 
-- Clock sync: `src/SendSpinClient.Core/Synchronization/KalmanClockSynchronizer.cs`
-- Timed buffer: `src/SendSpinClient.Core/Audio/TimedAudioBuffer.cs`
-- Audio player: `src/SendSpinClient.Services/Audio/WasapiAudioPlayer.cs`
-- Pipeline: `src/SendSpinClient.Core/Audio/AudioPipeline.cs`
-- Client orchestration: `src/SendSpinClient.Core/Client/SendSpinClient.cs`
+- Clock sync: `src/SendspinClient.Core/Synchronization/KalmanClockSynchronizer.cs`
+- Timed buffer: `src/SendspinClient.Core/Audio/TimedAudioBuffer.cs`
+- Audio player: `src/SendspinClient.Services/Audio/WasapiAudioPlayer.cs`
+- Pipeline: `src/SendspinClient.Core/Audio/AudioPipeline.cs`
+- Client orchestration: `src/SendspinClient.Core/Client/SendspinClient.cs`

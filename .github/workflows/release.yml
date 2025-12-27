@@ -10,7 +10,7 @@ permissions:
 
 env:
   DOTNET_VERSION: '8.0.x'
-  PROJECT_PATH: 'src/SendSpinClient/SendSpinClient.csproj'
+  PROJECT_PATH: 'src/SendspinClient/SendspinClient.csproj'
 
 jobs:
   build:
@@ -40,7 +40,7 @@ jobs:
 
       - name: Publish win-x64
         run: |
-          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained false -o src/SendSpinClient/bin/publish/win-x64
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained false -o src/SendspinClient/bin/publish/win-x64
 
       - name: Create dist directory
         run: New-Item -ItemType Directory -Force -Path dist
@@ -50,22 +50,22 @@ jobs:
 
       - name: Build Installer
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} installer/SendSpinClient.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} installer/SendspinClient.iss
           # List output to verify
           Get-ChildItem -Path dist -Recurse
 
       - name: Create portable ZIP
-        run: Compress-Archive -Path src/SendSpinClient/bin/publish/win-x64/* -DestinationPath dist/SendSpinClient-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+        run: Compress-Archive -Path src/SendspinClient/bin/publish/win-x64/* -DestinationPath dist/SendspinClient-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: SendSpin ${{ steps.version.outputs.VERSION }}
+          name: Sendspin ${{ steps.version.outputs.VERSION }}
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           files: |
-            dist/SendSpinClient-${{ steps.version.outputs.VERSION }}-Setup.exe
-            dist/SendSpinClient-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+            dist/SendspinClient-${{ steps.version.outputs.VERSION }}-Setup.exe
+            dist/SendspinClient-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

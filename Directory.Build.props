@@ -10,8 +10,8 @@
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
 
     <!-- Assembly info -->
-    <Company>SendSpin Windows Client</Company>
-    <Product>SendSpin Windows Client</Product>
+    <Company>Sendspin Windows Client</Company>
+    <Product>Sendspin Windows Client</Product>
     <Copyright>Copyright (c) 2024</Copyright>
     <Authors>Contributors</Authors>
     <RepositoryType>git</RepositoryType>

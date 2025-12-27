@@ -1,6 +1,6 @@
-# SendSpin Windows Client - Architecture Documentation
+# Sendspin Windows Client - Architecture Documentation
 
-This document provides a technical overview of the SendSpin Windows Client architecture and design decisions.
+This document provides a technical overview of the Sendspin Windows Client architecture and design decisions.
 
 ## Table of Contents
 - [Project Overview](#project-overview)
@@ -14,7 +14,7 @@ This document provides a technical overview of the SendSpin Windows Client archi
 
 ## Project Overview
 
-The SendSpin Windows Client is a .NET 8.0 WPF application that implements the SendSpin protocol for synchronized multi-room audio playback with Music Assistant. The implementation focuses on:
+The Sendspin Windows Client is a .NET 8.0 WPF application that implements the Sendspin protocol for synchronized multi-room audio playback with Music Assistant. The implementation focuses on:
 
 - **High precision timing**: Kalman filter-based clock synchronization for sub-millisecond accuracy
 - **Reliability**: Automatic reconnection, robust error handling
@@ -24,18 +24,18 @@ The SendSpin Windows Client is a .NET 8.0 WPF application that implements the Se
 ## Solution Structure
 
 ```
-SendSpinClient.sln
-├── SendSpinClient.Core         # Platform-agnostic protocol implementation
-├── SendSpinClient.Services     # Windows-specific audio services
-└── SendSpinClient              # WPF desktop application
+SendspinClient.sln
+├── SendspinClient.Core         # Platform-agnostic protocol implementation
+├── SendspinClient.Services     # Windows-specific audio services
+└── SendspinClient              # WPF desktop application
 ```
 
-### SendSpinClient.Core
+### SendspinClient.Core
 
 **Target**: .NET 8.0 (platform-agnostic)
 **Dependencies**: Fleck, NAudio, Concentus, Zeroconf, Makaretu.Dns
 
-The core library implements the SendSpin protocol without any UI or platform-specific code.
+The core library implements the Sendspin protocol without any UI or platform-specific code.
 
 **Key Namespaces**:
 - `Client/`: Client orchestration and service management
@@ -45,7 +45,7 @@ The core library implements the SendSpin protocol without any UI or platform-spe
 - `Models/`: Data models for audio formats, playback state, metadata
 - `Synchronization/`: Clock synchronization algorithms
 
-### SendSpinClient.Services
+### SendspinClient.Services
 
 **Target**: .NET 8.0
 **Dependencies**: NAudio, Concentus
@@ -56,7 +56,7 @@ Platform-specific audio services for Windows (planned):
 - Audio buffer management
 - Device enumeration and selection
 
-### SendSpinClient
+### SendspinClient
 
 **Target**: .NET 8.0 Windows (10.0.17763.0)
 **Dependencies**: CommunityToolkit.Mvvm, Microsoft.Extensions.DependencyInjection
@@ -71,7 +71,7 @@ WPF desktop application with:
 
 ### Client Services
 
-#### ISendSpinClient / SendSpinClientService
+#### ISendspinClient / SendspinClientService
 The main client interface that orchestrates:
 - Connection lifecycle management
 - Handshake negotiation
@@ -83,7 +83,7 @@ The main client interface that orchestrates:
 1. **Client-Initiated**: Client discovers servers via mDNS and initiates connection
 2. **Server-Initiated**: Client advertises via mDNS and accepts incoming connections
 
-#### SendSpinHostService
+#### SendspinHostService
 Hosts a WebSocket server for server-initiated connections:
 - Runs a Fleck WebSocket server
 - Advertises via mDNS
@@ -92,10 +92,10 @@ Hosts a WebSocket server for server-initiated connections:
 
 ### Connection Management
 
-#### ISendSpinConnection
+#### ISendspinConnection
 Abstract interface for WebSocket connections with two implementations:
 
-**SendSpinConnection** (outgoing):
+**SendspinConnection** (outgoing):
 - Uses `ClientWebSocket` from System.Net.WebSockets
 - Automatic reconnection with exponential backoff
 - Connection state machine: Disconnected → Connecting → Handshaking → Connected
@@ -122,7 +122,7 @@ Disconnected ──connect()──> Connecting ──success──> Handshaking 
 
 #### mDNS Service Discovery
 Uses Zeroconf library to:
-- Discover SendSpin servers via `_sendspin-server._tcp.local.`
+- Discover Sendspin servers via `_sendspin-server._tcp.local.`
 - Parse TXT records for server metadata
 - Track server availability (add/update/remove events)
 - Periodic scanning with stale server cleanup
@@ -219,7 +219,7 @@ The codebase uses modern async/await throughout:
 
 **Lock-Based Synchronization**:
 - `KalmanClockSynchronizer`: Uses lock for state updates
-- `SendSpinConnection`: SemaphoreSlim for send serialization
+- `SendspinConnection`: SemaphoreSlim for send serialization
 - `MdnsServerDiscovery`: ConcurrentDictionary for server list
 
 **Event Dispatch**:
@@ -241,8 +241,8 @@ Uses Microsoft.Extensions.DependencyInjection:
 services.AddLogging();
 services.AddSingleton<ILoggerFactory, LoggerFactory>();
 services.AddSingleton<ClientCapabilities>();
-services.AddTransient<ISendSpinConnection, SendSpinConnection>();
-services.AddTransient<ISendSpinClient, SendSpinClientService>();
+services.AddTransient<ISendspinConnection, SendspinConnection>();
+services.AddTransient<ISendspinClient, SendspinClientService>();
 services.AddSingleton<IServerDiscovery, MdnsServerDiscovery>();
 ```
 
@@ -256,8 +256,8 @@ services.AddSingleton<IServerDiscovery, MdnsServerDiscovery>();
 ### Interface Segregation
 
 Small, focused interfaces:
-- `ISendSpinConnection`: Connection lifecycle
-- `ISendSpinClient`: Client operations
+- `ISendspinConnection`: Connection lifecycle
+- `ISendspinClient`: Client operations
 - `IServerDiscovery`: Server discovery
 - `IClockSynchronizer`: Time synchronization
 
@@ -287,9 +287,9 @@ ClientStateMessage.CreateSynchronized(volume, muted);
 ### Strategy Pattern
 
 Different connection strategies:
-- `SendSpinConnection`: Client-initiated
+- `SendspinConnection`: Client-initiated
 - `IncomingConnection`: Server-initiated
-- Both implement `ISendSpinConnection`
+- Both implement `ISendspinConnection`
 
 ## Error Handling
 
@@ -315,10 +315,10 @@ Structured logging with Microsoft.Extensions.Logging:
 - **Error**: Unrecoverable errors, exceptions
 
 Log categories:
-- `SendSpinClient.Core.Client.SendSpinClientService`
-- `SendSpinClient.Core.Connection.SendSpinConnection`
-- `SendSpinClient.Core.Discovery.MdnsServerDiscovery`
-- `SendSpinClient.Core.Synchronization.KalmanClockSynchronizer`
+- `SendspinClient.Core.Client.SendspinClientService`
+- `SendspinClient.Core.Connection.SendspinConnection`
+- `SendspinClient.Core.Discovery.MdnsServerDiscovery`
+- `SendspinClient.Core.Synchronization.KalmanClockSynchronizer`
 
 ## Performance Considerations
 
@@ -375,7 +375,7 @@ Log categories:
 
 ## References
 
-- [SendSpin Protocol Specification](https://github.com/music-assistant/sendspin)
+- [Sendspin Protocol Specification](https://github.com/music-assistant/sendspin)
 - [Music Assistant Documentation](https://music-assistant.io/)
 - [NTP Algorithm (RFC 5905)](https://tools.ietf.org/html/rfc5905)
 - [Kalman Filter Tutorial](https://www.kalmanfilter.net/)

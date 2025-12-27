@@ -30,4 +30,4 @@ jobs:
 
       - name: Publish (verify publishable)
         run: |
-          dotnet publish src/SendSpinClient/SendSpinClient.csproj -c Release -r win-x64 --self-contained false -o publish/win-x64
+          dotnet publish src/SendspinClient/SendspinClient.csproj -c Release -r win-x64 --self-contained false -o publish/win-x64

@@ -1,8 +1,8 @@
-# Senior C# Code Review: SendSpin Windows Client
+# Senior C# Code Review: Sendspin Windows Client
 
 **Review Date:** 2025-12-26
 **Reviewer:** Senior C# Code Review (Claude)
-**Project:** SendSpin Windows Client - Multi-room Audio Sync
+**Project:** Sendspin Windows Client - Multi-room Audio Sync
 
 ---
 
@@ -25,7 +25,7 @@ This is a **well-architected, professional-quality codebase** with good separati
 
 ### 1. [x] Potential Memory Leak - HttpClient Not Disposed Properly (FIXED)
 
-**File:** `src/SendSpinClient/ViewModels/MainViewModel.cs:230`
+**File:** `src/SendspinClient/ViewModels/MainViewModel.cs:230`
 
 ```csharp
 _httpClient = new HttpClient();
@@ -53,10 +53,10 @@ private readonly IHttpClientFactory _httpClientFactory;
 ### 2. [x] Fire-and-Forget Async Operations Without Exception Handling (FIXED)
 
 **Files:**
-- `src/SendSpinClient.Core/Client/SendSpinClient.cs:277`
-- `src/SendSpinClient/ViewModels/MainViewModel.cs:529`
-- `src/SendSpinClient/ViewModels/MainViewModel.cs:562`
-- `src/SendSpinClient/ViewModels/MainViewModel.cs:781`
+- `src/SendspinClient.Core/Client/SendspinClient.cs:277`
+- `src/SendspinClient/ViewModels/MainViewModel.cs:529`
+- `src/SendspinClient/ViewModels/MainViewModel.cs:562`
+- `src/SendspinClient/ViewModels/MainViewModel.cs:781`
 
 ```csharp
 // Multiple instances like:
@@ -98,7 +98,7 @@ SendInitialClientStateAsync().SafeFireAndForget(_logger);
 
 ### 3. [x] Event Handler `async void` Can Crash Application (FIXED)
 
-**File:** `src/SendSpinClient.Core/Client/SendSpinHostService.cs:165`
+**File:** `src/SendspinClient.Core/Client/SendspinHostService.cs:165`
 
 ```csharp
 private async void OnServerConnected(object? sender, IWebSocketConnection webSocket)
@@ -136,7 +136,7 @@ private async void OnServerConnected(object? sender, IWebSocketConnection webSoc
 
 ### 4. [x] Task.Run Event Invocation Outside Lock Can Race (FIXED)
 
-**File:** `src/SendSpinClient.Core/Audio/TimedAudioBuffer.cs:251`
+**File:** `src/SendspinClient.Core/Audio/TimedAudioBuffer.cs:251`
 
 ```csharp
 // Inside lock:
@@ -183,7 +183,7 @@ private async Task ProcessReanchorEventsAsync(CancellationToken ct)
 
 ### 5. [x] CancellationTokenSource Leaks in MainViewModel (FIXED)
 
-**File:** `src/SendSpinClient/ViewModels/MainViewModel.cs:919-957`
+**File:** `src/SendspinClient/ViewModels/MainViewModel.cs:919-957`
 
 ```csharp
 partial void OnSettingsStaticDelayMsChanged(double value)
@@ -215,7 +215,7 @@ Apply same fix to:
 
 ### 6. [ ] Interface in Same File as Implementation
 
-**File:** `src/SendSpinClient.Core/Synchronization/KalmanClockSynchronizer.cs:409-452`
+**File:** `src/SendspinClient.Core/Synchronization/KalmanClockSynchronizer.cs:409-452`
 
 **Problem:** `IClockSynchronizer` and `ClockSyncStatus` are defined in the same file as `KalmanClockSynchronizer`. This:
 - Makes it harder to find the interface
@@ -228,23 +228,23 @@ Apply same fix to:
 
 ---
 
-### 7. [ ] Missing ISendSpinClient Interface Definition
+### 7. [ ] Missing ISendspinClient Interface Definition
 
-**File:** `src/SendSpinClient.Core/Client/SendSpinClient.cs:14`
+**File:** `src/SendspinClient.Core/Client/SendspinClient.cs:14`
 
 ```csharp
-public sealed class SendSpinClientService : ISendSpinClient
+public sealed class SendspinClientService : ISendspinClient
 ```
 
-**Problem:** The `ISendSpinClient` interface is referenced but not found in the reviewed files. This could be:
+**Problem:** The `ISendspinClient` interface is referenced but not found in the reviewed files. This could be:
 - Missing from the codebase (compilation error)
 - In an unreviewed location
 
 **Recommendation:** Verify the interface exists. If missing, create:
 
 ```csharp
-// ISendSpinClient.cs
-public interface ISendSpinClient : IAsyncDisposable
+// ISendspinClient.cs
+public interface ISendspinClient : IAsyncDisposable
 {
     ConnectionState ConnectionState { get; }
     string? ServerId { get; }
@@ -271,15 +271,15 @@ public interface ISendSpinClient : IAsyncDisposable
 ### 8. [ ] Magic Numbers Throughout Audio Code
 
 **Files:**
-- `src/SendSpinClient.Services/Audio/WasapiAudioPlayer.cs:109`
-- `src/SendSpinClient.Core/Audio/TimedAudioBuffer.cs` (various)
-- `src/SendSpinClient.Core/Client/SendSpinClient.cs` (various)
+- `src/SendspinClient.Services/Audio/WasapiAudioPlayer.cs:109`
+- `src/SendspinClient.Core/Audio/TimedAudioBuffer.cs` (various)
+- `src/SendspinClient.Core/Client/SendspinClient.cs` (various)
 
 ```csharp
 // WasapiAudioPlayer.cs
 _wasapiOut = new WasapiOut(AudioClientShareMode.Shared, latency: 50);
 
-// SendSpinClient.cs
+// SendspinClient.cs
 private const int BurstSize = 8;
 private const int BurstIntervalMs = 50;
 ```
@@ -289,8 +289,8 @@ private const int BurstIntervalMs = 50;
 **Recommendation:** Create centralized constants:
 
 ```csharp
-// SendSpinClient.Core/Constants/AudioConstants.cs
-namespace SendSpinClient.Core.Constants;
+// SendspinClient.Core/Constants/AudioConstants.cs
+namespace SendspinClient.Core.Constants;
 
 public static class AudioConstants
 {
@@ -318,7 +318,7 @@ public static class AudioConstants
 
 ### 9. [ ] Inconsistent Logging - Large JSON in Debug Logs
 
-**File:** `src/SendSpinClient.Core/Client/SendSpinClient.cs:100-101`
+**File:** `src/SendspinClient.Core/Client/SendspinClient.cs:100-101`
 
 ```csharp
 var helloJson = MessageSerializer.Serialize(hello);
@@ -342,7 +342,7 @@ _logger.LogTrace("client/hello payload:\n{Json}", helloJson);
 
 ### 10. [ ] Disposal Pattern Incomplete in TimedAudioBuffer
 
-**File:** `src/SendSpinClient.Core/Audio/TimedAudioBuffer.cs:359-374`
+**File:** `src/SendspinClient.Core/Audio/TimedAudioBuffer.cs:359-374`
 
 ```csharp
 public void Dispose()
@@ -382,7 +382,7 @@ public void Dispose()
 ### 11. [ ] DateTime vs DateTimeOffset Inconsistency
 
 **Files:**
-- `src/SendSpinClient.Core/Client/SendSpinHostService.cs:241` uses `DateTime.UtcNow`
+- `src/SendspinClient.Core/Client/SendspinHostService.cs:241` uses `DateTime.UtcNow`
 - Other timing code uses `DateTimeOffset.UtcNow`
 
 **Recommendation:** Standardize on `DateTimeOffset` throughout for explicit timezone handling.
@@ -407,7 +407,7 @@ public string ServerName { get; init; }  // Should this be required?
 
 ### 13. [ ] ViewModelBase is Minimal
 
-**File:** `src/SendSpinClient/ViewModels/ViewModelBase.cs` (25 lines)
+**File:** `src/SendspinClient/ViewModels/ViewModelBase.cs` (25 lines)
 
 For a reference project, consider expanding to include:
 - `SetProperty<T>()` helper (though CommunityToolkit.MVVM provides this)
@@ -418,7 +418,7 @@ For a reference project, consider expanding to include:
 
 ### 14. [ ] Unused Field
 
-**File:** `src/SendSpinClient.Core/Audio/TimedAudioBuffer.cs:96`
+**File:** `src/SendspinClient.Core/Audio/TimedAudioBuffer.cs:96`
 
 ```csharp
 private bool _hasEverPlayed;  // Track if we've ever started playback (for resume detection)
@@ -438,14 +438,14 @@ This field is set to `true` at line 226 but never read.
 
 Several public types and members lack XML documentation:
 - `IAudioPipeline.CurrentFormat` - no description
-- `ISendSpinConnection` methods - no parameter docs
+- `ISendspinConnection` methods - no parameter docs
 - `AudioBufferStats` properties - no units specified
 
 ---
 
 ### 16. [ ] String Allocations in Hot Path
 
-**File:** `src/SendSpinClient.Core/Connection/SendSpinConnection.cs:228`
+**File:** `src/SendspinClient.Core/Connection/SendspinConnection.cs:228`
 
 ```csharp
 _logger.LogDebug("Received text: {Message}", text.Length > 500 ? text[..500] + "..." : text);
@@ -466,7 +466,7 @@ if (_logger.IsEnabled(LogLevel.Debug))
 
 ### 17. [ ] LINQ Allocations in Property Getter
 
-**File:** `src/SendSpinClient.Core/Client/SendSpinHostService.cs:49-58`
+**File:** `src/SendspinClient.Core/Client/SendspinHostService.cs:49-58`
 
 ```csharp
 public IReadOnlyList<ConnectedServerInfo> ConnectedServers
@@ -492,7 +492,7 @@ public IReadOnlyList<ConnectedServerInfo> ConnectedServers
 
 ### 18. [ ] Process.Start Without Full Path Validation
 
-**File:** `src/SendSpinClient/ViewModels/MainViewModel.cs:1152`
+**File:** `src/SendspinClient/ViewModels/MainViewModel.cs:1152`
 
 ```csharp
 System.Diagnostics.Process.Start("explorer.exe", logPath);
@@ -520,14 +520,14 @@ The codebase has excellent interface design for testability. Recommended structu
 
 ```
 tests/
-  SendSpinClient.Core.Tests/
+  SendspinClient.Core.Tests/
     Audio/
       TimedAudioBufferTests.cs
       AudioPipelineTests.cs
     Synchronization/
       KalmanClockSynchronizerTests.cs
     Client/
-      SendSpinClientServiceTests.cs
+      SendspinClientServiceTests.cs
     Mocks/
       MockClockSynchronizer.cs
       MockAudioPipeline.cs
