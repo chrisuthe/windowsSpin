@@ -608,13 +608,18 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         var samplesConsumed = 0;
         Span<float> tempFrame = stackalloc float[frameSamples];
 
-        while (samplesConsumed < toRead && outputPos < buffer.Length)
+        // Continue until output buffer is full (not until we've consumed toRead)
+        // When dropping, we consume MORE from input to fill output with real audio.
+        // Previously, the loop exited when samplesConsumed >= toRead, leaving the
+        // output buffer partially filled with silence - which doesn't speed up playback!
+        while (outputPos < buffer.Length)
         {
-            // Check if we have a full frame to read
-            var remainingInBuffer = toRead - samplesConsumed;
+            // Check if we have a full frame to read from internal buffer.
+            // Use _count - samplesConsumed to check ACTUAL remaining, not planned toRead.
+            var remainingInBuffer = _count - samplesConsumed;
             if (remainingInBuffer < frameSamples)
             {
-                break;
+                break; // Underrun - not enough audio in internal buffer
             }
 
             // Check remaining output space
@@ -635,7 +640,8 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 samplesConsumed += frameSamples;
 
                 // Read the frame we're DROPPING (consume it too)
-                if (remainingInBuffer >= frameSamples * 2)
+                // Check actual remaining in internal buffer, not the pre-calculated remainingInBuffer
+                if (_count - samplesConsumed >= frameSamples)
                 {
                     ReadSamplesFromBuffer(tempFrame);
                     samplesConsumed += frameSamples;

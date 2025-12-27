@@ -154,6 +154,18 @@ public partial class StatsViewModel : ViewModelBase
     private int _measurementCount;
 
     /// <summary>
+    /// Gets whether drift compensation is reliable (low uncertainty).
+    /// </summary>
+    [ObservableProperty]
+    private string _driftReliableDisplay = "No";
+
+    /// <summary>
+    /// Gets the color for the drift reliable indicator.
+    /// </summary>
+    [ObservableProperty]
+    private Brush _driftReliableColor = Brushes.Gray;
+
+    /// <summary>
     /// Gets the static delay display string.
     /// </summary>
     [ObservableProperty]
@@ -337,6 +349,23 @@ public partial class StatsViewModel : ViewModelBase
         DriftRateDisplay = $"{driftPpm:+0.00;-0.00} ppm";
 
         MeasurementCount = status.MeasurementCount;
+
+        // Drift reliability indicator - shows when drift compensation is active
+        if (status.IsDriftReliable)
+        {
+            DriftReliableDisplay = "✓ Yes";
+            DriftReliableColor = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)); // Green
+        }
+        else if (status.MeasurementCount > 0)
+        {
+            DriftReliableDisplay = "Calibrating...";
+            DriftReliableColor = new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
+        }
+        else
+        {
+            DriftReliableDisplay = "No";
+            DriftReliableColor = Brushes.Gray;
+        }
 
         // Static delay (from clock synchronizer)
         StaticDelayDisplay = $"{_clockSynchronizer.StaticDelayMs:+0;-0;0} ms";

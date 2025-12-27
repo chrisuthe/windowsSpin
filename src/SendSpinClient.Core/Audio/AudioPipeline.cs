@@ -433,17 +433,22 @@ public sealed class AudioPipeline : IAudioPipeline
             // Calculate derived values for debugging
             var samplesReadTimeMs = stats.SamplesReadSinceStart * (1000.0 / (_currentFormat!.SampleRate * _currentFormat.Channels));
 
+            // Get drift status for enhanced diagnostics
+            var driftInfo = clockStatus.IsDriftReliable
+                ? $"drift={clockStatus.DriftMicrosecondsPerSecond:+0.0;-0.0}μs/s"
+                : "drift=pending";
+
             // Use appropriate log level based on sync error magnitude
             if (absError > 50) // > 50ms - significant drift
             {
                 _logger.LogWarning(
                     "Sync drift: error={SyncErrorMs:+0.00;-0.00}ms, elapsed={Elapsed:F0}ms, readTime={ReadTime:F0}ms, " +
-                    "read={Read}, output={Output}, correction={Correction}, buffer={BufferMs:F0}ms",
+                    "latencyComp={Latency}ms, {DriftInfo}, correction={Correction}, buffer={BufferMs:F0}ms",
                     syncErrorMs,
                     stats.ElapsedSinceStartMs,
                     samplesReadTimeMs,
-                    stats.SamplesReadSinceStart,
-                    stats.SamplesOutputSinceStart,
+                    _buffer?.OutputLatencyMicroseconds / 1000 ?? 0,
+                    driftInfo,
                     correctionInfo,
                     stats.BufferedMs);
             }
@@ -451,18 +456,20 @@ public sealed class AudioPipeline : IAudioPipeline
             {
                 _logger.LogInformation(
                     "Sync status: error={SyncErrorMs:+0.00;-0.00}ms, elapsed={Elapsed:F0}ms, readTime={ReadTime:F0}ms, " +
-                    "correction={Correction}, buffer={BufferMs:F0}ms",
+                    "{DriftInfo}, correction={Correction}, buffer={BufferMs:F0}ms",
                     syncErrorMs,
                     stats.ElapsedSinceStartMs,
                     samplesReadTimeMs,
+                    driftInfo,
                     correctionInfo,
                     stats.BufferedMs);
             }
             else // < 10ms - good sync
             {
                 _logger.LogDebug(
-                    "Sync OK: error={SyncErrorMs:+0.00;-0.00}ms, buffer={BufferMs:F0}ms",
+                    "Sync OK: error={SyncErrorMs:+0.00;-0.00}ms, {DriftInfo}, buffer={BufferMs:F0}ms",
                     syncErrorMs,
+                    driftInfo,
                     stats.BufferedMs);
             }
         }
