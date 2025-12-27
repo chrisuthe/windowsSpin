@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -19,7 +19,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageReleaseNotes>Fixed package metadata URLs to point to correct repository.</PackageReleaseNotes>
+    <PackageReleaseNotes>Bug fixes and improvements for track handling and error clearing.</PackageReleaseNotes>
     <Copyright>Copyright © 2024 Sendspin Contributors</Copyright>
 
     <!-- Enable source link for debugging -->
