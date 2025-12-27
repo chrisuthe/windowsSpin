@@ -72,6 +72,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     private long _samplesDroppedForSync;  // Total samples dropped for sync correction
     private long _samplesInsertedForSync; // Total samples inserted for sync correction
     private bool _needsReanchor;          // Flag to trigger re-anchoring
+    private int _reanchorEventPending;    // 0 = not pending, 1 = pending (for thread-safe event coalescing)
     private float[]? _lastOutputFrame;    // Last output frame for smooth drop/insert (Python CLI approach)
 
     // Statistics
@@ -247,8 +248,24 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 _needsReanchor = false;
                 buffer.Fill(0f);
 
-                // Raise event outside of lock to prevent deadlocks
-                Task.Run(() => ReanchorRequired?.Invoke(this, EventArgs.Empty));
+                // Raise event outside of lock to prevent deadlocks.
+                // Use Interlocked to ensure only one event can be pending at a time,
+                // preventing duplicate events from queuing up if Read() is called rapidly.
+                if (Interlocked.CompareExchange(ref _reanchorEventPending, 1, 0) == 0)
+                {
+                    Task.Run(() =>
+                    {
+                        try
+                        {
+                            ReanchorRequired?.Invoke(this, EventArgs.Empty);
+                        }
+                        finally
+                        {
+                            Interlocked.Exchange(ref _reanchorEventPending, 0);
+                        }
+                    });
+                }
+
                 return 0;
             }
 
@@ -323,6 +340,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             _insertEveryNFrames = 0;
             _framesSinceLastCorrection = 0;
             _needsReanchor = false;
+            Interlocked.Exchange(ref _reanchorEventPending, 0);
             _lastOutputFrame = null;
             // Note: Don't reset _samplesDroppedForSync/_samplesInsertedForSync - these are cumulative stats
         }
