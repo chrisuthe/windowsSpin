@@ -176,3 +176,21 @@ public class InverseBoolConverter : IValueConverter
         return value is bool b && !b;
     }
 }
+
+/// <summary>
+/// Converts a boolean to ResizeMode.
+/// True = CanResize (settings open), False = CanMinimize (fixed size).
+/// </summary>
+public class BoolToResizeModeConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        var isOpen = value is bool b && b;
+        return isOpen ? ResizeMode.CanResize : ResizeMode.CanMinimize;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
+}

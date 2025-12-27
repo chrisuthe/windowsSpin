@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
+using SendspinClient.ViewModels;
 
 namespace SendspinClient;
 
@@ -9,6 +10,9 @@ namespace SendspinClient;
 /// </summary>
 public partial class MainWindow : Window
 {
+    private const double DefaultWidth = 400;
+    private const double DefaultHeight = 630;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -16,6 +20,36 @@ public partial class MainWindow : Window
         // Subscribe to window events for system tray behavior
         Closing += OnWindowClosing;
         StateChanged += OnWindowStateChanged;
+        DataContextChanged += OnDataContextChanged;
+    }
+
+    /// <summary>
+    /// Subscribe to ViewModel property changes to reset window size when settings close.
+    /// </summary>
+    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.OldValue is INotifyPropertyChanged oldVm)
+        {
+            oldVm.PropertyChanged -= OnViewModelPropertyChanged;
+        }
+
+        if (e.NewValue is INotifyPropertyChanged newVm)
+        {
+            newVm.PropertyChanged += OnViewModelPropertyChanged;
+        }
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.IsSettingsOpen))
+        {
+            if (sender is MainViewModel vm && !vm.IsSettingsOpen)
+            {
+                // Reset to default size when settings panel closes
+                Width = DefaultWidth;
+                Height = DefaultHeight;
+            }
+        }
     }
 
     /// <summary>

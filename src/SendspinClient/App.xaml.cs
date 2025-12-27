@@ -89,7 +89,9 @@ public partial class App : Application
         });
 
         // Client capabilities configuration
-        services.AddSingleton<ClientCapabilities>();
+        // Read player name from configuration (defaults to computer name)
+        var playerName = _configuration!.GetValue<string>("Player:Name", Environment.MachineName) ?? Environment.MachineName;
+        services.AddSingleton(new ClientCapabilities { ClientName = playerName });
 
         // Clock synchronization for multi-room audio sync
         services.AddSingleton<IClockSynchronizer>(sp =>
@@ -106,7 +108,14 @@ public partial class App : Application
 
         // Audio pipeline components
         services.AddSingleton<IAudioDecoderFactory, AudioDecoderFactory>();
-        services.AddTransient<IAudioPlayer, WasapiAudioPlayer>();
+
+        // Read audio device ID from configuration (null = system default)
+        var audioDeviceId = _configuration!.GetValue<string?>("Audio:DeviceId");
+        services.AddTransient<IAudioPlayer>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILogger<WasapiAudioPlayer>>();
+            return new WasapiAudioPlayer(logger, audioDeviceId);
+        });
 
         // Audio pipeline - orchestrates decoder, buffer, and player
         services.AddSingleton<IAudioPipeline>(sp =>

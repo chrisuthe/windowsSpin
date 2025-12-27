@@ -28,6 +28,7 @@ namespace SendspinClient.Services.Audio;
 public sealed class WasapiAudioPlayer : IAudioPlayer
 {
     private readonly ILogger<WasapiAudioPlayer> _logger;
+    private readonly string? _deviceId;
     private WasapiOut? _wasapiOut;
     private AudioSampleProviderAdapter? _sampleProvider;
     private AudioFormat? _format;
@@ -87,9 +88,14 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// Initializes a new instance of the <see cref="WasapiAudioPlayer"/> class.
     /// </summary>
     /// <param name="logger">Logger for diagnostics.</param>
-    public WasapiAudioPlayer(ILogger<WasapiAudioPlayer> logger)
+    /// <param name="deviceId">
+    /// Optional device ID for a specific audio output device.
+    /// If null or empty, the system default device is used.
+    /// </param>
+    public WasapiAudioPlayer(ILogger<WasapiAudioPlayer> logger, string? deviceId = null)
     {
         _logger = logger;
+        _deviceId = deviceId;
     }
 
     /// <inheritdoc/>
@@ -102,11 +108,33 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                 {
                     _format = format;
 
+                    // Get the audio device - either specific device by ID or system default
+                    MMDevice? device = null;
+                    if (!string.IsNullOrEmpty(_deviceId))
+                    {
+                        try
+                        {
+                            using var enumerator = new MMDeviceEnumerator();
+                            device = enumerator.GetDevice(_deviceId);
+                            _logger.LogInformation("Using audio device: {DeviceName}", device.FriendlyName);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to get device {DeviceId}, falling back to default", _deviceId);
+                            device = null;
+                        }
+                    }
+
                     // Create WASAPI output in shared mode with 50ms latency
                     // Shared mode is more compatible; 50ms balances latency vs stability
-                    _wasapiOut = new WasapiOut(
-                        AudioClientShareMode.Shared,
-                        latency: 50);
+                    if (device != null)
+                    {
+                        _wasapiOut = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: false, latency: 50);
+                    }
+                    else
+                    {
+                        _wasapiOut = new WasapiOut(AudioClientShareMode.Shared, latency: 50);
+                    }
 
                     _wasapiOut.PlaybackStopped += OnPlaybackStopped;
 
@@ -117,10 +145,11 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
                     SetState(AudioPlayerState.Stopped);
                     _logger.LogInformation(
-                        "WASAPI player initialized: {SampleRate}Hz {Channels}ch, latency: {Latency}ms",
+                        "WASAPI player initialized: {SampleRate}Hz {Channels}ch, latency: {Latency}ms, device: {Device}",
                         format.SampleRate,
                         format.Channels,
-                        _outputLatencyMs);
+                        _outputLatencyMs,
+                        device?.FriendlyName ?? "System Default");
                 }
                 catch (Exception ex)
                 {
