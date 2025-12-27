@@ -11,6 +11,7 @@
         Icon="Resources/Icons/sendspinDesktop.ico"
         Height="630" Width="400"
         MinHeight="550" MinWidth="350"
+        ResizeMode="{Binding IsSettingsOpen, Converter={StaticResource BoolToResizeModeConverter}}"
         Background="{StaticResource BackgroundDarkBrush}"
         WindowStyle="SingleBorderWindow">
 
@@ -321,6 +322,148 @@
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                               Style="{StaticResource DarkScrollViewer}">
                     <StackPanel>
+                        <!-- General Section -->
+                        <TextBlock Text="GENERAL" Style="{StaticResource CaptionText}"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   Margin="0,0,0,12"/>
+
+                        <!-- Show Notifications -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Show Notifications" Style="{StaticResource BodyText}"/>
+                                <TextBlock Text="Display toast notifications for track changes"
+                                           Style="{StaticResource CaptionText}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Margin="0,2,0,0"/>
+                            </StackPanel>
+                            <CheckBox Grid.Column="1"
+                                      IsChecked="{Binding SettingsShowNotifications}"
+                                      VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <!-- Player Name -->
+                        <StackPanel Margin="0,0,0,16">
+                            <TextBlock Text="Player Name" Style="{StaticResource BodyText}"/>
+                            <TextBlock Text="Name shown to servers in multi-room setups"
+                                       Style="{StaticResource CaptionText}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,2,0,0"/>
+                            <TextBox Margin="0,8,0,0"
+                                     Text="{Binding SettingsPlayerName, UpdateSourceTrigger=PropertyChanged}"
+                                     Padding="8"
+                                     Background="{StaticResource BackgroundDarkBrush}"
+                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                     BorderBrush="{StaticResource SurfaceLightBrush}"
+                                     BorderThickness="1"
+                                     VerticalContentAlignment="Center"/>
+                        </StackPanel>
+
+                        <!-- Audio Section -->
+                        <TextBlock Text="AUDIO" Style="{StaticResource CaptionText}"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   Margin="0,8,0,12"/>
+
+                        <!-- Playback Device -->
+                        <StackPanel Margin="0,0,0,16">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Playback Device" Style="{StaticResource BodyText}"/>
+                                    <TextBlock Text="Audio output device for playback"
+                                               Style="{StaticResource CaptionText}"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <Button Grid.Column="1"
+                                        Content="&#x21BB;"
+                                        Command="{Binding RefreshAudioDevicesCommand}"
+                                        ToolTip="Refresh device list"
+                                        Width="28" Height="28"
+                                        FontSize="14"
+                                        Background="Transparent"
+                                        Foreground="{StaticResource TextSecondaryBrush}"
+                                        BorderThickness="0"
+                                        Cursor="Hand"
+                                        VerticalAlignment="Center">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border Background="{TemplateBinding Background}"
+                                                                CornerRadius="4">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                            <Style.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                            </Grid>
+                            <ComboBox Margin="0,8,0,0"
+                                      HorizontalAlignment="Stretch"
+                                      ItemsSource="{Binding AvailableAudioDevices}"
+                                      SelectedItem="{Binding SettingsSelectedAudioDevice}"
+                                      DisplayMemberPath="DisplayName"
+                                      Style="{StaticResource DarkComboBox}"
+                                      ItemContainerStyle="{StaticResource DarkComboBoxItem}"/>
+                        </StackPanel>
+
+                        <!-- Audio Sync Section -->
+                        <TextBlock Text="AUDIO SYNC" Style="{StaticResource CaptionText}"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   Margin="0,8,0,12"/>
+
+                        <!-- Static Delay -->
+                        <StackPanel Margin="0,0,0,16">
+                            <TextBlock Text="Static Delay" Style="{StaticResource BodyText}"/>
+                            <TextBlock Text="Adjust timing to sync with other players. Positive = play later."
+                                       Style="{StaticResource CaptionText}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,2,0,0"
+                                       TextWrapping="Wrap"/>
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Slider Grid.Column="0"
+                                        Minimum="-1000" Maximum="1000"
+                                        Value="{Binding SettingsStaticDelayMs}"
+                                        TickFrequency="100"
+                                        IsSnapToTickEnabled="False"
+                                        VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding SettingsStaticDelayMs, StringFormat={}{0:+0;-0;0} ms}"
+                                           Style="{StaticResource CaptionText}"
+                                           Width="60"
+                                           TextAlignment="Right"
+                                           VerticalAlignment="Center"
+                                           Margin="8,0,0,0"/>
+                            </Grid>
+                        </StackPanel>
+
+                        <!-- Restart Note for Audio changes -->
+                        <TextBlock Text="Note: Audio device changes take effect after restart."
+                                   Style="{StaticResource CaptionText}"
+                                   Foreground="{StaticResource WarningBrush}"
+                                   Margin="0,0,0,16"
+                                   TextWrapping="Wrap"/>
+
                         <!-- Logging Section -->
                         <TextBlock Text="LOGGING" Style="{StaticResource CaptionText}"
                                    Foreground="{StaticResource TextMutedBrush}"
@@ -439,40 +582,6 @@
                                    Foreground="{StaticResource WarningBrush}"
                                    Margin="0,8,0,16"
                                    TextWrapping="Wrap"/>
-
-                        <!-- Audio Section -->
-                        <TextBlock Text="AUDIO SYNC" Style="{StaticResource CaptionText}"
-                                   Foreground="{StaticResource TextMutedBrush}"
-                                   Margin="0,0,0,12"/>
-
-                        <!-- Static Delay -->
-                        <StackPanel Margin="0,0,0,16">
-                            <TextBlock Text="Static Delay" Style="{StaticResource BodyText}"/>
-                            <TextBlock Text="Adjust timing to sync with other players. Positive = play later."
-                                       Style="{StaticResource CaptionText}"
-                                       Foreground="{StaticResource TextMutedBrush}"
-                                       Margin="0,2,0,0"
-                                       TextWrapping="Wrap"/>
-                            <Grid Margin="0,8,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <Slider Grid.Column="0"
-                                        Minimum="-1000" Maximum="1000"
-                                        Value="{Binding SettingsStaticDelayMs}"
-                                        TickFrequency="100"
-                                        IsSnapToTickEnabled="False"
-                                        VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1"
-                                           Text="{Binding SettingsStaticDelayMs, StringFormat={}{0:+0;-0;0} ms}"
-                                           Style="{StaticResource CaptionText}"
-                                           Width="60"
-                                           TextAlignment="Right"
-                                           VerticalAlignment="Center"
-                                           Margin="8,0,0,0"/>
-                            </Grid>
-                        </StackPanel>
 
                         <!-- Diagnostics Section -->
                         <TextBlock Text="DIAGNOSTICS" Style="{StaticResource CaptionText}"

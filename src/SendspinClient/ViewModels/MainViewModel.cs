@@ -8,7 +8,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using NAudio.CoreAudioApi;
 using SendspinClient.Configuration;
+using SendspinClient.Models;
 using Sendspin.SDK.Audio;
 using Sendspin.SDK.Client;
 using Sendspin.SDK.Connection;
@@ -39,6 +41,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly IClockSynchronizer _clockSynchronizer;
     private readonly INotificationService _notificationService;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ClientCapabilities _clientCapabilities;
     private SendspinClientService? _manualClient;
     private ISendspinConnection? _manualConnection;
     private readonly SemaphoreSlim _cleanupLock = new(1, 1);
@@ -175,6 +178,30 @@ public partial class MainViewModel : ViewModelBase
     private double _settingsStaticDelayMs;
 
     /// <summary>
+    /// Gets or sets whether notifications are enabled.
+    /// </summary>
+    [ObservableProperty]
+    private bool _settingsShowNotifications = true;
+
+    /// <summary>
+    /// Gets or sets the player name shown to servers.
+    /// Defaults to the computer name.
+    /// </summary>
+    [ObservableProperty]
+    private string _settingsPlayerName = Environment.MachineName;
+
+    /// <summary>
+    /// Gets or sets the selected audio output device.
+    /// </summary>
+    [ObservableProperty]
+    private AudioDeviceInfo? _settingsSelectedAudioDevice;
+
+    /// <summary>
+    /// Gets the available audio output devices.
+    /// </summary>
+    public ObservableCollection<AudioDeviceInfo> AvailableAudioDevices { get; } = new();
+
+    /// <summary>
     /// Gets the path where log files are stored.
     /// </summary>
     public string LogFilePath => Path.Combine(
@@ -220,7 +247,8 @@ public partial class MainViewModel : ViewModelBase
         IAudioPipeline audioPipeline,
         IClockSynchronizer clockSynchronizer,
         INotificationService notificationService,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        ClientCapabilities clientCapabilities)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -231,6 +259,7 @@ public partial class MainViewModel : ViewModelBase
         _clockSynchronizer = clockSynchronizer;
         _notificationService = notificationService;
         _httpClientFactory = httpClientFactory;
+        _clientCapabilities = clientCapabilities;
 
         // Load current logging settings
         LoadLoggingSettings();
@@ -423,6 +452,7 @@ public partial class MainViewModel : ViewModelBase
                 _loggerFactory.CreateLogger<SendspinClientService>(),
                 _manualConnection,
                 clockSynchronizer: _clockSynchronizer,
+                capabilities: _clientCapabilities,
                 audioPipeline: _audioPipeline);
 
             // Subscribe to events
@@ -854,6 +884,7 @@ public partial class MainViewModel : ViewModelBase
                 _loggerFactory.CreateLogger<SendspinClientService>(),
                 _manualConnection,
                 clockSynchronizer: _clockSynchronizer,
+                capabilities: _clientCapabilities,
                 audioPipeline: _audioPipeline);
 
             // Subscribe to events
@@ -1086,6 +1117,71 @@ public partial class MainViewModel : ViewModelBase
 
         // Load audio settings
         SettingsStaticDelayMs = _configuration.GetValue<double>("Audio:StaticDelayMs", 0);
+
+        // Load notification settings
+        SettingsShowNotifications = _configuration.GetValue<bool>("Notifications:Enabled", true);
+        _notificationService.IsEnabled = SettingsShowNotifications;
+
+        // Load player name (default to computer name)
+        SettingsPlayerName = _configuration.GetValue<string>("Player:Name", Environment.MachineName) ?? Environment.MachineName;
+
+        // Enumerate audio devices
+        EnumerateAudioDevices();
+
+        // Load saved audio device selection
+        var savedDeviceId = _configuration.GetValue<string?>("Audio:DeviceId");
+        SettingsSelectedAudioDevice = AvailableAudioDevices.FirstOrDefault(d => d.DeviceId == savedDeviceId)
+            ?? AvailableAudioDevices.FirstOrDefault(d => d.IsDefault)
+            ?? AudioDeviceInfo.Default;
+    }
+
+    /// <summary>
+    /// Enumerates available audio output devices using WASAPI.
+    /// </summary>
+    private void EnumerateAudioDevices()
+    {
+        AvailableAudioDevices.Clear();
+
+        // Add system default option first
+        AvailableAudioDevices.Add(AudioDeviceInfo.Default);
+
+        try
+        {
+            using var enumerator = new MMDeviceEnumerator();
+            var devices = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+
+            foreach (var device in devices)
+            {
+                AvailableAudioDevices.Add(new AudioDeviceInfo
+                {
+                    DeviceId = device.ID,
+                    DisplayName = device.FriendlyName
+                });
+            }
+
+            _logger.LogDebug("Found {Count} audio output devices", devices.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to enumerate audio devices");
+        }
+    }
+
+    /// <summary>
+    /// Refreshes the list of available audio devices.
+    /// </summary>
+    [RelayCommand]
+    private void RefreshAudioDevices()
+    {
+        var previousSelection = SettingsSelectedAudioDevice;
+        EnumerateAudioDevices();
+
+        // Try to preserve selection
+        if (previousSelection != null)
+        {
+            SettingsSelectedAudioDevice = AvailableAudioDevices.FirstOrDefault(d => d.DeviceId == previousSelection.DeviceId)
+                ?? AvailableAudioDevices.FirstOrDefault(d => d.IsDefault);
+        }
     }
 
     /// <summary>
@@ -1138,20 +1234,68 @@ public partial class MainViewModel : ViewModelBase
             // Update audio section
             var audioSection = root["Audio"]?.AsObject() ?? new JsonObject();
             audioSection["StaticDelayMs"] = SettingsStaticDelayMs;
+            audioSection["DeviceId"] = SettingsSelectedAudioDevice?.DeviceId;
             root["Audio"] = audioSection;
+
+            // Update notifications section
+            var notificationsSection = root["Notifications"]?.AsObject() ?? new JsonObject();
+            notificationsSection["Enabled"] = SettingsShowNotifications;
+            root["Notifications"] = notificationsSection;
+
+            // Update player section
+            var playerSection = root["Player"]?.AsObject() ?? new JsonObject();
+            playerSection["Name"] = SettingsPlayerName;
+            root["Player"] = playerSection;
 
             // Write back with nice formatting
             var options = new JsonSerializerOptions { WriteIndented = true };
             var updatedJson = root.ToJsonString(options);
             await File.WriteAllTextAsync(appSettingsPath, updatedJson);
 
-            _logger.LogInformation("Settings saved: LogLevel={LogLevel}, FileLogging={FileLogging}, ConsoleLogging={ConsoleLogging}, StaticDelayMs={StaticDelayMs}",
-                SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging, SettingsStaticDelayMs);
+            // Apply notification setting immediately
+            _notificationService.IsEnabled = SettingsShowNotifications;
 
-            // Show success and close settings
-            // Static delay takes effect immediately; logging changes require restart
-            StatusMessage = "Settings saved. Logging changes require restart.";
+            // Check if player name changed - requires reconnect to take effect
+            var playerNameChanged = _clientCapabilities.ClientName != SettingsPlayerName;
+            if (playerNameChanged)
+            {
+                _clientCapabilities.ClientName = SettingsPlayerName;
+                _logger.LogInformation("Player name changed to: {PlayerName}", SettingsPlayerName);
+            }
+
+            _logger.LogInformation("Settings saved: LogLevel={LogLevel}, FileLogging={FileLogging}, ConsoleLogging={ConsoleLogging}, StaticDelayMs={StaticDelayMs}, Notifications={Notifications}, PlayerName={PlayerName}, DeviceId={DeviceId}",
+                SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging, SettingsStaticDelayMs, SettingsShowNotifications, SettingsPlayerName, SettingsSelectedAudioDevice?.DeviceId ?? "default");
+
+            // Close settings panel first
             IsSettingsOpen = false;
+
+            // If player name changed and we're connected, reconnect to apply the new name
+            if (playerNameChanged && IsConnected)
+            {
+                StatusMessage = "Reconnecting with new player name...";
+                _logger.LogInformation("Reconnecting to apply new player name");
+
+                // Store the current server URL for reconnection
+                var currentServerUrl = ManualServerUrl;
+
+                // Disconnect
+                await DisconnectFromServerAsync();
+
+                // Small delay to ensure clean disconnection
+                await Task.Delay(500);
+
+                // Reconnect
+                if (!string.IsNullOrEmpty(currentServerUrl))
+                {
+                    await ConnectToServerAsync();
+                }
+
+                StatusMessage = "Settings saved. Reconnected with new player name.";
+            }
+            else
+            {
+                StatusMessage = "Settings saved. Some changes require restart.";
+            }
         }
         catch (Exception ex)
         {
