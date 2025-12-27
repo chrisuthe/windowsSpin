@@ -159,6 +159,12 @@ public partial class StatsViewModel : ViewModelBase
     [ObservableProperty]
     private string _staticDelayDisplay = "0 ms";
 
+    /// <summary>
+    /// Gets the detected output latency display string.
+    /// </summary>
+    [ObservableProperty]
+    private string _outputLatencyDisplay = "-- ms";
+
     #endregion
 
     #region Throughput Properties
@@ -334,6 +340,10 @@ public partial class StatsViewModel : ViewModelBase
 
         // Static delay (from clock synchronizer)
         StaticDelayDisplay = $"{_clockSynchronizer.StaticDelayMs:+0;-0;0} ms";
+
+        // Detected output latency (from audio pipeline)
+        var detectedLatency = _audioPipeline.DetectedOutputLatencyMs;
+        OutputLatencyDisplay = detectedLatency > 0 ? $"{detectedLatency} ms" : "-- ms";
     }
 
     private static string FormatSampleCount(long samples)

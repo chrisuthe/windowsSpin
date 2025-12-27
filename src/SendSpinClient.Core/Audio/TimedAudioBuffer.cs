@@ -61,6 +61,10 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     // 500ms matches Python CLI's _REANCHOR_THRESHOLD_US (more lenient than before)
     private const long ReanchorThresholdMicroseconds = 500_000; // 500ms
 
+    // Startup grace period: don't apply sync correction for first 500ms
+    // This allows playback to stabilize before we start measuring drift
+    private const long StartupGracePeriodMicroseconds = 500_000; // 500ms
+
     // Sync correction state
     private int _dropEveryNFrames;        // Drop a frame every N frames (when playing too slow)
     private int _insertEveryNFrames;      // Insert a frame every N frames (when playing too fast)
@@ -77,15 +81,19 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     private long _totalWritten;
     private long _totalRead;
 
-    // Sync error tracking
-    // Tracks the difference between where playback IS vs where it SHOULD be
-    private long _playbackStartLocalTime;     // Local time when playback started (μs)
-    private long _playbackStartServerTime;    // Server timestamp of first sample played (μs)
-    private long _currentSyncErrorMicroseconds; // Positive = playing late, Negative = playing early
-    private long _samplesPlayedSinceStart;    // Total samples output since playback started
-    private double _microsecondsPerSample;    // Duration of one sample in microseconds
+    // Sync error tracking (CLI-style: track samples READ, not samples OUTPUT)
+    // Key insight: We must track samples READ from buffer, not samples OUTPUT.
+    // When dropping, we read MORE than we output → samplesReadTime advances → error shrinks.
+    // When inserting, we read NOTHING → samplesReadTime stays → error grows toward 0.
+    private long _playbackStartLocalTime;       // Local time when playback started (μs)
+    private long _lastElapsedMicroseconds;      // Last calculated elapsed time (for stats)
+    private long _currentSyncErrorMicroseconds; // Positive = behind (need DROP), Negative = ahead (need INSERT)
+    private long _samplesReadSinceStart;        // Total samples READ (consumed) since playback started
+    private long _samplesOutputSinceStart;      // Total samples OUTPUT since playback started (for stats)
+    private double _microsecondsPerSample;      // Duration of one sample in microseconds
 
     private bool _disposed;
+    private bool _hasEverPlayed;  // Track if we've ever started playback (for resume detection)
 
     /// <inheritdoc/>
     public AudioFormat Format { get; }
@@ -123,6 +131,9 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             }
         }
     }
+
+    /// <inheritdoc/>
+    public long OutputLatencyMicroseconds { get; set; }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TimedAudioBuffer"/> class.
@@ -203,27 +214,31 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 return 0;
             }
 
-            // Check if the oldest segment is ready for playback
+            // Start playback immediately when we have audio - don't wait for timestamps!
+            // Python CLI approach: start when buffer is ready, let sync correction handle timing.
+            // Waiting for timestamps would cause 2-5 second delays since server sends audio ahead.
+            // The sync correction (drop/insert frames) will handle any drift over time.
             if (_segments.Count > 0 && !_playbackStarted)
             {
                 var firstSegment = _segments.Peek();
 
-                // Don't start playing until the first segment's time arrives
-                // Allow 5ms early start to account for processing delays
-                if (currentLocalTime < firstSegment.LocalPlaybackTime - 5000)
-                {
-                    buffer.Fill(0f);
-                    return 0;
-                }
-
                 _playbackStarted = true;
+                _hasEverPlayed = true;
                 _nextExpectedPlaybackTime = firstSegment.LocalPlaybackTime;
 
-                // Initialize sync error tracking
-                // Record when playback started and what server time that corresponds to
+                // Initialize sync error tracking (CLI-style: track samples READ)
+                // Use the ACTUAL start time (now), not the intended playback time.
+                // The first chunk's LocalPlaybackTime may be seconds in the FUTURE
+                // (server sends audio ~5s ahead) - that's normal buffer, not sync error!
+                //
+                // sync_error = elapsedWallClock - samplesReadTime
+                //   Positive = wall clock ahead = playing too slow = DROP to catch up
+                //   Negative = wall clock behind = playing too fast = INSERT to slow down
+                //
+                // When dropping: samplesReadTime increases faster → error shrinks ✓
                 _playbackStartLocalTime = currentLocalTime;
-                _playbackStartServerTime = _clockSync.ClientToServerTime(currentLocalTime);
-                _samplesPlayedSinceStart = 0;
+                _samplesReadSinceStart = 0;
+                _samplesOutputSinceStart = 0;
             }
 
             // Check for re-anchor condition before reading
@@ -249,15 +264,25 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             // Update segment tracking
             ConsumeSegments(actualRead);
 
-            // Update sync error tracking and correction rate
-            if (_playbackStarted && actualRead > 0)
+            // Update sync error tracking and correction rate (CLI-style approach)
+            // IMPORTANT: Track both samplesRead AND samplesOutput separately!
+            // - samplesRead advances the server cursor (what timestamp we're reading)
+            // - samplesOutput advances wall clock (how much time has passed for output)
+            // When dropping: read 2, output 1 → cursor advances faster → error shrinks ✓
+            // When inserting: read 0, output 1 → cursor stays still → error grows toward 0 ✓
+            if (_playbackStarted && outputCount > 0)
             {
-                _samplesPlayedSinceStart += actualRead;
+                _samplesReadSinceStart += actualRead;
+                _samplesOutputSinceStart += outputCount;
+
                 CalculateSyncError(currentLocalTime);
                 UpdateCorrectionRate();
 
                 // Check if error is too large and we need to re-anchor
-                if (Math.Abs(_currentSyncErrorMicroseconds) > ReanchorThresholdMicroseconds)
+                // But skip this check during startup grace period
+                var elapsedSinceStart = (long)(_samplesOutputSinceStart * _microsecondsPerSample);
+                if (elapsedSinceStart >= StartupGracePeriodMicroseconds
+                    && Math.Abs(_currentSyncErrorMicroseconds) > ReanchorThresholdMicroseconds)
                 {
                     _needsReanchor = true;
                 }
@@ -285,10 +310,12 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             _playbackStarted = false;
             _nextExpectedPlaybackTime = 0;
 
-            // Reset sync error tracking
+            // Reset sync error tracking (CLI-style: reset EVERYTHING on clear)
+            // This matches Python CLI's clear() behavior for track changes
             _playbackStartLocalTime = 0;
-            _playbackStartServerTime = 0;
-            _samplesPlayedSinceStart = 0;
+            _lastElapsedMicroseconds = 0;
+            _samplesReadSinceStart = 0;
+            _samplesOutputSinceStart = 0;
             _currentSyncErrorMicroseconds = 0;
 
             // Reset sync correction state
@@ -322,6 +349,9 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 CurrentCorrectionMode = _dropEveryNFrames > 0
                     ? SyncCorrectionMode.Dropping
                     : (_insertEveryNFrames > 0 ? SyncCorrectionMode.Inserting : SyncCorrectionMode.None),
+                SamplesReadSinceStart = _samplesReadSinceStart,
+                SamplesOutputSinceStart = _samplesOutputSinceStart,
+                ElapsedSinceStartMs = _lastElapsedMicroseconds / 1000.0,
             };
         }
     }
@@ -426,39 +456,53 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     }
 
     /// <summary>
-    /// Calculates the current sync error by comparing actual vs expected playback position.
+    /// Calculates the current sync error using CLI-style server cursor tracking.
     /// Must be called under lock.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Sync error calculation:
-    /// - Expected position: Based on elapsed SERVER time since playback started
-    /// - Actual position: Based on samples we've actually output
-    /// - Error = Expected - Actual (positive = we're behind, negative = we're ahead)
+    /// CLI approach: sync_error = expected_server_position - actual_server_cursor
     /// </para>
     /// <para>
-    /// CRITICAL: We must use ClientToServerTime to convert current local time to server time.
-    /// Simply adding elapsed local time assumes clocks run at the same rate, which is wrong
-    /// if there's drift. Without this correction, the sync error accumulates incorrectly
-    /// on each play/pause/play cycle, causing progressive desync.
+    /// Expected position = first server timestamp + elapsed wall clock time.
+    /// Actual cursor = server timestamp we've READ up to (advanced by samplesRead).
+    /// </para>
+    /// <para>
+    /// When DROPPING (read 2, output 1):
+    ///   - Cursor advances by 2 frames worth of time
+    ///   - Expected advances by 1 frame worth of time (wall clock)
+    ///   - Error shrinks! (cursor catches up to expected) ✓
+    /// </para>
+    /// <para>
+    /// When INSERTING (read 0, output 1):
+    ///   - Cursor stays still
+    ///   - Expected advances by 1 frame worth of time (wall clock)
+    ///   - Error grows toward 0! (expected catches up to cursor) ✓
     /// </para>
     /// </remarks>
     private void CalculateSyncError(long currentLocalTime)
     {
-        // Convert current local time to server time, properly accounting for drift
-        // This is critical: we can't just add elapsed local time because clocks drift!
-        var currentServerTime = _clockSync.ClientToServerTime(currentLocalTime);
+        // Elapsed wall-clock time since playback started
+        var elapsedTimeMicroseconds = currentLocalTime - _playbackStartLocalTime;
+        _lastElapsedMicroseconds = elapsedTimeMicroseconds;
 
-        // How much server time has elapsed since playback started?
-        var elapsedServerTimeMicroseconds = currentServerTime - _playbackStartServerTime;
+        // How much server time have we actually READ (consumed) from the buffer?
+        var samplesReadTimeMicroseconds = (long)(_samplesReadSinceStart * _microsecondsPerSample);
 
-        // What server timestamp ARE we at based on samples output?
-        // Each sample represents a fixed duration of server time
-        var actualServerTimeDelta = (long)(_samplesPlayedSinceStart * _microsecondsPerSample);
+        // Account for output buffer latency (WASAPI buffer delay).
+        // When elapsed time = 50ms and we've read 50ms of samples, the speaker has
+        // only played ~0ms (samples are still in the WASAPI buffer).
+        // Without this compensation, we'd see a constant ~50ms "behind" error.
+        //
+        // By subtracting output latency from elapsed time, we're asking:
+        // "How much audio should have ACTUALLY played through the speaker?"
+        // instead of "How much wall clock time has passed?"
+        var adjustedElapsedMicroseconds = elapsedTimeMicroseconds - OutputLatencyMicroseconds;
 
-        // Sync error: positive means we're behind (playing late), negative means ahead (playing early)
-        // Compare elapsed server time (what we SHOULD have played) vs actual output (what we DID play)
-        _currentSyncErrorMicroseconds = elapsedServerTimeMicroseconds - actualServerTimeDelta;
+        // Sync error = adjusted_elapsed - samples_read_time
+        // Positive = we haven't read enough (behind) = need to DROP (read faster)
+        // Negative = we've read too much (ahead) = need to INSERT (slow down reading)
+        _currentSyncErrorMicroseconds = adjustedElapsedMicroseconds - samplesReadTimeMicroseconds;
     }
 
     /// <summary>
@@ -471,6 +515,16 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     /// </remarks>
     private void UpdateCorrectionRate()
     {
+        // Skip correction during startup grace period to allow playback to stabilize
+        // This prevents over-correction due to initial timing jitter
+        var elapsedSinceStart = (long)(_samplesOutputSinceStart * _microsecondsPerSample);
+        if (elapsedSinceStart < StartupGracePeriodMicroseconds)
+        {
+            _dropEveryNFrames = 0;
+            _insertEveryNFrames = 0;
+            return;
+        }
+
         var absError = Math.Abs(_currentSyncErrorMicroseconds);
 
         // If error is within deadband, no correction needed

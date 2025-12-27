@@ -34,6 +34,7 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
     private readonly double _processNoiseDrift;    // How much drift rate can change per second
     private readonly double _measurementNoise;     // Expected measurement noise (RTT variance)
     private long _staticDelayMicroseconds;         // User-configurable playback delay
+    private long _hardwareLatencyMicroseconds;     // Auto-detected hardware latency
 
     // Convergence tracking
     private const int MinMeasurementsForConvergence = 5;
@@ -326,10 +327,12 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
                     ? _offset + _drift * elapsedSeconds
                     : _offset;
 
-                return serverTime - (long)currentOffset + _staticDelayMicroseconds;
+                // Hardware latency is subtracted (play earlier to compensate for output buffer)
+                // Static delay is added (positive = play later, per user preference)
+                return serverTime - (long)currentOffset - _hardwareLatencyMicroseconds + _staticDelayMicroseconds;
             }
 
-            return serverTime - (long)_offset + _staticDelayMicroseconds;
+            return serverTime - (long)_offset - _hardwareLatencyMicroseconds + _staticDelayMicroseconds;
         }
     }
 
@@ -341,6 +344,22 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
     {
         get => _staticDelayMicroseconds / 1000.0;
         set => _staticDelayMicroseconds = (long)(value * 1000);
+    }
+
+    /// <summary>
+    /// Gets or sets the hardware latency compensation in milliseconds.
+    /// This is automatically detected from the audio output device and is used to
+    /// compensate for the delay between when audio is submitted and when it's played.
+    /// </summary>
+    /// <remarks>
+    /// This value is subtracted from the target playback time (play earlier)
+    /// to compensate for the audio output buffer delay. For example, if WASAPI
+    /// has a 50ms buffer, we need to submit audio 50ms earlier than the target time.
+    /// </remarks>
+    public double HardwareLatencyMs
+    {
+        get => _hardwareLatencyMicroseconds / 1000.0;
+        set => _hardwareLatencyMicroseconds = (long)(value * 1000);
     }
 
     /// <summary>
@@ -404,6 +423,12 @@ public interface IClockSynchronizer
     /// Positive values delay playback (play later), negative values advance it (play earlier).
     /// </summary>
     double StaticDelayMs { get; set; }
+
+    /// <summary>
+    /// Gets or sets the hardware latency compensation in milliseconds.
+    /// Automatically compensates for audio output buffer delay.
+    /// </summary>
+    double HardwareLatencyMs { get; set; }
 }
 
 /// <summary>

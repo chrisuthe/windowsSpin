@@ -28,6 +28,17 @@ public interface IAudioPipeline : IAsyncDisposable
     AudioFormat? CurrentFormat { get; }
 
     /// <summary>
+    /// Gets the detected audio output latency in milliseconds.
+    /// This value is available after the pipeline has started.
+    /// </summary>
+    /// <remarks>
+    /// This latency represents the buffer delay between when audio is submitted
+    /// to the audio output and when it is actually played through the speakers.
+    /// It can be used to automatically compensate for audio output delay.
+    /// </remarks>
+    int DetectedOutputLatencyMs { get; }
+
+    /// <summary>
     /// Starts the pipeline with the specified stream format.
     /// Called when stream/start is received.
     /// </summary>
