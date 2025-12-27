@@ -27,6 +27,17 @@ public interface IAudioPlayer : IAsyncDisposable
     bool IsMuted { get; set; }
 
     /// <summary>
+    /// Gets the detected output latency in milliseconds.
+    /// This represents the buffer latency of the audio output device.
+    /// </summary>
+    /// <remarks>
+    /// This value is available after <see cref="InitializeAsync"/> completes.
+    /// It can be used to automatically compensate for audio output delay
+    /// in synchronized multi-room playback scenarios.
+    /// </remarks>
+    int OutputLatencyMs { get; }
+
+    /// <summary>
     /// Initializes the audio output with the specified format.
     /// </summary>
     /// <param name="format">Audio format to use.</param>

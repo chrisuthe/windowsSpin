@@ -51,12 +51,8 @@ public sealed class AudioPipeline : IAudioPipeline
     private AudioFormat? _currentFormat;
     private int _volume = 100;
     private bool _muted;
-    private DateTime? _bufferReadyTime;
     private long _lastSyncLogTime;
     private long _chunksProcessed;
-
-    // Maximum time to wait for clock sync convergence before starting playback anyway
-    private static readonly TimeSpan MaxConvergenceWait = TimeSpan.FromSeconds(3);
 
     // How often to log sync status during playback (microseconds)
     private const long SyncLogIntervalMicroseconds = 5_000_000; // 5 seconds
@@ -69,6 +65,9 @@ public sealed class AudioPipeline : IAudioPipeline
 
     /// <inheritdoc/>
     public AudioFormat? CurrentFormat => _currentFormat;
+
+    /// <inheritdoc/>
+    public int DetectedOutputLatencyMs => _player?.OutputLatencyMs ?? 0;
 
     /// <inheritdoc/>
     public event EventHandler<AudioPipelineState>? StateChanged;
@@ -153,6 +152,14 @@ public sealed class AudioPipeline : IAudioPipeline
             _player = _playerFactory();
             await _player.InitializeAsync(format, cancellationToken);
 
+            // Set hardware latency compensation based on detected output latency
+            // This automatically adjusts for audio buffer delay
+            _clockSync.HardwareLatencyMs = _player.OutputLatencyMs;
+            _buffer.OutputLatencyMicroseconds = _player.OutputLatencyMs * 1000L;
+            _logger.LogDebug(
+                "Hardware latency compensation set to {LatencyMs}ms",
+                _player.OutputLatencyMs);
+
             // Create sample source bridging buffer to player
             _sampleSource = _sourceFactory(_buffer, GetCurrentLocalTimeMicroseconds);
             _player.SetSampleSource(_sampleSource);
@@ -199,7 +206,6 @@ public sealed class AudioPipeline : IAudioPipeline
     {
         _buffer?.Clear();
         _decoder?.Reset();
-        _bufferReadyTime = null;
 
         if (State == AudioPipelineState.Playing)
         {
@@ -235,29 +241,12 @@ public sealed class AudioPipeline : IAudioPipeline
                     LogSyncStatusIfNeeded();
                 }
 
-                // Check if we should start playback
+                // Start playback immediately when buffer is ready - don't wait for convergence!
+                // Python CLI approach: start when buffer ready, let sync correction handle timing.
+                // Clock sync runs continuously and sync correction adjusts playback speed.
                 if (State == AudioPipelineState.Buffering && _buffer.IsReadyForPlayback)
                 {
-                    // Track when buffer first became ready
-                    _bufferReadyTime ??= DateTime.UtcNow;
-
-                    // Wait for clock sync to converge before starting - prevents large initial offset errors
-                    // But don't wait forever - start anyway after timeout (better to play than silence)
-                    var waitedForConvergence = DateTime.UtcNow - _bufferReadyTime.Value;
-                    if (_clockSync.IsConverged)
-                    {
-                        StartPlayback();
-                    }
-                    else if (waitedForConvergence >= MaxConvergenceWait)
-                    {
-                        var syncStatus = _clockSync.GetStatus();
-                        _logger.LogWarning(
-                            "Clock sync not converged after {WaitMs:F0}ms (measurements={Count}, uncertainty={UncertaintyMs:F2}ms), starting playback anyway",
-                            waitedForConvergence.TotalMilliseconds,
-                            syncStatus.MeasurementCount,
-                            syncStatus.OffsetUncertaintyMicroseconds / 1000.0);
-                        StartPlayback();
-                    }
+                    StartPlayback();
                 }
             }
         }
@@ -322,7 +311,6 @@ public sealed class AudioPipeline : IAudioPipeline
         {
             var syncStatus = _clockSync.GetStatus();
             _player.Play();
-            _bufferReadyTime = null; // Reset for next buffering cycle
 
             // Reset sync monitoring counters
             _lastSyncLogTime = _precisionTimer.GetCurrentTimeMicroseconds();
@@ -331,10 +319,11 @@ public sealed class AudioPipeline : IAudioPipeline
             SetState(AudioPipelineState.Playing);
             _logger.LogInformation(
                 "Starting playback: buffer={BufferMs:F0}ms, sync offset={OffsetMs:F2}ms (±{UncertaintyMs:F2}ms), " +
-                "timer resolution={ResolutionNs:F0}ns",
+                "output latency={OutputLatencyMs}ms, timer resolution={ResolutionNs:F0}ns",
                 _buffer?.BufferedMilliseconds ?? 0,
                 syncStatus.OffsetMilliseconds,
                 syncStatus.OffsetUncertaintyMicroseconds / 1000.0,
+                DetectedOutputLatencyMs,
                 HighPrecisionTimer.GetResolutionNanoseconds());
         }
         catch (Exception ex)
@@ -371,7 +360,6 @@ public sealed class AudioPipeline : IAudioPipeline
         _sampleSource = null;
         _decodeBuffer = Array.Empty<float>();
         _currentFormat = null;
-        _bufferReadyTime = null;
     }
 
     private void OnReanchorRequired(object? sender, EventArgs e)
@@ -442,23 +430,31 @@ public sealed class AudioPipeline : IAudioPipeline
                 _ => "none",
             };
 
+            // Calculate derived values for debugging
+            var samplesReadTimeMs = stats.SamplesReadSinceStart * (1000.0 / (_currentFormat!.SampleRate * _currentFormat.Channels));
+
             // Use appropriate log level based on sync error magnitude
             if (absError > 50) // > 50ms - significant drift
             {
                 _logger.LogWarning(
-                    "Sync drift detected: error={SyncErrorMs:+0.00;-0.00}ms, correction={Correction}, " +
-                    "buffer={BufferMs:F0}ms, chunks={Chunks}",
+                    "Sync drift: error={SyncErrorMs:+0.00;-0.00}ms, elapsed={Elapsed:F0}ms, readTime={ReadTime:F0}ms, " +
+                    "read={Read}, output={Output}, correction={Correction}, buffer={BufferMs:F0}ms",
                     syncErrorMs,
+                    stats.ElapsedSinceStartMs,
+                    samplesReadTimeMs,
+                    stats.SamplesReadSinceStart,
+                    stats.SamplesOutputSinceStart,
                     correctionInfo,
-                    stats.BufferedMs,
-                    _chunksProcessed);
+                    stats.BufferedMs);
             }
             else if (absError > 10) // > 10ms - noticeable
             {
                 _logger.LogInformation(
-                    "Sync status: error={SyncErrorMs:+0.00;-0.00}ms, correction={Correction}, " +
-                    "buffer={BufferMs:F0}ms",
+                    "Sync status: error={SyncErrorMs:+0.00;-0.00}ms, elapsed={Elapsed:F0}ms, readTime={ReadTime:F0}ms, " +
+                    "correction={Correction}, buffer={BufferMs:F0}ms",
                     syncErrorMs,
+                    stats.ElapsedSinceStartMs,
+                    samplesReadTimeMs,
                     correctionInfo,
                     stats.BufferedMs);
             }

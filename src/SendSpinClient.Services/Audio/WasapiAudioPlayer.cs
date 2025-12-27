@@ -33,6 +33,13 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     private AudioFormat? _format;
     private float _volume = 1.0f;
     private bool _isMuted;
+    private int _outputLatencyMs;
+
+    /// <summary>
+    /// Gets the detected output latency in milliseconds.
+    /// This is the buffer latency reported by the WASAPI audio device.
+    /// </summary>
+    public int OutputLatencyMs => _outputLatencyMs;
 
     /// <inheritdoc/>
     public AudioPlayerState State { get; private set; } = AudioPlayerState.Uninitialized;
@@ -103,11 +110,17 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
                     _wasapiOut.PlaybackStopped += OnPlaybackStopped;
 
+                    // Capture the output latency - this is the buffer latency we requested
+                    // from WASAPI. The actual end-to-end latency also includes DAC/driver
+                    // delays which vary by hardware and aren't directly queryable.
+                    _outputLatencyMs = 50; // Our requested latency in shared mode
+
                     SetState(AudioPlayerState.Stopped);
                     _logger.LogInformation(
-                        "WASAPI player initialized: {SampleRate}Hz {Channels}ch",
+                        "WASAPI player initialized: {SampleRate}Hz {Channels}ch, latency: {Latency}ms",
                         format.SampleRate,
-                        format.Channels);
+                        format.Channels,
+                        _outputLatencyMs);
                 }
                 catch (Exception ex)
                 {

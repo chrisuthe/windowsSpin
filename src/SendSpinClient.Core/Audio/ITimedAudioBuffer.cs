@@ -33,6 +33,14 @@ public interface ITimedAudioBuffer : IDisposable
     bool IsReadyForPlayback { get; }
 
     /// <summary>
+    /// Gets or sets the output latency in microseconds.
+    /// This is the delay between when samples are read from the buffer
+    /// and when they actually play through the speakers (WASAPI buffer latency).
+    /// Used to compensate for output buffer delay in sync error calculation.
+    /// </summary>
+    long OutputLatencyMicroseconds { get; set; }
+
+    /// <summary>
     /// Adds decoded audio samples with their target playback timestamp.
     /// Called from decoder thread.
     /// </summary>
@@ -136,6 +144,21 @@ public record AudioBufferStats
     /// Gets the current sync correction mode.
     /// </summary>
     public SyncCorrectionMode CurrentCorrectionMode { get; init; }
+
+    /// <summary>
+    /// Gets the total samples read since playback started (for sync debugging).
+    /// </summary>
+    public long SamplesReadSinceStart { get; init; }
+
+    /// <summary>
+    /// Gets the total samples output since playback started (for sync debugging).
+    /// </summary>
+    public long SamplesOutputSinceStart { get; init; }
+
+    /// <summary>
+    /// Gets elapsed time since playback started in milliseconds (for sync debugging).
+    /// </summary>
+    public double ElapsedSinceStartMs { get; init; }
 }
 
 /// <summary>
