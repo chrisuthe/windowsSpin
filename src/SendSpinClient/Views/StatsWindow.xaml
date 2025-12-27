@@ -157,6 +157,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Status" Style="{StaticResource StatLabel}"/>
@@ -173,15 +174,20 @@
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Drift Rate" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
                         <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DriftRateDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
 
-                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Measurements" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
-                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding MeasurementCount}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Drift Reliable" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding DriftReliableDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,8,0,0"
+                                   Foreground="{Binding DriftReliableColor}"/>
 
-                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Output Latency" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
-                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding OutputLatencyDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Measurements" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding MeasurementCount}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Output Latency" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding OutputLatencyDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"
                                    Foreground="#fbbf24"/>
 
-                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Static Delay" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
-                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding StaticDelayDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Static Delay" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding StaticDelayDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"
                                    Foreground="#60a5fa"/>
                     </Grid>
                 </Border>

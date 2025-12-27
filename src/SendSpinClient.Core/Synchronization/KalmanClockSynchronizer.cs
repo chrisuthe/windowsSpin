@@ -44,6 +44,9 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
     // At 50 μs/s uncertainty, drift compensation won't cause more than ~50μs error per second
     private const double MaxDriftUncertaintyForReliable = 50.0; // μs/s
 
+    // Tracking for drift reliability transition (for diagnostics)
+    private bool _driftReliableLogged;
+
     /// <summary>
     /// Current estimated clock offset in microseconds.
     /// server_time = client_time + Offset
@@ -145,6 +148,7 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
             _covariance = 0;
             _lastUpdateTime = 0;
             _measurementCount = 0;
+            _driftReliableLogged = false;
         }
 
         _logger?.LogDebug("Clock synchronizer reset");
@@ -249,13 +253,29 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
             {
                 _logger?.LogDebug(
                     "Time sync #{Count}: offset={Offset:F0}μs (±{Uncertainty:F0}), " +
-                    "drift={Drift:F2}μs/s, RTT={RTT:F0}μs, innovation={Innovation:F0}μs",
+                    "drift={Drift:F2}μs/s (±{DriftUncertainty:F1}), RTT={RTT:F0}μs",
                     _measurementCount,
                     _offset,
                     Math.Sqrt(_offsetVariance),
                     _drift,
-                    rtt,
-                    innovation);
+                    Math.Sqrt(_driftVariance),
+                    rtt);
+            }
+
+            // Log when drift becomes reliable for the first time
+            bool driftNowReliable = _measurementCount >= MinMeasurementsForConvergence
+                                   && Math.Sqrt(_driftVariance) < MaxDriftUncertaintyForReliable;
+            if (driftNowReliable && !_driftReliableLogged)
+            {
+                _driftReliableLogged = true;
+                _logger?.LogInformation(
+                    "🎯 Drift is now reliable! drift={Drift:F2}μs/s (±{Uncertainty:F1}μs/s), " +
+                    "offset={Offset:F0}μs, measurements={Count}. " +
+                    "Future timestamps will include drift compensation.",
+                    _drift,
+                    Math.Sqrt(_driftVariance),
+                    _offset,
+                    _measurementCount);
             }
         }
     }
