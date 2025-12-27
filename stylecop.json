@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/DotNetAnalyzers/StyleCopAnalyzers/master/StyleCop.Analyzers/StyleCop.Analyzers/Settings/stylecop.schema.json",
   "settings": {
     "documentationRules": {
-      "companyName": "SendSpin Windows Client",
+      "companyName": "Sendspin Windows Client",
       "copyrightText": "Licensed under the MIT License. See LICENSE file in the project root.",
       "xmlHeader": false,
       "documentExposedElements": true,

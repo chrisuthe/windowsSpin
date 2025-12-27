@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RuleSet Name="SendSpin Windows Client Rules" Description="Code analysis rules for the SendSpin Windows Client project." ToolsVersion="17.0">
+<RuleSet Name="Sendspin Windows Client Rules" Description="Code analysis rules for the Sendspin Windows Client project." ToolsVersion="17.0">
   <!-- Include all Microsoft rules -->
   <Include Path="AllRules.ruleset" Action="Default" />
 

@@ -1,25 +1,25 @@
-# SendSpin Windows Client
+# Sendspin Windows Client
 
 <p align="center">
-  <img src="icon.png" alt="SendSpin Windows Client" width="128" height="128">
+  <img src="icon.png" alt="Sendspin Windows Client" width="128" height="128">
 </p>
 
-A Windows WPF client implementation for the [SendSpin protocol](https://www.sendspin-audio.com/), enabling synchronized multi-room audio playback with [Music Assistant](https://music-assistant.io/).
+A Windows WPF client implementation for the [Sendspin protocol](https://www.sendspin-audio.com/), enabling synchronized multi-room audio playback with [Music Assistant](https://music-assistant.io/).
 
-> **⚠️ Disclaimer:** This is an **independent, unofficial project** and is **not affiliated with, endorsed by, or associated with** the Music Assistant project or the official SendSpin protocol maintainers. This is a third-party implementation created for personal use and community benefit.
+> **⚠️ Disclaimer:** This is an **independent, unofficial project** and is **not affiliated with, endorsed by, or associated with** the Music Assistant project or the official Sendspin protocol maintainers. This is a third-party implementation created for personal use and community benefit.
 
 ## Overview
 
-SendSpin Windows Client is a native Windows application that connects to Music Assistant servers to provide synchronized audio playback across multiple devices. It implements the SendSpin protocol, which uses WebSocket communication for control messages and binary audio streaming, combined with NTP-style clock synchronization to achieve precise multi-room audio sync.
+Sendspin Windows Client is a native Windows application that connects to Music Assistant servers to provide synchronized audio playback across multiple devices. It implements the Sendspin protocol, which uses WebSocket communication for control messages and binary audio streaming, combined with NTP-style clock synchronization to achieve precise multi-room audio sync.
 
 This client can operate in two modes:
-- **Client Mode**: Actively discovers and connects to SendSpin servers
+- **Client Mode**: Actively discovers and connects to Sendspin servers
 - **Host Mode**: Advertises itself via mDNS and accepts incoming server connections
 
 ## Features
 
 - **Multi-Room Audio Synchronization**: Sub-millisecond audio synchronization using Kalman filter-based clock sync
-- **Automatic Server Discovery**: mDNS/DNS-SD discovery of SendSpin servers on the local network
+- **Automatic Server Discovery**: mDNS/DNS-SD discovery of Sendspin servers on the local network
 - **Multiple Audio Formats**: Support for PCM, FLAC, and Opus audio codecs
 - **Real-time Metadata**: Display of currently playing track information and album artwork
 - **Playback Control**: Full playback control (play, pause, volume, next/previous)
@@ -69,7 +69,7 @@ For cross-subnet scenarios where mDNS discovery doesn't work, you can manually e
 ### Option 1: Download Release Binary (Coming Soon)
 1. Download the latest release from the [Releases](https://github.com/chrisuthe/windowsSpin/releases) page
 2. Extract the archive to your preferred location
-3. Run `SendSpinClient.exe`
+3. Run `SendspinClient.exe`
 
 ### Option 2: Build from Source
 ```bash
@@ -78,16 +78,16 @@ git clone https://github.com/chrisuthe/windowsSpin.git
 cd windowsSpin
 
 # Build the solution
-dotnet build SendSpinClient.sln --configuration Release
+dotnet build SendspinClient.sln --configuration Release
 
 # Run the application
-dotnet run --project src/SendSpinClient/SendSpinClient.csproj
+dotnet run --project src/SendspinClient/SendspinClient.csproj
 ```
 
 ## Building and Running
 
 ### Using Visual Studio
-1. Open `SendSpinClient.sln` in Visual Studio 2022
+1. Open `SendspinClient.sln` in Visual Studio 2022
 2. Select the desired configuration (Debug or Release)
 3. Build the solution (F7 or Build > Build Solution)
 4. Run the application (F5 for debugging or Ctrl+F5 without debugging)
@@ -101,14 +101,14 @@ dotnet build
 dotnet build --configuration Release
 
 # Run the application
-dotnet run --project src/SendSpinClient/SendSpinClient.csproj
+dotnet run --project src/SendspinClient/SendspinClient.csproj
 
 # Publish for deployment
-dotnet publish src/SendSpinClient/SendSpinClient.csproj -c Release -r win-x64 --self-contained false
+dotnet publish src/SendspinClient/SendspinClient.csproj -c Release -r win-x64 --self-contained false
 ```
 
 ### Using Rider
-1. Open `SendSpinClient.sln` in JetBrains Rider
+1. Open `SendspinClient.sln` in JetBrains Rider
 2. Select run configuration
 3. Click Run or Debug
 
@@ -116,12 +116,12 @@ dotnet publish src/SendSpinClient/SendSpinClient.csproj -c Release -r win-x64 --
 
 The solution is organized into three projects:
 
-### SendSpinClient.Core
+### SendspinClient.Core
 Core protocol implementation and business logic. Platform-agnostic .NET 8.0 library.
 
 **Key Components:**
-- **Client**: Main client orchestration (`SendSpinClientService`, `SendSpinHostService`)
-- **Connection**: WebSocket connection management (`SendSpinConnection`, `SendSpinListener`)
+- **Client**: Main client orchestration (`SendspinClientService`, `SendspinHostService`)
+- **Connection**: WebSocket connection management (`SendspinConnection`, `SendspinListener`)
 - **Discovery**: mDNS server discovery and advertisement (`MdnsServerDiscovery`, `MdnsServiceAdvertiser`)
 - **Protocol**: Message serialization and parsing (`MessageSerializer`, `BinaryMessageParser`)
 - **Synchronization**: Clock synchronization using Kalman filtering (`KalmanClockSynchronizer`)
@@ -131,7 +131,7 @@ Core protocol implementation and business logic. Platform-agnostic .NET 8.0 libr
   - FLAC decoder (via SimpleFlac)
 - **Models**: Data models for audio format, group state, playback state, and track metadata
 
-### SendSpinClient.Services
+### SendspinClient.Services
 Windows-specific audio services. Targets .NET 8.0 Windows.
 
 **Components:**
@@ -139,7 +139,7 @@ Windows-specific audio services. Targets .NET 8.0 Windows.
 - **Audio Buffer Management**: Synchronized sample buffering with server timestamps
 - **Platform Integration**: Windows-specific audio device handling
 
-### SendSpinClient
+### SendspinClient
 WPF desktop application providing the user interface.
 
 **Components:**
@@ -150,9 +150,9 @@ WPF desktop application providing the user interface.
 
 ## Protocol Overview
 
-### SendSpin Protocol Basics
+### Sendspin Protocol Basics
 
-SendSpin is a WebSocket-based protocol for synchronized multi-room audio. It consists of:
+Sendspin is a WebSocket-based protocol for synchronized multi-room audio. It consists of:
 
 1. **Text Messages (JSON)**: Control messages, metadata, and state synchronization
 2. **Binary Messages**: Audio data and artwork with microsecond timestamps
@@ -268,7 +268,7 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
 **Server not discovered:**
 - Ensure client and server are on the same network
 - Check firewall settings (allow mDNS port 5353, WebSocket ports)
-- Verify Music Assistant has SendSpin enabled
+- Verify Music Assistant has Sendspin enabled
 
 **Connection fails:**
 - Check server logs for connection errors
@@ -293,7 +293,7 @@ Enable detailed logging by setting environment variables:
 set Logging__LogLevel__Default=Debug
 
 # Set specific namespace to Trace
-set Logging__LogLevel__SendSpinClient.Core=Trace
+set Logging__LogLevel__SendspinClient.Core=Trace
 ```
 
 Logs include:
@@ -341,7 +341,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 - [Music Assistant](https://music-assistant.io/) - The music streaming and multi-room platform
-- [SendSpin Protocol](https://github.com/music-assistant/sendspin) - The synchronization protocol specification
+- [Sendspin Protocol](https://github.com/music-assistant/sendspin) - The synchronization protocol specification
 - [NAudio](https://github.com/naudio/NAudio) - Audio library for Windows (WASAPI playback)
 - [Concentus](https://github.com/lostromb/concentus) - Pure C# Opus decoder
 - [SimpleFlac](https://github.com/jdpurcell/SimpleFlac) - Pure C# FLAC decoder (vendored)
@@ -350,7 +350,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Related Projects
 
 - [Music Assistant](https://github.com/music-assistant/server) - Server implementation
-- [SendSpin CLI](https://github.com/music-assistant/sendspin-cli) - Official CLI reference client
+- [Sendspin CLI](https://github.com/music-assistant/sendspin-cli) - Official CLI reference client
 - [aiosendspin](https://github.com/music-assistant/aiosendspin) - Python client library
 
 ## Support

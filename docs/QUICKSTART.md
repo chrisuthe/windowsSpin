@@ -1,13 +1,13 @@
 # Quick Start Guide
 
-Get up and running with SendSpin Windows Client development in minutes.
+Get up and running with Sendspin Windows Client development in minutes.
 
 ## Prerequisites
 
 - Windows 10/11
 - Visual Studio 2022 or JetBrains Rider
 - .NET 8.0 SDK
-- Music Assistant server with SendSpin enabled
+- Music Assistant server with Sendspin enabled
 
 ## 5-Minute Setup
 
@@ -26,23 +26,23 @@ dotnet build
 ### 2. Run the Application
 
 ```bash
-dotnet run --project src/SendSpinClient/SendSpinClient.csproj
+dotnet run --project src/SendspinClient/SendspinClient.csproj
 ```
 
-The application will start and automatically discover SendSpin servers on your network.
+The application will start and automatically discover Sendspin servers on your network.
 
 ## Project Structure at a Glance
 
 ```
 src/
-├── SendSpinClient.Core/          # Protocol implementation (no UI)
+├── SendspinClient.Core/          # Protocol implementation (no UI)
 │   ├── Client/                   # Main client logic
 │   ├── Connection/               # WebSocket connections
 │   ├── Discovery/                # mDNS discovery
 │   ├── Protocol/                 # Message types and serialization
 │   └── Synchronization/          # Clock sync (Kalman filter)
-├── SendSpinClient.Services/      # Windows audio services
-└── SendSpinClient/               # WPF application
+├── SendspinClient.Services/      # Windows audio services
+└── SendspinClient/               # WPF application
     └── ViewModels/               # MVVM view models
 ```
 
@@ -55,7 +55,7 @@ src/
 ```csharp
 using System.Text.Json.Serialization;
 
-namespace SendSpinClient.Core.Protocol.Messages;
+namespace SendspinClient.Core.Protocol.Messages;
 
 /// <summary>
 /// Description of your new message.
@@ -82,7 +82,7 @@ public sealed class MyNewPayload
 public const string MyNewMessage = "my/new-message";
 ```
 
-3. Handle in `SendSpinClient.cs`:
+3. Handle in `SendspinClient.cs`:
 
 ```csharp
 case MessageTypes.MyNewMessage:
@@ -118,7 +118,7 @@ await client.SendCommandAsync(Commands.MyCommand, new Dictionary<string, object>
 ```csharp
 using CommunityToolkit.Mvvm.ComponentModel;
 
-namespace SendSpinClient.ViewModels;
+namespace SendspinClient.ViewModels;
 
 public partial class MyViewModel : ViewModelBase
 {
@@ -148,24 +148,24 @@ Set environment variables:
 ```bash
 # PowerShell
 $env:Logging__LogLevel__Default="Debug"
-$env:Logging__LogLevel__SendSpinClient.Core="Trace"
+$env:Logging__LogLevel__SendspinClient.Core="Trace"
 
 # Command Prompt
 set Logging__LogLevel__Default=Debug
-set Logging__LogLevel__SendSpinClient.Core=Trace
+set Logging__LogLevel__SendspinClient.Core=Trace
 ```
 
 ### Useful Breakpoints
 
-- `SendSpinClientService.OnTextMessageReceived`: All incoming messages
-- `SendSpinConnection.SendMessageAsync`: All outgoing messages
+- `SendspinClientService.OnTextMessageReceived`: All incoming messages
+- `SendspinConnection.SendMessageAsync`: All outgoing messages
 - `KalmanClockSynchronizer.ProcessMeasurement`: Clock sync updates
 - `MdnsServerDiscovery.ParseHost`: Server discovery
 
 ### Common Issues
 
 **"No servers found"**
-- Ensure Music Assistant has SendSpin enabled
+- Ensure Music Assistant has Sendspin enabled
 - Check firewall allows mDNS (UDP port 5353)
 - Verify client and server are on same network/subnet
 
@@ -205,7 +205,7 @@ set Logging__LogLevel__SendSpinClient.Core=Trace
 
 ### Using Wireshark
 
-Filter for SendSpin traffic:
+Filter for Sendspin traffic:
 
 ```
 # WebSocket traffic
@@ -279,7 +279,7 @@ public async Task<bool> MyMethodAsync(string parameter)
 - Code comments - Comprehensive XML documentation in source
 
 ### External Resources
-- [SendSpin Protocol](https://github.com/music-assistant/sendspin)
+- [Sendspin Protocol](https://github.com/music-assistant/sendspin)
 - [Music Assistant Docs](https://music-assistant.io/documentation/)
 - [WPF Tutorial](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/)
 - [MVVM Toolkit](https://learn.microsoft.com/en-us/dotnet/communitytoolkit/mvvm/)
@@ -291,7 +291,7 @@ public async Task<bool> MyMethodAsync(string parameter)
 ## Next Steps
 
 1. **Read the Architecture**: Review [ARCHITECTURE.md](ARCHITECTURE.md) for design details
-2. **Browse the Code**: Start with `SendSpinClientService.cs` - the main orchestrator
+2. **Browse the Code**: Start with `SendspinClientService.cs` - the main orchestrator
 3. **Pick an Issue**: Check [GitHub Issues](https://github.com/yourusername/windowsSpin/issues) for "good first issue"
 4. **Join Discussion**: Ask questions in GitHub Discussions or Discord
 

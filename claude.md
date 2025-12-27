@@ -1,8 +1,8 @@
-# SendSpin Windows Client - Project Notes
+# Sendspin Windows Client - Project Notes
 
 ## Project Purpose
 
-This project is a Windows implementation of the SendSpin protocol, providing a native Windows-based player that can:
+This project is a Windows implementation of the Sendspin protocol, providing a native Windows-based player that can:
 - Run in the background (system tray)
 - Show toast notifications
 - Sync properly with other players for multi-room playback

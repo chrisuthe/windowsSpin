@@ -1,6 +1,6 @@
-# Contributing to SendSpin Windows Client
+# Contributing to Sendspin Windows Client
 
-Thank you for your interest in contributing to the SendSpin Windows Client! This document provides guidelines and information to help you get started.
+Thank you for your interest in contributing to the Sendspin Windows Client! This document provides guidelines and information to help you get started.
 
 ## Table of Contents
 - [Code of Conduct](#code-of-conduct)
@@ -72,15 +72,15 @@ This project adheres to a code of conduct that we expect all contributors to fol
 
 4. **Run the application**:
    ```bash
-   dotnet run --project src/SendSpinClient/SendSpinClient.csproj
+   dotnet run --project src/SendspinClient/SendspinClient.csproj
    ```
 
 ### Setting Up a Music Assistant Server
 
-For development and testing, you need a Music Assistant server with SendSpin support:
+For development and testing, you need a Music Assistant server with Sendspin support:
 
 1. **Install Music Assistant** following the [official documentation](https://music-assistant.io/installation/)
-2. **Enable SendSpin** in Music Assistant settings
+2. **Enable Sendspin** in Music Assistant settings
 3. **Note the server IP/hostname** for testing
 
 ## Project Structure
@@ -88,7 +88,7 @@ For development and testing, you need a Music Assistant server with SendSpin sup
 ```
 windowsSpin/
 ├── src/
-│   ├── SendSpinClient.Core/          # Core protocol implementation
+│   ├── SendspinClient.Core/          # Core protocol implementation
 │   │   ├── Client/                    # Client services and capabilities
 │   │   ├── Connection/                # WebSocket connection management
 │   │   ├── Discovery/                 # mDNS discovery and advertisement
@@ -96,8 +96,8 @@ windowsSpin/
 │   │   │   └── Messages/              # Protocol message types
 │   │   ├── Models/                    # Data models
 │   │   └── Synchronization/           # Clock synchronization
-│   ├── SendSpinClient.Services/       # Windows audio services
-│   └── SendSpinClient/                # WPF application
+│   ├── SendspinClient.Services/       # Windows audio services
+│   └── SendspinClient/                # WPF application
 │       ├── ViewModels/                # MVVM view models
 │       ├── Resources/                 # UI resources and converters
 │       └── MainWindow.xaml            # Main UI
@@ -106,7 +106,7 @@ windowsSpin/
 ├── stylecop.json                      # StyleCop settings
 ├── CodeAnalysis.ruleset               # Analyzer configuration
 ├── Directory.Build.props              # Shared MSBuild properties
-└── SendSpinClient.sln                 # Solution file
+└── SendspinClient.sln                 # Solution file
 ```
 
 ## Code Style Guidelines
@@ -151,7 +151,7 @@ int count = 10;
 string name = "test";
 
 // Use var when type is apparent
-var client = new SendSpinClientService();
+var client = new SendspinClientService();
 var servers = GetDiscoveredServers();
 ```
 
@@ -209,7 +209,7 @@ All public APIs must have XML documentation comments:
 
 ```csharp
 /// <summary>
-/// Connects to a SendSpin server asynchronously.
+/// Connects to a Sendspin server asynchronously.
 /// </summary>
 /// <param name="serverUri">The WebSocket URI of the server.</param>
 /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
@@ -447,7 +447,7 @@ Reviews should focus on:
 ```
 feat(discovery): add mDNS server discovery
 
-Implements automatic discovery of SendSpin servers on the local network
+Implements automatic discovery of Sendspin servers on the local network
 using Zeroconf library. Supports continuous monitoring and one-time scans.
 
 Closes #123
@@ -537,4 +537,4 @@ Contributors will be:
 - Credited in release notes for significant contributions
 - Acknowledged in documentation for major features
 
-Thank you for contributing to SendSpin Windows Client!
+Thank you for contributing to Sendspin Windows Client!
