@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Toolkit.Uwp.Notifications;
-using SendSpinClient.Core.Models;
+using SendSpin.SDK.Models;
 
 namespace SendSpinClient.Services.Notifications;
 

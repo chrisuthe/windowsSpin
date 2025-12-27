@@ -1,4 +1,4 @@
-using SendSpinClient.Core.Models;
+using SendSpin.SDK.Models;
 
 namespace SendSpinClient.Services.Notifications;
 

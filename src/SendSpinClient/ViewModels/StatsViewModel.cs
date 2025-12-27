@@ -5,8 +5,8 @@
 using System.Windows.Media;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
-using SendSpinClient.Core.Audio;
-using SendSpinClient.Core.Synchronization;
+using SendSpin.SDK.Audio;
+using SendSpin.SDK.Synchronization;
 
 namespace SendSpinClient.ViewModels;
 
