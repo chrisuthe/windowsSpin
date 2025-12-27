@@ -55,17 +55,17 @@ jobs:
           Get-ChildItem -Path dist -Recurse
 
       - name: Create portable ZIP
-        run: Compress-Archive -Path src/SendspinClient/bin/publish/win-x64/* -DestinationPath dist/SendspinClient-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+        run: Compress-Archive -Path src/SendspinClient/bin/publish/win-x64/* -DestinationPath dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Sendspin ${{ steps.version.outputs.VERSION }}
+          name: WindowsSpin ${{ steps.version.outputs.VERSION }}
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           files: |
-            dist/SendspinClient-${{ steps.version.outputs.VERSION }}-Setup.exe
-            dist/SendspinClient-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-Setup.exe
+            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
