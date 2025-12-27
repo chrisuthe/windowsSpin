@@ -13,6 +13,7 @@ using SendSpinClient.Core.Audio;
 using SendSpinClient.Core.Client;
 using SendSpinClient.Core.Connection;
 using SendSpinClient.Core.Discovery;
+using SendSpinClient.Core.Extensions;
 using SendSpinClient.Core.Models;
 using SendSpinClient.Core.Protocol.Messages;
 using SendSpinClient.Core.Synchronization;
@@ -526,7 +527,7 @@ public partial class MainViewModel : ViewModelBase
                 OnPropertyChanged(nameof(IsConnected));
 
                 // Cleanup in background to avoid blocking UI
-                _ = CleanupManualClientAsync();
+                CleanupManualClientAsync().SafeFireAndForget(_logger);
             }
         });
     }
@@ -559,7 +560,7 @@ public partial class MainViewModel : ViewModelBase
             if (!string.IsNullOrEmpty(artworkUrl) && artworkUrl != _lastArtworkUrl)
             {
                 _lastArtworkUrl = artworkUrl;
-                _ = FetchArtworkAsync(artworkUrl);
+                FetchArtworkAsync(artworkUrl).SafeFireAndForget(_logger);
             }
 
             _logger.LogDebug("Manual client group state updated: {State}", group.PlaybackState);
@@ -720,7 +721,7 @@ public partial class MainViewModel : ViewModelBase
                 if (!string.IsNullOrEmpty(artworkUrl) && artworkUrl != _lastArtworkUrl)
                 {
                     _lastArtworkUrl = artworkUrl;
-                    _ = FetchArtworkAsync(artworkUrl);
+                    FetchArtworkAsync(artworkUrl).SafeFireAndForget(_logger);
                 }
 
                 _logger.LogDebug("Group state updated: {State}, Track: {Track}",
@@ -778,7 +779,7 @@ public partial class MainViewModel : ViewModelBase
         {
             App.Current.Dispatcher.Invoke(() =>
             {
-                _ = AutoConnectToServerAsync(server);
+                AutoConnectToServerAsync(server).SafeFireAndForget(_logger);
             });
         }
     }
@@ -931,6 +932,7 @@ public partial class MainViewModel : ViewModelBase
 
         // Debounce buffer clear - only clear after user stops adjusting for 300ms
         _staticDelayClearCts?.Cancel();
+        _staticDelayClearCts?.Dispose();
         _staticDelayClearCts = new CancellationTokenSource();
         var clearCts = _staticDelayClearCts;
 
@@ -953,6 +955,7 @@ public partial class MainViewModel : ViewModelBase
 
         // Debounce auto-save - save after user stops adjusting for 1 second
         _staticDelaySaveCts?.Cancel();
+        _staticDelaySaveCts?.Dispose();
         _staticDelaySaveCts = new CancellationTokenSource();
         var saveCts = _staticDelaySaveCts;
 
@@ -1018,6 +1021,7 @@ public partial class MainViewModel : ViewModelBase
         // Debounce volume changes to avoid spamming the server
         // Cancel any pending volume change and schedule a new one
         _volumeDebouncesCts?.Cancel();
+        _volumeDebouncesCts?.Dispose();
         _volumeDebouncesCts = new CancellationTokenSource();
         _ = SendVolumeChangeDebounced(value, _volumeDebouncesCts.Token);
     }
