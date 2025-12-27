@@ -1,7 +1,7 @@
 ; Sendspin Windows Client - Inno Setup Script
 ; https://jrsoftware.org/isinfo.php
 
-#define MyAppName "Sendspin"
+#define MyAppName "WindowsSpin"
 ; Version can be overridden from command line: /DMyAppVersion=x.x.x
 #ifndef MyAppVersion
   #define MyAppVersion "1.0.0"
@@ -9,7 +9,7 @@
 #define MyAppPublisher "chrisuthe"
 #define MyAppURL "https://github.com/chrisuthe/windowsSpin"
 #define MyAppExeName "SendspinClient.exe"
-#define MyAppAssocName "Sendspin Client"
+#define MyAppAssocName "WindowsSpin Client"
 
 [Setup]
 ; Application identity
@@ -29,7 +29,7 @@ DisableProgramGroupPage=yes
 
 ; Output settings
 OutputDir=..\dist
-OutputBaseFilename=SendspinClient-{#MyAppVersion}-Setup
+OutputBaseFilename=WindowsSpin-{#MyAppVersion}-Setup
 SetupIconFile=..\src\SendspinClient\Resources\Icons\sendspinTray.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
