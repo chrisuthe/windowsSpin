@@ -1,20 +1,57 @@
-# Sendspin Windows Client
+# WindowsSpin - Multi-Room Audio for Windows
 
 <p align="center">
-  <img src="icon.png" alt="Sendspin Windows Client" width="128" height="128">
+  <img src="icon.png" alt="WindowsSpin" width="128" height="128">
 </p>
 
-A Windows WPF client implementation for the [Sendspin protocol](https://www.sendspin-audio.com/), enabling synchronized multi-room audio playback with [Music Assistant](https://music-assistant.io/).
+**Turn any Windows PC into a synchronized multi-room audio player.**
 
-> **⚠️ Disclaimer:** This is an **independent, unofficial project** and is **not affiliated with, endorsed by, or associated with** the Music Assistant project or the official Sendspin protocol maintainers. This is a third-party implementation created for personal use and community benefit.
+WindowsSpin connects your Windows computer to [Music Assistant](https://music-assistant.io/), allowing you to play music throughout your home in perfect sync. Whether you have an old laptop, a home theater PC, or a desktop workstation, WindowsSpin transforms it into part of your whole-home audio system.
+
+> **Disclaimer:** This is an **independent, unofficial project** and is **not affiliated with, endorsed by, or associated with** the Music Assistant project or the official Sendspin protocol maintainers. This is a third-party implementation created for personal use and community benefit.
+
+---
+
+## Why WindowsSpin?
+
+**The Problem:** You want to play music on multiple devices throughout your home, but audio from different speakers reaches your ears at different times - creating an annoying echo effect as you move between rooms.
+
+**The Solution:** WindowsSpin uses precision clock synchronization to ensure audio plays at exactly the same moment on all connected players. Walk from your living room to your kitchen and the music follows you seamlessly - no delays, no echoes, just continuous audio.
+
+### Perfect For:
+
+- **Home Theater PCs** - Add your media center to your whole-home audio system
+- **Office Desktops** - Keep your work music in sync with the rest of the house
+- **Repurposed Laptops** - Give old hardware a new life as a dedicated audio endpoint
+- **Gaming PCs** - Background music that stays in sync while you play
+
+---
+
+## Quick Start
+
+### 1. Install
+
+Download from the [Releases page](https://github.com/chrisuthe/windowsSpin/releases) and run the installer.
+
+### 2. Connect
+
+WindowsSpin automatically discovers Music Assistant servers on your network. If it does not find your server, enter the address manually (e.g., `10.0.2.8:8927`).
+
+### 3. Play
+
+That's it! Your Windows PC now appears as a player in Music Assistant. Add it to a group with other players for synchronized multi-room playback.
+
+**For detailed instructions, see the [User Guide](docs/USER_GUIDE.md).**
+
+---
 
 ## Overview
 
-Sendspin Windows Client is a native Windows application that connects to Music Assistant servers to provide synchronized audio playback across multiple devices. It implements the Sendspin protocol, which uses WebSocket communication for control messages and binary audio streaming, combined with NTP-style clock synchronization to achieve precise multi-room audio sync.
+WindowsSpin is a native Windows application that implements the [Sendspin protocol](https://www.sendspin-audio.com/) for synchronized audio streaming. It connects to Music Assistant servers using WebSocket communication for control messages and binary audio streaming, combined with NTP-style clock synchronization to achieve sub-millisecond audio sync across devices.
 
-This client can operate in two modes:
-- **Client Mode**: Actively discovers and connects to Sendspin servers
-- **Host Mode**: Advertises itself via mDNS and accepts incoming server connections
+The application operates in two modes:
+- **Client Mode**: Actively discovers and connects to Sendspin servers (primary)
+- **Host Mode**: Advertises itself via mDNS and accepts incoming server connections (fallback)
 
 ## Features
 
