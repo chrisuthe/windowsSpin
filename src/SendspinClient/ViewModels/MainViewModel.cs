@@ -19,6 +19,7 @@ using Sendspin.SDK.Extensions;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
+using SendspinClient.Services.Discord;
 using SendspinClient.Services.Notifications;
 using SendspinClient.Views;
 
@@ -40,6 +41,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly IAudioPipeline _audioPipeline;
     private readonly IClockSynchronizer _clockSynchronizer;
     private readonly INotificationService _notificationService;
+    private readonly IDiscordRichPresenceService _discordService;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ClientCapabilities _clientCapabilities;
     private SendspinClientService? _manualClient;
@@ -184,6 +186,12 @@ public partial class MainViewModel : ViewModelBase
     private bool _settingsShowNotifications = true;
 
     /// <summary>
+    /// Gets or sets whether Discord Rich Presence is enabled.
+    /// </summary>
+    [ObservableProperty]
+    private bool _settingsShowDiscordPresence;
+
+    /// <summary>
     /// Gets or sets the player name shown to servers.
     /// Defaults to the computer name.
     /// </summary>
@@ -247,6 +255,7 @@ public partial class MainViewModel : ViewModelBase
         IAudioPipeline audioPipeline,
         IClockSynchronizer clockSynchronizer,
         INotificationService notificationService,
+        IDiscordRichPresenceService discordService,
         IHttpClientFactory httpClientFactory,
         ClientCapabilities clientCapabilities)
     {
@@ -258,6 +267,7 @@ public partial class MainViewModel : ViewModelBase
         _audioPipeline = audioPipeline;
         _clockSynchronizer = clockSynchronizer;
         _notificationService = notificationService;
+        _discordService = discordService;
         _httpClientFactory = httpClientFactory;
         _clientCapabilities = clientCapabilities;
 
@@ -932,6 +942,16 @@ public partial class MainViewModel : ViewModelBase
         // Note: Track change notifications are handled separately in OnCurrentTrackChanged
         // to avoid duplicate notifications when both state and track change together
         _notificationService.ShowPlaybackStateChanged(value, CurrentTrack);
+
+        // Update Discord Rich Presence
+        if (value == PlaybackState.Playing)
+        {
+            _discordService.UpdatePresence(CurrentTrack, value, Position);
+        }
+        else
+        {
+            _discordService.ClearPresence();
+        }
     }
 
     /// <summary>
@@ -960,6 +980,12 @@ public partial class MainViewModel : ViewModelBase
 
             // Show track change notification (without artwork - it's disabled for reliability)
             _notificationService.ShowTrackChanged(value, null, null);
+
+            // Update Discord Rich Presence with new track
+            if (PlaybackState == PlaybackState.Playing)
+            {
+                _discordService.UpdatePresence(value, PlaybackState, Position);
+            }
         }
         else if (value == null)
         {
@@ -967,6 +993,9 @@ public partial class MainViewModel : ViewModelBase
             AlbumArtwork = null;
             _lastArtworkUrl = null;
             _previousTrackId = null;
+
+            // Clear Discord presence when track is cleared
+            _discordService.ClearPresence();
         }
     }
 
@@ -1070,6 +1099,27 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Called when Discord Rich Presence setting changes.
+    /// Enables or disables the Discord integration.
+    /// </summary>
+    partial void OnSettingsShowDiscordPresenceChanged(bool value)
+    {
+        if (value)
+        {
+            _discordService.Enable();
+            // Update presence with current state if playing
+            if (CurrentTrack != null && PlaybackState == PlaybackState.Playing)
+            {
+                _discordService.UpdatePresence(CurrentTrack, PlaybackState, Position);
+            }
+        }
+        else
+        {
+            _discordService.Disable();
+        }
+    }
+
     partial void OnVolumeChanged(int value)
     {
         // Don't send commands when updating from server state
@@ -1127,6 +1177,13 @@ public partial class MainViewModel : ViewModelBase
         // Load notification settings
         SettingsShowNotifications = _configuration.GetValue<bool>("Notifications:Enabled", true);
         _notificationService.IsEnabled = SettingsShowNotifications;
+
+        // Load Discord Rich Presence settings
+        SettingsShowDiscordPresence = _configuration.GetValue<bool>("Discord:Enabled", false);
+        if (SettingsShowDiscordPresence)
+        {
+            _discordService.Enable();
+        }
 
         // Load player name (default to computer name)
         SettingsPlayerName = _configuration.GetValue<string>("Player:Name", Environment.MachineName) ?? Environment.MachineName;
@@ -1248,6 +1305,11 @@ public partial class MainViewModel : ViewModelBase
             notificationsSection["Enabled"] = SettingsShowNotifications;
             root["Notifications"] = notificationsSection;
 
+            // Update Discord section
+            var discordSection = root["Discord"]?.AsObject() ?? new JsonObject();
+            discordSection["Enabled"] = SettingsShowDiscordPresence;
+            root["Discord"] = discordSection;
+
             // Update player section
             var playerSection = root["Player"]?.AsObject() ?? new JsonObject();
             playerSection["Name"] = SettingsPlayerName;
@@ -1269,8 +1331,8 @@ public partial class MainViewModel : ViewModelBase
                 _logger.LogInformation("Player name changed to: {PlayerName}", SettingsPlayerName);
             }
 
-            _logger.LogInformation("Settings saved: LogLevel={LogLevel}, FileLogging={FileLogging}, ConsoleLogging={ConsoleLogging}, StaticDelayMs={StaticDelayMs}, Notifications={Notifications}, PlayerName={PlayerName}, DeviceId={DeviceId}",
-                SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging, SettingsStaticDelayMs, SettingsShowNotifications, SettingsPlayerName, SettingsSelectedAudioDevice?.DeviceId ?? "default");
+            _logger.LogInformation("Settings saved: LogLevel={LogLevel}, FileLogging={FileLogging}, ConsoleLogging={ConsoleLogging}, StaticDelayMs={StaticDelayMs}, Notifications={Notifications}, Discord={Discord}, PlayerName={PlayerName}, DeviceId={DeviceId}",
+                SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging, SettingsStaticDelayMs, SettingsShowNotifications, SettingsShowDiscordPresence, SettingsPlayerName, SettingsSelectedAudioDevice?.DeviceId ?? "default");
 
             // Close settings panel first
             IsSettingsOpen = false;
@@ -1466,6 +1528,9 @@ public partial class MainViewModel : ViewModelBase
 
         // Stop host service
         await _hostService.StopAsync();
+
+        // Dispose Discord Rich Presence service (clears presence)
+        _discordService.Dispose();
 
         // Note: HttpClient is managed by IHttpClientFactory, no manual disposal needed
     }

@@ -345,6 +345,24 @@
                                       VerticalAlignment="Center"/>
                         </Grid>
 
+                        <!-- Discord Rich Presence -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Discord Rich Presence" Style="{StaticResource BodyText}"/>
+                                <TextBlock Text="Show now playing in Discord activity status"
+                                           Style="{StaticResource CaptionText}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Margin="0,2,0,0"/>
+                            </StackPanel>
+                            <CheckBox Grid.Column="1"
+                                      IsChecked="{Binding SettingsShowDiscordPresence}"
+                                      VerticalAlignment="Center"/>
+                        </Grid>
+
                         <!-- Player Name -->
                         <StackPanel Margin="0,0,0,16">
                             <TextBlock Text="Player Name" Style="{StaticResource BodyText}"/>

@@ -11,6 +11,7 @@ using Sendspin.SDK.Discovery;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Synchronization;
 using SendspinClient.Services.Audio;
+using SendspinClient.Services.Discord;
 using SendspinClient.Services.Notifications;
 using SendspinClient.ViewModels;
 using Serilog;
@@ -182,6 +183,15 @@ public partial class App : Application
             }
 
             return new WindowsToastNotificationService(logger, IsWindowVisible);
+        });
+
+        // Discord Rich Presence service
+        // Displays currently playing track in user's Discord activity status
+        var discordAppId = _configuration!.GetValue<string>("Discord:ApplicationId") ?? string.Empty;
+        services.AddSingleton<IDiscordRichPresenceService>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILogger<DiscordRichPresenceService>>();
+            return new DiscordRichPresenceService(logger, discordAppId);
         });
 
         // ViewModels
