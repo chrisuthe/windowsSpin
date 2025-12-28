@@ -87,12 +87,23 @@ end;
 function InitializeSetup(): Boolean;
 var
   ErrorCode: Integer;
+  IsSilent: Boolean;
 begin
   Result := True;
+  IsSilent := WizardSilent();
 
   // Check for .NET 8 Desktop Runtime
   if not IsDotNet8DesktopInstalled() then
   begin
+    // In silent mode, just fail without dialogs (winget handles dependencies)
+    if IsSilent then
+    begin
+      Log('.NET 8.0 Desktop Runtime is not installed. Silent install cannot continue.');
+      Result := False;
+      Exit;
+    end;
+
+    // Interactive mode - show dialog
     if MsgBox('.NET 8.0 Desktop Runtime is required but not installed.' + #13#10 + #13#10 +
               'Would you like to download it now?', mbConfirmation, MB_YESNO) = IDYES then
     begin
