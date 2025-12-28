@@ -234,7 +234,7 @@ public partial class App : Application
             var logDirectory = settings.GetEffectiveLogDirectory();
             Directory.CreateDirectory(logDirectory);
 
-            var logFilePath = Path.Combine(logDirectory, "sendspin-.log");
+            var logFilePath = Path.Combine(logDirectory, "windowsspin-.log");
 
             logConfig.WriteTo.File(
                 path: logFilePath,
@@ -247,7 +247,7 @@ public partial class App : Application
         }
 
         Log.Logger = logConfig.CreateLogger();
-        Log.Information("Sendspin Client starting. Log level: {LogLevel}, File logging: {FileLogging}, Log directory: {LogDir}",
+        Log.Information("WindowsSpin starting. Log level: {LogLevel}, File logging: {FileLogging}, Log directory: {LogDir}",
             settings.LogLevel,
             settings.EnableFileLogging,
             settings.EnableFileLogging ? settings.GetEffectiveLogDirectory() : "N/A");
@@ -267,7 +267,7 @@ public partial class App : Application
         _serviceProvider?.Dispose();
 
         // Flush and close Serilog to ensure all logs are written
-        Log.Information("Sendspin Client shutting down");
+        Log.Information("WindowsSpin shutting down");
         await Log.CloseAndFlushAsync();
 
         base.OnExit(e);
@@ -283,7 +283,7 @@ public partial class App : Application
         {
             MessageBox.Show(
                 $"A fatal error occurred:\n\n{exception?.Message}\n\nThe application will close.",
-                "Sendspin Client Error",
+                "WindowsSpin Error",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
