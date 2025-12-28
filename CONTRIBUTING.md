@@ -47,7 +47,7 @@ This project adheres to a code of conduct that we expect all contributors to fol
   - .NET desktop development workload
   - Windows 10 SDK (10.0.17763.0)
 - **OR JetBrains Rider** (2023.3 or later)
-- **.NET 8.0 SDK** or **.NET 9.0 SDK**
+- **.NET 10.0 SDK**
 - **Git** for version control
 
 ### Recommended Extensions (Visual Studio)

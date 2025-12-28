@@ -89,13 +89,13 @@ Type: filesandordirs; Name: "{app}"
 
 #if !IsSelfContained
 [Code]
-// Check if .NET 8.0 Desktop Runtime is installed (only for framework-dependent builds)
-function IsDotNet8DesktopInstalled(): Boolean;
+// Check if .NET 10.0 Desktop Runtime is installed (only for framework-dependent builds)
+function IsDotNet10DesktopInstalled(): Boolean;
 var
   ResultCode: Integer;
 begin
-  // Try to run dotnet --list-runtimes and check for Microsoft.WindowsDesktop.App 8.x
-  Result := Exec('cmd.exe', '/c dotnet --list-runtimes | findstr "Microsoft.WindowsDesktop.App 8"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  // Try to run dotnet --list-runtimes and check for Microsoft.WindowsDesktop.App 10.x
+  Result := Exec('cmd.exe', '/c dotnet --list-runtimes | findstr "Microsoft.WindowsDesktop.App 10"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := Result and (ResultCode = 0);
 end;
 
@@ -107,30 +107,30 @@ begin
   Result := True;
   IsSilent := WizardSilent();
 
-  // Check for .NET 8 Desktop Runtime
-  if not IsDotNet8DesktopInstalled() then
+  // Check for .NET 10 Desktop Runtime
+  if not IsDotNet10DesktopInstalled() then
   begin
     // In silent mode, just fail without dialogs
     if IsSilent then
     begin
-      Log('.NET 8.0 Desktop Runtime is not installed. Silent install cannot continue.');
+      Log('.NET 10.0 Desktop Runtime is not installed. Silent install cannot continue.');
       Log('Consider using the Self-Contained installer which includes .NET runtime.');
       Result := False;
       Exit;
     end;
 
     // Interactive mode - show dialog
-    if MsgBox('.NET 8.0 Desktop Runtime is required but not installed.' + #13#10 + #13#10 +
+    if MsgBox('.NET 10.0 Desktop Runtime is required but not installed.' + #13#10 + #13#10 +
               'Would you like to download it now?' + #13#10 + #13#10 +
               '(Tip: Use the "Self-Contained" installer to avoid this requirement)', mbConfirmation, MB_YESNO) = IDYES then
     begin
-      ShellExec('open', 'https://dotnet.microsoft.com/download/dotnet/8.0/runtime', '', '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
-      MsgBox('Please install .NET 8.0 Desktop Runtime and run this installer again.', mbInformation, MB_OK);
+      ShellExec('open', 'https://dotnet.microsoft.com/download/dotnet/10.0/runtime', '', '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
+      MsgBox('Please install .NET 10.0 Desktop Runtime and run this installer again.', mbInformation, MB_OK);
       Result := False;
     end
     else
     begin
-      MsgBox('Installation cannot continue without .NET 8.0 Desktop Runtime.', mbError, MB_OK);
+      MsgBox('Installation cannot continue without .NET 10.0 Desktop Runtime.', mbError, MB_OK);
       Result := False;
     end;
   end;

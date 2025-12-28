@@ -29,7 +29,7 @@ When you run WindowsSpin, it automatically discovers Music Assistant servers on 
 ## System Requirements
 
 - **Operating System**: Windows 10 version 1809 (October 2018 Update) or later, or Windows 11
-- **Runtime**: .NET 8.0 Runtime or .NET 9.0 Runtime (the installer will prompt you if needed)
+- **Runtime**: .NET 10.0 Runtime (the installer will prompt you if needed, or use the Self-Contained version)
 - **Network**: Your PC must be on the same network as your Music Assistant server
 - **Audio**: Any working audio output device (speakers, headphones, HDMI audio, etc.)
 
