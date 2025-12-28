@@ -38,9 +38,13 @@ jobs:
       - name: Build Release
         run: dotnet build ${{ env.PROJECT_PATH }} -c Release --no-restore
 
-      - name: Publish win-x64
+      - name: Publish win-x64 (framework-dependent)
         run: |
-          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained false -o src/SendspinClient/bin/publish/win-x64
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained false -o src/SendspinClient/bin/publish/win-x64-framework
+
+      - name: Publish win-x64 (self-contained)
+        run: |
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -o src/SendspinClient/bin/publish/win-x64-selfcontained
 
       - name: Create dist directory
         run: New-Item -ItemType Directory -Force -Path dist
@@ -48,14 +52,20 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup -y
 
-      - name: Build Installer
+      - name: Build Installer (framework-dependent)
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} installer/SendspinClient.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} /DBuildType=framework installer/SendspinClient.iss
+
+      - name: Build Installer (self-contained)
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} /DBuildType=selfcontained installer/SendspinClient.iss
           # List output to verify
           Get-ChildItem -Path dist -Recurse
 
-      - name: Create portable ZIP
-        run: Compress-Archive -Path src/SendspinClient/bin/publish/win-x64/* -DestinationPath dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+      - name: Create portable ZIPs
+        run: |
+          Compress-Archive -Path src/SendspinClient/bin/publish/win-x64-framework/* -DestinationPath dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+          Compress-Archive -Path src/SendspinClient/bin/publish/win-x64-selfcontained/* -DestinationPath dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-selfcontained-win-x64.zip
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -66,6 +76,25 @@ jobs:
           generate_release_notes: true
           files: |
             dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-Setup.exe
+            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-Setup-SelfContained.exe
             dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-selfcontained-win-x64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Publish to Windows Package Manager (winget)
+  # NOTE: Commented out until package is accepted into winget repository
+  # Once accepted, uncomment this job to auto-publish new releases
+  # publish-winget:
+  #   name: Publish to winget
+  #   runs-on: windows-latest
+  #   needs: build
+  #   # Only publish stable releases (skip prereleases like v0.5.0-beta)
+  #   if: ${{ !contains(github.ref_name, '-') }}
+  #   steps:
+  #     - name: Publish to winget
+  #       uses: vedantmgoyal9/winget-releaser@v2
+  #       with:
+  #         identifier: chrisuthe.WindowsSpin
+  #         installers-regex: '-Setup-SelfContained\.exe$'
+  #         token: ${{ secrets.WINGET_TOKEN }}

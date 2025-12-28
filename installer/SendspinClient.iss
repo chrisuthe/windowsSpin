@@ -6,10 +6,16 @@
 #ifndef MyAppVersion
   #define MyAppVersion "1.0.0"
 #endif
+; Build type: "framework" (requires .NET) or "selfcontained" (standalone)
+; Override from command line: /DBuildType=selfcontained
+#ifndef BuildType
+  #define BuildType "framework"
+#endif
 #define MyAppPublisher "chrisuthe"
 #define MyAppURL "https://github.com/chrisuthe/windowsSpin"
 #define MyAppExeName "SendspinClient.exe"
 #define MyAppAssocName "WindowsSpin Client"
+#define IsSelfContained BuildType == "selfcontained"
 
 [Setup]
 ; Application identity
@@ -29,7 +35,11 @@ DisableProgramGroupPage=yes
 
 ; Output settings
 OutputDir=..\dist
+#if IsSelfContained
+OutputBaseFilename=WindowsSpin-{#MyAppVersion}-Setup-SelfContained
+#else
 OutputBaseFilename=WindowsSpin-{#MyAppVersion}-Setup
+#endif
 SetupIconFile=..\src\SendspinClient\Resources\Icons\sendspinTray.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
@@ -59,7 +69,11 @@ Name: "startupicon"; Description: "Start with Windows"; GroupDescription: "Start
 
 [Files]
 ; Main application files
-Source: "..\src\SendspinClient\bin\publish\win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+#if IsSelfContained
+Source: "..\src\SendspinClient\bin\publish\win-x64-selfcontained\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+#else
+Source: "..\src\SendspinClient\bin\publish\win-x64-framework\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -73,8 +87,9 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
 
+#if !IsSelfContained
 [Code]
-// Check if .NET 8.0 Desktop Runtime is installed
+// Check if .NET 8.0 Desktop Runtime is installed (only for framework-dependent builds)
 function IsDotNet8DesktopInstalled(): Boolean;
 var
   ResultCode: Integer;
@@ -95,17 +110,19 @@ begin
   // Check for .NET 8 Desktop Runtime
   if not IsDotNet8DesktopInstalled() then
   begin
-    // In silent mode, just fail without dialogs (winget handles dependencies)
+    // In silent mode, just fail without dialogs
     if IsSilent then
     begin
       Log('.NET 8.0 Desktop Runtime is not installed. Silent install cannot continue.');
+      Log('Consider using the Self-Contained installer which includes .NET runtime.');
       Result := False;
       Exit;
     end;
 
     // Interactive mode - show dialog
     if MsgBox('.NET 8.0 Desktop Runtime is required but not installed.' + #13#10 + #13#10 +
-              'Would you like to download it now?', mbConfirmation, MB_YESNO) = IDYES then
+              'Would you like to download it now?' + #13#10 + #13#10 +
+              '(Tip: Use the "Self-Contained" installer to avoid this requirement)', mbConfirmation, MB_YESNO) = IDYES then
     begin
       ShellExec('open', 'https://dotnet.microsoft.com/download/dotnet/8.0/runtime', '', '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
       MsgBox('Please install .NET 8.0 Desktop Runtime and run this installer again.', mbInformation, MB_OK);
@@ -118,3 +135,4 @@ begin
     end;
   end;
 end;
+#endif
