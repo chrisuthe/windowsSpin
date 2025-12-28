@@ -93,12 +93,12 @@ For cross-subnet scenarios where mDNS discovery doesn't work, you can manually e
 
 ### Runtime Requirements
 - Windows 10 version 1809 (build 17763) or later
-- .NET 8.0 Runtime or .NET 9.0 Runtime
+- .NET 10.0 Runtime
 - Network connectivity to Music Assistant server
 
 ### Development Requirements
 - Visual Studio 2022 (17.8 or later) or JetBrains Rider
-- .NET 8.0 SDK or .NET 9.0 SDK
+- .NET 10.0 SDK
 - Windows 10 SDK (10.0.17763.0)
 
 ## Installation

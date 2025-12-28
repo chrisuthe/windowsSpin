@@ -6,7 +6,7 @@ Get up and running with Sendspin Windows Client development in minutes.
 
 - Windows 10/11
 - Visual Studio 2022 or JetBrains Rider
-- .NET 8.0 SDK
+- .NET 10.0 SDK
 - Music Assistant server with Sendspin enabled
 
 ## 5-Minute Setup
