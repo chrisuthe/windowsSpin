@@ -7,7 +7,7 @@
         xmlns:vm="clr-namespace:SendspinClient.ViewModels"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
-        Title="Sendspin Client"
+        Title="WindowsSpin"
         Icon="Resources/Icons/sendspinDesktop.ico"
         Height="630" Width="400"
         MinHeight="550" MinWidth="350"
