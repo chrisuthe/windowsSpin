@@ -43,10 +43,15 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        // Load configuration from appsettings.json
+        // Initialize user settings directory (copy defaults on first run)
+        AppPaths.InitializeUserSettingsIfNeeded();
+
+        // Load configuration: first from install directory (defaults), then from user AppData (overrides)
+        // This ensures user can always save settings even when installed to Program Files
         _configuration = new ConfigurationBuilder()
-            .SetBasePath(AppDomain.CurrentDomain.BaseDirectory)
-            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+            .SetBasePath(AppPaths.InstallDirectory)
+            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+            .AddJsonFile(AppPaths.UserSettingsPath, optional: true, reloadOnChange: true)
             .Build();
 
         // Configure Serilog from settings

@@ -1064,13 +1064,14 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Saves only the static delay setting to appsettings.json.
+    /// Saves only the static delay setting to user appsettings.json.
     /// </summary>
     private async Task SaveStaticDelayAsync(double value)
     {
         try
         {
-            var appSettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
+            AppPaths.EnsureUserDataDirectoryExists();
+            var appSettingsPath = AppPaths.UserSettingsPath;
 
             JsonNode? root;
             if (File.Exists(appSettingsPath))
@@ -1266,14 +1267,15 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Saves the current settings to appsettings.json.
+    /// Saves the current settings to user appsettings.json in AppData.
     /// </summary>
     [RelayCommand]
     private async Task SaveSettingsAsync()
     {
         try
         {
-            var appSettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
+            AppPaths.EnsureUserDataDirectoryExists();
+            var appSettingsPath = AppPaths.UserSettingsPath;
 
             // Read existing settings or create new
             JsonNode? root;
