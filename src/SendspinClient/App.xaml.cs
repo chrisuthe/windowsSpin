@@ -67,7 +67,7 @@ public partial class App : Application
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
-        // Create main window (but don't show it - starts in tray)
+        // Create main window
         var mainWindow = new MainWindow();
         _mainViewModel = _serviceProvider.GetRequiredService<MainViewModel>();
         mainWindow.DataContext = _mainViewModel;
@@ -77,8 +77,55 @@ public partial class App : Application
         _trayIcon = (TaskbarIcon)FindResource("TrayIcon");
         _trayIcon.DataContext = _mainViewModel;
 
-        // Initialize the view model (app starts hidden in system tray)
+        // Check if this is the first launch - show welcome screen if so
+        var hasLaunchedBefore = _configuration!.GetValue<bool>("App:HasLaunchedBefore", false);
+        if (!hasLaunchedBefore)
+        {
+            // First launch - show the welcome screen
+            mainWindow.Show();
+
+            // Mark as launched (save immediately to prevent showing again if app crashes)
+            _ = SaveFirstLaunchFlagAsync();
+        }
+        // else: stays hidden in system tray (normal behavior)
+
+        // Initialize the view model
         _ = _mainViewModel.InitializeAsync();
+    }
+
+    /// <summary>
+    /// Saves the first launch flag to settings so the welcome screen is only shown once.
+    /// </summary>
+    private static async Task SaveFirstLaunchFlagAsync()
+    {
+        try
+        {
+            AppPaths.EnsureUserDataDirectoryExists();
+            var appSettingsPath = AppPaths.UserSettingsPath;
+
+            System.Text.Json.Nodes.JsonNode? root;
+            if (File.Exists(appSettingsPath))
+            {
+                var json = await File.ReadAllTextAsync(appSettingsPath);
+                root = System.Text.Json.Nodes.JsonNode.Parse(json) ?? new System.Text.Json.Nodes.JsonObject();
+            }
+            else
+            {
+                root = new System.Text.Json.Nodes.JsonObject();
+            }
+
+            var appSection = root["App"]?.AsObject() ?? new System.Text.Json.Nodes.JsonObject();
+            appSection["HasLaunchedBefore"] = true;
+            root["App"] = appSection;
+
+            var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
+            var updatedJson = root.ToJsonString(options);
+            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+        }
+        catch
+        {
+            // Ignore errors - next launch will just show welcome again
+        }
     }
 
     private void ConfigureServices(IServiceCollection services)

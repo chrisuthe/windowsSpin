@@ -236,6 +236,37 @@ public partial class MainViewModel : ViewModelBase
     public ObservableCollection<ConnectedServerInfo> ConnectedServers { get; } = new();
 
     /// <summary>
+    /// Gets the collection of discovered Sendspin servers available for connection.
+    /// Updated via mDNS discovery.
+    /// </summary>
+    public ObservableCollection<DiscoveredServer> DiscoveredServers { get; } = new();
+
+    /// <summary>
+    /// Gets or sets whether the auto-connect confirmation dialog is visible.
+    /// </summary>
+    [ObservableProperty]
+    private bool _showAutoConnectDialog;
+
+    /// <summary>
+    /// Gets or sets the server pending connection confirmation.
+    /// Used with the auto-connect dialog.
+    /// </summary>
+    [ObservableProperty]
+    private DiscoveredServer? _pendingConnectionServer;
+
+    /// <summary>
+    /// Gets or sets the server ID to auto-connect to when discovered.
+    /// Empty string means no auto-connect preference saved.
+    /// </summary>
+    [ObservableProperty]
+    private string _autoConnectServerId = string.Empty;
+
+    /// <summary>
+    /// Gets whether we're currently searching for servers (no servers found yet).
+    /// </summary>
+    public bool IsSearchingForServers => DiscoveredServers.Count == 0 && IsHosting;
+
+    /// <summary>
     /// Gets whether the client is connected to any Sendspin server,
     /// either via manual connection or through the host service.
     /// </summary>
@@ -565,6 +596,9 @@ public partial class MainViewModel : ViewModelBase
 
                 // Show toast notification for connection
                 _notificationService.ShowConnected(ConnectedServerName);
+
+                // Stop advertising so other servers don't try to connect to us
+                _hostService.StopAdvertisingAsync().SafeFireAndForget(_logger);
             }
             else if (e.NewState == ConnectionState.Disconnected)
             {
@@ -588,6 +622,9 @@ public partial class MainViewModel : ViewModelBase
                 }
 
                 OnPropertyChanged(nameof(IsConnected));
+
+                // Resume advertising so servers can discover us again
+                _hostService.StartAdvertisingAsync().SafeFireAndForget(_logger);
 
                 // Cleanup in background to avoid blocking UI
                 CleanupManualClientAsync().SafeFireAndForget(_logger);
@@ -838,19 +875,41 @@ public partial class MainViewModel : ViewModelBase
         _logger.LogInformation("Discovered server: {Name} at {Host}:{Port}",
             server.Name, server.IpAddresses.FirstOrDefault(), server.Port);
 
-        // Auto-connect if not already connected
-        if (!IsConnected && _autoReconnectEnabled)
+        App.Current.Dispatcher.Invoke(() =>
         {
-            App.Current.Dispatcher.Invoke(() =>
+            // Add to discovered servers list for UI display
+            if (!DiscoveredServers.Any(s => s.ServerId == server.ServerId))
             {
-                AutoConnectToServerAsync(server).SafeFireAndForget(_logger);
-            });
-        }
+                DiscoveredServers.Add(server);
+                OnPropertyChanged(nameof(IsSearchingForServers));
+            }
+
+            // Auto-connect only if we have a saved preference matching this server
+            if (!IsConnected && _autoReconnectEnabled && !string.IsNullOrEmpty(AutoConnectServerId))
+            {
+                if (server.ServerId == AutoConnectServerId)
+                {
+                    _logger.LogInformation("Auto-connecting to saved server: {Name}", server.Name);
+                    AutoConnectToServerAsync(server).SafeFireAndForget(_logger);
+                }
+            }
+        });
     }
 
     private void OnDiscoveredServerLost(object? sender, DiscoveredServer server)
     {
         _logger.LogInformation("Server lost: {Name} ({ServerId})", server.Name, server.ServerId);
+
+        App.Current.Dispatcher.Invoke(() =>
+        {
+            // Remove from discovered servers list
+            var existing = DiscoveredServers.FirstOrDefault(s => s.ServerId == server.ServerId);
+            if (existing != null)
+            {
+                DiscoveredServers.Remove(existing);
+                OnPropertyChanged(nameof(IsSearchingForServers));
+            }
+        });
 
         // If we were connected to this server, mark for reconnection
         if (_autoConnectedServerId == server.ServerId)
@@ -1006,6 +1065,7 @@ public partial class MainViewModel : ViewModelBase
 
     private CancellationTokenSource? _staticDelayClearCts;
     private CancellationTokenSource? _staticDelaySaveCts;
+    private CancellationTokenSource? _playerNameSaveCts;
 
     /// <summary>
     /// Called when the static delay setting changes.
@@ -1101,6 +1161,74 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Called when the player name setting changes.
+    /// Debounces and auto-saves after 1 second of no changes.
+    /// </summary>
+    partial void OnSettingsPlayerNameChanged(string value)
+    {
+        // Debounce auto-save - save after user stops typing for 1 second
+        _playerNameSaveCts?.Cancel();
+        _playerNameSaveCts?.Dispose();
+        _playerNameSaveCts = new CancellationTokenSource();
+        var saveCts = _playerNameSaveCts;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(1000, saveCts.Token);
+                if (!saveCts.Token.IsCancellationRequested)
+                {
+                    await SavePlayerNameAsync(value);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // User still typing, ignore
+            }
+        });
+    }
+
+    /// <summary>
+    /// Saves only the player name setting to user appsettings.json.
+    /// </summary>
+    private async Task SavePlayerNameAsync(string name)
+    {
+        try
+        {
+            AppPaths.EnsureUserDataDirectoryExists();
+            var appSettingsPath = AppPaths.UserSettingsPath;
+
+            JsonNode? root;
+            if (File.Exists(appSettingsPath))
+            {
+                var json = await File.ReadAllTextAsync(appSettingsPath);
+                root = JsonNode.Parse(json) ?? new JsonObject();
+            }
+            else
+            {
+                root = new JsonObject();
+            }
+
+            var playerSection = root["Player"]?.AsObject() ?? new JsonObject();
+            playerSection["Name"] = name;
+            root["Player"] = playerSection;
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var updatedJson = root.ToJsonString(options);
+            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+
+            // Update client capabilities immediately
+            _clientCapabilities.ClientName = name;
+            _logger.LogInformation("Player name saved: {PlayerName}", name);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to auto-save player name");
+        }
+    }
+
+    /// <summary>
     /// Called when Discord Rich Presence setting changes.
     /// Enables or disables the Discord integration.
     /// </summary>
@@ -1189,6 +1317,9 @@ public partial class MainViewModel : ViewModelBase
         // Load player name (default to computer name)
         SettingsPlayerName = _configuration.GetValue<string>("Player:Name", Environment.MachineName) ?? Environment.MachineName;
 
+        // Load auto-connect server preference
+        AutoConnectServerId = _configuration.GetValue<string>("Connection:AutoConnectServerId", string.Empty) ?? string.Empty;
+
         // Enumerate audio devices
         EnumerateAudioDevices();
 
@@ -1264,6 +1395,109 @@ public partial class MainViewModel : ViewModelBase
     private void CloseSettings()
     {
         IsSettingsOpen = false;
+    }
+
+    /// <summary>
+    /// Initiates connection to a discovered server.
+    /// Shows the auto-connect dialog to ask if this should be the default server.
+    /// </summary>
+    [RelayCommand]
+    private void SelectServer(DiscoveredServer server)
+    {
+        PendingConnectionServer = server;
+        ShowAutoConnectDialog = true;
+    }
+
+    /// <summary>
+    /// Connects to the pending server without saving auto-connect preference.
+    /// </summary>
+    [RelayCommand]
+    private async Task ConnectOnceAsync()
+    {
+        if (PendingConnectionServer == null) return;
+
+        ShowAutoConnectDialog = false;
+        var server = PendingConnectionServer;
+        PendingConnectionServer = null;
+
+        await ConnectToDiscoveredServerAsync(server);
+    }
+
+    /// <summary>
+    /// Connects to the pending server and saves it as the auto-connect preference.
+    /// </summary>
+    [RelayCommand]
+    private async Task ConnectAlwaysAsync()
+    {
+        if (PendingConnectionServer == null) return;
+
+        ShowAutoConnectDialog = false;
+        var server = PendingConnectionServer;
+        PendingConnectionServer = null;
+
+        // Save the auto-connect preference
+        AutoConnectServerId = server.ServerId;
+        await SaveAutoConnectPreferenceAsync(server.ServerId);
+
+        await ConnectToDiscoveredServerAsync(server);
+    }
+
+    /// <summary>
+    /// Cancels the pending server connection.
+    /// </summary>
+    [RelayCommand]
+    private void CancelServerSelection()
+    {
+        ShowAutoConnectDialog = false;
+        PendingConnectionServer = null;
+    }
+
+    /// <summary>
+    /// Connects to a discovered server by building the WebSocket URL.
+    /// </summary>
+    private async Task ConnectToDiscoveredServerAsync(DiscoveredServer server)
+    {
+        var ip = server.IpAddresses.FirstOrDefault() ?? server.Host;
+        var path = server.Properties.TryGetValue("path", out var p) ? p : "/sendspin";
+        ManualServerUrl = $"ws://{ip}:{server.Port}{path}";
+        await ConnectToServerAsync();
+    }
+
+    /// <summary>
+    /// Saves the auto-connect server preference to settings.
+    /// </summary>
+    private async Task SaveAutoConnectPreferenceAsync(string serverId)
+    {
+        try
+        {
+            AppPaths.EnsureUserDataDirectoryExists();
+            var appSettingsPath = AppPaths.UserSettingsPath;
+
+            JsonNode? root;
+            if (File.Exists(appSettingsPath))
+            {
+                var json = await File.ReadAllTextAsync(appSettingsPath);
+                root = JsonNode.Parse(json) ?? new JsonObject();
+            }
+            else
+            {
+                root = new JsonObject();
+            }
+
+            var connectionSection = root["Connection"]?.AsObject() ?? new JsonObject();
+            connectionSection["AutoConnectServerId"] = serverId;
+            root["Connection"] = connectionSection;
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var updatedJson = root.ToJsonString(options);
+            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+
+            _logger.LogInformation("Auto-connect preference saved for server: {ServerId}", serverId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save auto-connect preference");
+        }
     }
 
     /// <summary>

@@ -185,10 +185,13 @@ public sealed class MdnsServerDiscovery : IServerDiscovery
                     ? sid
                     : $"{host.DisplayName}-{host.IPAddresses.FirstOrDefault()}";
 
+            // Try multiple common TXT record keys for friendly name
+            var friendlyName = GetFriendlyName(properties, host.DisplayName);
+
             var server = new DiscoveredServer
             {
                 ServerId = serverId,
-                Name = properties.TryGetValue("name", out var name) ? name : host.DisplayName,
+                Name = friendlyName,
                 Host = host.DisplayName,
                 Port = service.Port,
                 IpAddresses = host.IPAddresses.ToList(),
@@ -203,6 +206,65 @@ public sealed class MdnsServerDiscovery : IServerDiscovery
             _logger.LogWarning(ex, "Failed to parse host {Host}", host.DisplayName);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Extracts a user-friendly name from TXT records, with smart fallback to hostname.
+    /// </summary>
+    private static string GetFriendlyName(Dictionary<string, string> properties, string? hostDisplayName)
+    {
+        // Try common TXT record keys for friendly name (in priority order)
+        string[] nameKeys = ["name", "friendly_name", "fn", "server_name", "display_name"];
+
+        foreach (var key in nameKeys)
+        {
+            if (properties.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        // If hostname is null or empty, return a sensible default
+        if (string.IsNullOrWhiteSpace(hostDisplayName))
+        {
+            return "Unknown Server";
+        }
+
+        // Fallback: clean up the hostname to make it more presentable
+        // e.g., "homeassistant.local" → "Homeassistant"
+        // e.g., "music-assistant-server.local" → "Music Assistant Server"
+        var cleanName = hostDisplayName;
+
+        // Remove common suffixes
+        string[] suffixes = [".local", ".lan", ".home"];
+        foreach (var suffix in suffixes)
+        {
+            if (cleanName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                cleanName = cleanName[..^suffix.Length];
+                break;
+            }
+        }
+
+        // Replace separators with spaces
+        cleanName = cleanName.Replace('-', ' ').Replace('_', ' ');
+
+        // Title case each word
+        if (!string.IsNullOrEmpty(cleanName))
+        {
+            var words = cleanName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < words.Length; i++)
+            {
+                if (words[i].Length > 0)
+                {
+                    words[i] = char.ToUpperInvariant(words[i][0]) + words[i][1..].ToLowerInvariant();
+                }
+            }
+
+            cleanName = string.Join(' ', words);
+        }
+
+        return string.IsNullOrWhiteSpace(cleanName) ? hostDisplayName : cleanName;
     }
 
     private void UpdateServer(DiscoveredServer server)

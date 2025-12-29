@@ -137,15 +137,10 @@
             </Grid>
         </Border>
 
-        <!-- Manual Connection Section (for cross-subnet scenarios) - hidden when settings open -->
-        <Border Grid.Row="1"
-                Background="{StaticResource SurfaceBrush}"
-                CornerRadius="8"
-                Padding="12"
-                Margin="16,8"
-                VerticalAlignment="Bottom">
-            <Border.Style>
-                <Style TargetType="Border">
+        <!-- Welcome View (visible when disconnected and settings not open) -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer.Style>
+                <Style TargetType="ScrollViewer" BasedOn="{StaticResource DarkScrollViewer}">
                     <Setter Property="Visibility" Value="Collapsed"/>
                     <Style.Triggers>
                         <MultiDataTrigger>
@@ -157,73 +152,215 @@
                         </MultiDataTrigger>
                     </Style.Triggers>
                 </Style>
-            </Border.Style>
+            </ScrollViewer.Style>
             <StackPanel>
-                <TextBlock Text="Manual Connection"
-                           Style="{StaticResource CaptionText}"
-                           Margin="0,0,0,8"/>
-                <TextBlock Text="For cross-subnet connections, enter the server URL directly:"
-                           Style="{StaticResource BodyText}"
-                           TextWrapping="Wrap"
-                           Opacity="0.7"
-                           Margin="0,0,0,8"
-                           FontSize="11"/>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBox Grid.Column="0"
-                             Text="{Binding ManualServerUrl, UpdateSourceTrigger=PropertyChanged}"
-                             Padding="8"
-                             Background="{StaticResource BackgroundDarkBrush}"
-                             Foreground="{StaticResource TextPrimaryBrush}"
-                             BorderBrush="{StaticResource SurfaceLightBrush}"
-                             BorderThickness="1"
-                             VerticalContentAlignment="Center"
-                             FontFamily="Consolas"
-                             FontSize="11"/>
-                    <Button Grid.Column="1"
-                            Content="Connect"
-                            Command="{Binding ConnectToServerCommand}"
-                            IsEnabled="{Binding IsConnecting, Converter={StaticResource InverseBoolConverter}}"
-                            Margin="8,0,0,0"
-                            Padding="12,8"
-                            Background="{StaticResource PrimaryBrush}"
-                            Foreground="White"
-                            BorderThickness="0"
-                            Cursor="Hand">
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="Button">
-                                            <Border Background="{TemplateBinding Background}"
-                                                    CornerRadius="4"
-                                                    Padding="{TemplateBinding Padding}">
-                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                                <Style.Triggers>
-                                    <Trigger Property="IsEnabled" Value="False">
-                                        <Setter Property="Opacity" Value="0.5"/>
-                                    </Trigger>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Opacity" Value="0.9"/>
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-                </Grid>
-                <!-- Connecting indicator -->
-                <TextBlock Text="Connecting..."
-                           Style="{StaticResource CaptionText}"
-                           Margin="0,8,0,0"
-                           Visibility="{Binding IsConnecting, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                <!-- Section 1: Player Identity -->
+                <Border Style="{StaticResource WelcomeCardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="This Player" Style="{StaticResource WelcomeSectionHeader}"/>
+
+                        <!-- Editable player name -->
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="Name:"
+                                       Style="{StaticResource BodyText}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,12,0"/>
+                            <TextBox Grid.Column="1"
+                                     Text="{Binding SettingsPlayerName, UpdateSourceTrigger=PropertyChanged}"
+                                     Padding="8"
+                                     Background="{StaticResource BackgroundDarkBrush}"
+                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                     BorderBrush="{StaticResource SurfaceLightBrush}"
+                                     BorderThickness="1"
+                                     VerticalContentAlignment="Center"/>
+                        </Grid>
+
+                        <!-- Broadcasting indicator (pulsing green dot) -->
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Style="{StaticResource BroadcastingIndicator}"/>
+                            <TextBlock Text="Broadcasting - visible to servers"
+                                       Style="{StaticResource BodyText}"
+                                       Foreground="{StaticResource SuccessBrush}"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Section 2: Available Servers -->
+                <Border Style="{StaticResource WelcomeCardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Available Servers" Style="{StaticResource WelcomeSectionHeader}"/>
+
+                        <!-- Server list -->
+                        <ItemsControl ItemsSource="{Binding DiscoveredServers}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource ServerCardStyle}"
+                                            MouseLeftButtonUp="ServerCard_Click"
+                                            Tag="{Binding}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="{Binding Name}"
+                                                           Style="{StaticResource BodyText}"
+                                                           FontWeight="Medium"/>
+                                                <TextBlock Style="{StaticResource CaptionText}"
+                                                           Foreground="{StaticResource TextMutedBrush}">
+                                                    <TextBlock.Text>
+                                                        <MultiBinding StringFormat="{}{0}:{1}">
+                                                            <Binding Path="Host"/>
+                                                            <Binding Path="Port"/>
+                                                        </MultiBinding>
+                                                    </TextBlock.Text>
+                                                </TextBlock>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1"
+                                                       Text=">"
+                                                       FontSize="16"
+                                                       Foreground="{StaticResource TextMutedBrush}"
+                                                       VerticalAlignment="Center"
+                                                       Margin="8,0,0,0"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- Searching state (no servers found yet, but discovery is running) -->
+                        <StackPanel Visibility="{Binding IsSearchingForServers, Converter={StaticResource BoolToVisibilityConverter}}"
+                                    Margin="0,8,0,0">
+                            <TextBlock Text="🔍" Style="{StaticResource SearchingIcon}"/>
+                            <TextBlock Text="Searching for servers..."
+                                       Style="{StaticResource CaptionText}"
+                                       HorizontalAlignment="Center"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,8,0,0"/>
+                        </StackPanel>
+
+                        <!-- Empty state (no servers, not searching - probably not hosting) -->
+                        <StackPanel Margin="0,8,0,0">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding DiscoveredServers.Count}" Value="0"/>
+                                                <Condition Binding="{Binding IsSearchingForServers}" Value="False"/>
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </MultiDataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+                            <TextBlock Text="No servers found"
+                                       Style="{StaticResource BodyText}"
+                                       HorizontalAlignment="Center"
+                                       Margin="0,0,0,4"/>
+                            <TextBlock Text="For cross-subnet connections, use manual connection below."
+                                       Style="{StaticResource CaptionText}"
+                                       HorizontalAlignment="Center"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       TextWrapping="Wrap"
+                                       TextAlignment="Center"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Section 3: Manual Connection (collapsible) -->
+                <Expander Header="Advanced: Connect by URL"
+                          Style="{StaticResource CollapsibleSectionStyle}">
+                    <StackPanel>
+                        <TextBlock Text="For cross-subnet connections, enter the server URL directly:"
+                                   Style="{StaticResource BodyText}"
+                                   TextWrapping="Wrap"
+                                   Opacity="0.7"
+                                   Margin="0,0,0,12"
+                                   FontSize="11"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0"
+                                     Text="{Binding ManualServerUrl, UpdateSourceTrigger=PropertyChanged}"
+                                     Padding="8"
+                                     Background="{StaticResource BackgroundDarkBrush}"
+                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                     BorderBrush="{StaticResource SurfaceLightBrush}"
+                                     BorderThickness="1"
+                                     VerticalContentAlignment="Center"
+                                     FontFamily="Consolas"
+                                     FontSize="11"/>
+                            <Button Grid.Column="1"
+                                    Content="Connect"
+                                    Command="{Binding ConnectToServerCommand}"
+                                    IsEnabled="{Binding IsConnecting, Converter={StaticResource InverseBoolConverter}}"
+                                    Style="{StaticResource PrimaryButtonStyle}"
+                                    Margin="8,0,0,0"/>
+                        </Grid>
+                        <!-- Connecting indicator -->
+                        <TextBlock Text="Connecting..."
+                                   Style="{StaticResource CaptionText}"
+                                   Margin="0,8,0,0"
+                                   Visibility="{Binding IsConnecting, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    </StackPanel>
+                </Expander>
             </StackPanel>
+        </ScrollViewer>
+
+        <!-- Auto-Connect Dialog (modal overlay) -->
+        <Border Grid.Row="0" Grid.RowSpan="3"
+                Style="{StaticResource DialogOverlay}"
+                Visibility="{Binding ShowAutoConnectDialog, Converter={StaticResource BoolToVisibilityConverter}}">
+            <Border Style="{StaticResource DialogCard}">
+                <StackPanel>
+                    <TextBlock Text="Connect to this server?"
+                               Style="{StaticResource SubHeaderText}"
+                               Margin="0,0,0,8"/>
+                    <TextBlock Text="{Binding PendingConnectionServer.Name}"
+                               Style="{StaticResource BodyText}"
+                               FontWeight="Medium"
+                               Margin="0,0,0,4"/>
+                    <TextBlock Style="{StaticResource CaptionText}"
+                               Foreground="{StaticResource TextMutedBrush}"
+                               Margin="0,0,0,16">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0}:{1}">
+                                <Binding Path="PendingConnectionServer.Host"/>
+                                <Binding Path="PendingConnectionServer.Port"/>
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+
+                    <TextBlock Text="Always connect to this server when it's available?"
+                               Style="{StaticResource BodyText}"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,16"/>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Cancel"
+                                Command="{Binding CancelServerSelectionCommand}"
+                                Style="{StaticResource TextLinkButtonStyle}"
+                                Margin="0,0,8,0"/>
+                        <Button Content="Just Once"
+                                Command="{Binding ConnectOnceCommand}"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Margin="0,0,8,0"/>
+                        <Button Content="Always"
+                                Command="{Binding ConnectAlwaysCommand}"
+                                Style="{StaticResource PrimaryButtonStyle}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
         </Border>
 
         <!-- Now Playing Section - hidden when settings open -->
