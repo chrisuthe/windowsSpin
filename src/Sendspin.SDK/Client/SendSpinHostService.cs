@@ -33,6 +33,11 @@ public sealed class SendspinHostService : IAsyncDisposable
     public bool IsRunning => _listener.IsListening && _advertiser.IsAdvertising;
 
     /// <summary>
+    /// Whether the service is currently being advertised via mDNS.
+    /// </summary>
+    public bool IsAdvertising => _advertiser.IsAdvertising;
+
+    /// <summary>
     /// The client ID being advertised.
     /// </summary>
     public string ClientId => _advertiser.ClientId;
@@ -160,6 +165,40 @@ public sealed class SendspinHostService : IAsyncDisposable
         await _listener.StopAsync();
 
         _logger.LogInformation("Sendspin host service stopped");
+    }
+
+    /// <summary>
+    /// Stops mDNS advertising without stopping the listener.
+    /// Call this when manually connecting to a server to prevent
+    /// other servers from trying to connect to this client.
+    /// </summary>
+    public async Task StopAdvertisingAsync()
+    {
+        if (!_advertiser.IsAdvertising)
+            return;
+
+        _logger.LogInformation("Stopping mDNS advertisement (manual connection active)");
+        await _advertiser.StopAsync();
+    }
+
+    /// <summary>
+    /// Resumes mDNS advertising after it was stopped.
+    /// Call this when disconnecting from a manually connected server
+    /// to allow servers to discover this client again.
+    /// </summary>
+    public async Task StartAdvertisingAsync(CancellationToken cancellationToken = default)
+    {
+        if (_advertiser.IsAdvertising)
+            return;
+
+        if (!_listener.IsListening)
+        {
+            _logger.LogWarning("Cannot start advertising - listener is not running");
+            return;
+        }
+
+        _logger.LogInformation("Resuming mDNS advertisement");
+        await _advertiser.StartAsync(cancellationToken);
     }
 
     private async void OnServerConnected(object? sender, IWebSocketConnection webSocket)

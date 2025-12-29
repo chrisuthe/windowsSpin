@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
+using Sendspin.SDK.Discovery;
 using SendspinClient.ViewModels;
 
 namespace SendspinClient;
@@ -76,6 +77,21 @@ public partial class MainWindow : Window
             {
                 Hide();
                 WindowState = WindowState.Normal; // Reset state so it shows normally when restored
+            }
+        }
+    }
+
+    /// <summary>
+    /// Handles clicks on server cards in the welcome view.
+    /// Opens the auto-connect dialog for the selected server.
+    /// </summary>
+    private void ServerCard_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.Tag is DiscoveredServer server)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.SelectServerCommand.Execute(server);
             }
         }
     }
