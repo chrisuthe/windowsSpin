@@ -67,6 +67,18 @@ public interface IAudioPlayer : IAsyncDisposable
     void Stop();
 
     /// <summary>
+    /// Switches to a different audio output device.
+    /// </summary>
+    /// <param name="deviceId">The device ID to switch to, or null for system default.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the async operation.</returns>
+    /// <remarks>
+    /// This will briefly stop playback while reinitializing the audio output.
+    /// The sample source is preserved, so playback resumes from the current position.
+    /// </remarks>
+    Task SwitchDeviceAsync(string? deviceId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Event raised when playback state changes.
     /// </summary>
     event EventHandler<AudioPlayerState>? StateChanged;

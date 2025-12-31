@@ -152,12 +152,10 @@ public sealed class AudioPipeline : IAudioPipeline
             _player = _playerFactory();
             await _player.InitializeAsync(format, cancellationToken);
 
-            // Set hardware latency compensation based on detected output latency
-            // This automatically adjusts for audio buffer delay
-            _clockSync.HardwareLatencyMs = _player.OutputLatencyMs;
+            // Set output latency for sync error calculation (not for scheduling)
             _buffer.OutputLatencyMicroseconds = _player.OutputLatencyMs * 1000L;
             _logger.LogDebug(
-                "Hardware latency compensation set to {LatencyMs}ms",
+                "Output latency for sync tracking: {LatencyMs}ms",
                 _player.OutputLatencyMs);
 
             // Create sample source bridging buffer to player
@@ -279,6 +277,70 @@ public sealed class AudioPipeline : IAudioPipeline
         }
 
         _logger.LogDebug("Mute set to {Muted}", muted);
+    }
+
+    /// <inheritdoc/>
+    public async Task SwitchDeviceAsync(string? deviceId, CancellationToken cancellationToken = default)
+    {
+        if (_player == null)
+        {
+            _logger.LogWarning("Cannot switch audio device - pipeline not started");
+            return;
+        }
+
+        var wasPlaying = State == AudioPipelineState.Playing;
+
+        _logger.LogInformation("Switching audio device, currently {State}", State);
+
+        try
+        {
+            // Switch the audio device - this stops/restarts playback internally
+            await _player.SwitchDeviceAsync(deviceId, cancellationToken);
+
+            // Update the buffer's output latency compensation for sync error calculation
+            // The new device may have different latency characteristics
+            if (_buffer != null)
+            {
+                var newLatencyUs = _player.OutputLatencyMs * 1000L;
+                _buffer.OutputLatencyMicroseconds = newLatencyUs;
+                _logger.LogDebug(
+                    "Updated output latency for sync tracking: {LatencyMs}ms",
+                    _player.OutputLatencyMs);
+
+                // Trigger a soft re-anchor to reset sync error tracking
+                // This prevents the timing discontinuity from causing false sync corrections
+                if (_buffer is TimedAudioBuffer timedBuffer)
+                {
+                    timedBuffer.ResetSyncTracking();
+                    _logger.LogDebug("Reset sync tracking after device switch");
+                }
+            }
+
+            // If we were playing and the player resumed, ensure state is correct
+            if (wasPlaying && _player.State == AudioPlayerState.Playing)
+            {
+                // Reset sync monitoring counters since timing has been reset
+                _lastSyncLogTime = _precisionTimer.GetCurrentTimeMicroseconds();
+
+                SetState(AudioPipelineState.Playing);
+            }
+            else if (wasPlaying)
+            {
+                // Player didn't resume automatically - might need buffering
+                SetState(AudioPipelineState.Buffering);
+            }
+
+            _logger.LogInformation(
+                "Audio device switched successfully, output latency: {LatencyMs}ms",
+                _player.OutputLatencyMs);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to switch audio device");
+            SetState(AudioPipelineState.Error);
+            ErrorOccurred?.Invoke(this, new AudioPipelineError("Failed to switch audio device", ex));
+            throw;
+        }
     }
 
     /// <inheritdoc/>

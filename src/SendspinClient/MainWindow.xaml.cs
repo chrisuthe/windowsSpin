@@ -95,4 +95,39 @@ public partial class MainWindow : Window
             }
         }
     }
+
+    /// <summary>
+    /// Validates that only numeric input (including negative sign) is entered in TextBox.
+    /// </summary>
+    private void NumericTextBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
+    {
+        // Allow digits and minus sign (for negative numbers)
+        foreach (char c in e.Text)
+        {
+            if (!char.IsDigit(c) && c != '-')
+            {
+                e.Handled = true;
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Prevents pasting non-numeric content into TextBox.
+    /// </summary>
+    private void NumericTextBox_Pasting(object sender, DataObjectPastingEventArgs e)
+    {
+        if (e.DataObject.GetDataPresent(typeof(string)))
+        {
+            string text = (string)e.DataObject.GetData(typeof(string));
+            if (!int.TryParse(text, out _))
+            {
+                e.CancelCommand();
+            }
+        }
+        else
+        {
+            e.CancelCommand();
+        }
+    }
 }

@@ -37,15 +37,15 @@ jobs:
         run: dotnet restore ${{ env.PROJECT_PATH }}
 
       - name: Build Release
-        run: dotnet build ${{ env.PROJECT_PATH }} -c Release --no-restore
+        run: dotnet build ${{ env.PROJECT_PATH }} -c Release --no-restore -p:Version=${{ steps.version.outputs.VERSION }}
 
       - name: Publish win-x64 (framework-dependent)
         run: |
-          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained false -o src/SendspinClient/bin/publish/win-x64-framework
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained false -p:Version=${{ steps.version.outputs.VERSION }} -o src/SendspinClient/bin/publish/win-x64-framework
 
       - name: Publish win-x64 (self-contained)
         run: |
-          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -o src/SendspinClient/bin/publish/win-x64-selfcontained
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:Version=${{ steps.version.outputs.VERSION }} -o src/SendspinClient/bin/publish/win-x64-selfcontained
 
       # Sign the main application EXEs before creating installers
       - name: Sign Application EXEs (framework-dependent)

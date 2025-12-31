@@ -346,6 +346,40 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         }
     }
 
+    /// <summary>
+    /// Resets sync error tracking without clearing buffer content.
+    /// Use this after audio device switches to prevent timing discontinuities
+    /// from triggering false sync corrections.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="Clear"/>, this preserves buffered audio and only resets
+    /// the timing state. The next audio callback will re-anchor timing from scratch.
+    /// </remarks>
+    public void ResetSyncTracking()
+    {
+        lock (_lock)
+        {
+            // Signal that playback needs to re-establish its timing anchor
+            // on the next Read() call, but keep buffered audio
+            _playbackStarted = false;
+
+            // Reset sync error tracking
+            _playbackStartLocalTime = 0;
+            _lastElapsedMicroseconds = 0;
+            _samplesReadSinceStart = 0;
+            _samplesOutputSinceStart = 0;
+            _currentSyncErrorMicroseconds = 0;
+
+            // Reset sync correction state
+            _dropEveryNFrames = 0;
+            _insertEveryNFrames = 0;
+            _framesSinceLastCorrection = 0;
+            _needsReanchor = false;
+            Interlocked.Exchange(ref _reanchorEventPending, 0);
+            _lastOutputFrame = null;
+        }
+    }
+
     /// <inheritdoc/>
     public AudioBufferStats GetStats()
     {
