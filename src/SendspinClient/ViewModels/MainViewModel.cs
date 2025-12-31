@@ -60,6 +60,11 @@ public partial class MainViewModel : ViewModelBase
     private string? _previousTrackId;
 
     /// <summary>
+    /// Gets the application version string for display in the UI.
+    /// </summary>
+    public string AppVersion => GetAppVersion();
+
+    /// <summary>
     /// Gets or sets whether the host service is running and advertising via mDNS.
     /// </summary>
     [ObservableProperty]
@@ -1229,6 +1234,88 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Called when the selected audio device changes.
+    /// Immediately switches to the new device without requiring restart.
+    /// </summary>
+    partial void OnSettingsSelectedAudioDeviceChanged(AudioDeviceInfo? value)
+    {
+        if (value == null)
+        {
+            return;
+        }
+
+        // Get the device ID (null for system default)
+        var deviceId = value.IsDefault ? null : value.DeviceId;
+
+        _logger.LogInformation(
+            "Audio device selection changed to: {DeviceName}",
+            value.DisplayName);
+
+        // Switch audio device asynchronously
+        _ = SwitchAudioDeviceAsync(deviceId, value.DisplayName);
+    }
+
+    /// <summary>
+    /// Switches to the specified audio device and saves the preference.
+    /// </summary>
+    private async Task SwitchAudioDeviceAsync(string? deviceId, string displayName)
+    {
+        try
+        {
+            // Only switch if the pipeline is running
+            if (_audioPipeline.State != AudioPipelineState.Idle)
+            {
+                await _audioPipeline.SwitchDeviceAsync(deviceId);
+                _logger.LogInformation("Audio output switched to: {DeviceName}", displayName);
+            }
+
+            // Save the device preference
+            await SaveAudioDeviceAsync(deviceId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to switch audio device to {DeviceName}", displayName);
+        }
+    }
+
+    /// <summary>
+    /// Saves the selected audio device to user settings.
+    /// </summary>
+    private async Task SaveAudioDeviceAsync(string? deviceId)
+    {
+        try
+        {
+            AppPaths.EnsureUserDataDirectoryExists();
+            var appSettingsPath = AppPaths.UserSettingsPath;
+
+            JsonNode? root;
+            if (File.Exists(appSettingsPath))
+            {
+                var json = await File.ReadAllTextAsync(appSettingsPath);
+                root = JsonNode.Parse(json) ?? new JsonObject();
+            }
+            else
+            {
+                root = new JsonObject();
+            }
+
+            var audioSection = root["Audio"]?.AsObject() ?? new JsonObject();
+            audioSection["DeviceId"] = deviceId;
+            root["Audio"] = audioSection;
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var updatedJson = root.ToJsonString(options);
+            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+
+            _logger.LogDebug("Audio device preference saved: {DeviceId}", deviceId ?? "default");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save audio device preference");
+        }
+    }
+
+    /// <summary>
     /// Called when Discord Rich Presence setting changes.
     /// Enables or disables the Discord integration.
     /// </summary>
@@ -1377,6 +1464,24 @@ public partial class MainViewModel : ViewModelBase
             SettingsSelectedAudioDevice = AvailableAudioDevices.FirstOrDefault(d => d.DeviceId == previousSelection.DeviceId)
                 ?? AvailableAudioDevices.FirstOrDefault(d => d.IsDefault);
         }
+    }
+
+    /// <summary>
+    /// Increments the static delay by 10ms.
+    /// </summary>
+    [RelayCommand]
+    private void IncrementStaticDelay()
+    {
+        SettingsStaticDelayMs = Math.Min(5000, SettingsStaticDelayMs + 10);
+    }
+
+    /// <summary>
+    /// Decrements the static delay by 10ms.
+    /// </summary>
+    [RelayCommand]
+    private void DecrementStaticDelay()
+    {
+        SettingsStaticDelayMs = Math.Max(-5000, SettingsStaticDelayMs - 10);
     }
 
     /// <summary>
@@ -1739,6 +1844,30 @@ public partial class MainViewModel : ViewModelBase
     private void UpdateTrayToolTip()
     {
         OnPropertyChanged(nameof(TrayToolTip));
+    }
+
+    /// <summary>
+    /// Gets the application version from assembly metadata.
+    /// </summary>
+    private static string GetAppVersion()
+    {
+        var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+        var version = assembly.GetName().Version;
+
+        // Try to get informational version (includes pre-release tags)
+        var infoVersion = assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .FirstOrDefault()?.InformationalVersion;
+
+        if (!string.IsNullOrEmpty(infoVersion))
+        {
+            // Strip the +hash suffix if present (e.g., "1.0.0+abc123" -> "1.0.0")
+            var plusIndex = infoVersion.IndexOf('+');
+            return plusIndex > 0 ? infoVersion[..plusIndex] : infoVersion;
+        }
+
+        return version?.ToString(3) ?? "Unknown";
     }
 
     #endregion

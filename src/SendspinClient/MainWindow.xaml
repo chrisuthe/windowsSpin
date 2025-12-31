@@ -593,31 +593,113 @@
                                        TextWrapping="Wrap"/>
                             <Grid Margin="0,8,0,0">
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <Slider Grid.Column="0"
-                                        Minimum="-1000" Maximum="1000"
+                                <!-- Decrement button -->
+                                <Button Grid.Column="0"
+                                        Content="−"
+                                        Command="{Binding DecrementStaticDelayCommand}"
+                                        Width="28" Height="28"
+                                        Background="{StaticResource SurfaceBrush}"
+                                        Foreground="{StaticResource TextPrimaryBrush}"
+                                        BorderThickness="1"
+                                        BorderBrush="{StaticResource SurfaceLightBrush}"
+                                        FontSize="16"
+                                        FontWeight="Bold"
+                                        Cursor="Hand"
+                                        VerticalAlignment="Center"
+                                        Margin="0,0,8,0">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border Background="{TemplateBinding Background}"
+                                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                                CornerRadius="4">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                            <Style.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Background" Value="{StaticResource SurfaceLightBrush}"/>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <!-- Slider -->
+                                <Slider Grid.Column="1"
+                                        Minimum="-5000" Maximum="5000"
                                         Value="{Binding SettingsStaticDelayMs}"
-                                        TickFrequency="100"
+                                        TickFrequency="500"
                                         IsSnapToTickEnabled="False"
                                         VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1"
-                                           Text="{Binding SettingsStaticDelayMs, StringFormat={}{0:+0;-0;0} ms}"
+                                <!-- Increment button -->
+                                <Button Grid.Column="2"
+                                        Content="+"
+                                        Command="{Binding IncrementStaticDelayCommand}"
+                                        Width="28" Height="28"
+                                        Background="{StaticResource SurfaceBrush}"
+                                        Foreground="{StaticResource TextPrimaryBrush}"
+                                        BorderThickness="1"
+                                        BorderBrush="{StaticResource SurfaceLightBrush}"
+                                        FontSize="16"
+                                        FontWeight="Bold"
+                                        Cursor="Hand"
+                                        VerticalAlignment="Center"
+                                        Margin="8,0,8,0">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border Background="{TemplateBinding Background}"
+                                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                                CornerRadius="4">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                            <Style.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Background" Value="{StaticResource SurfaceLightBrush}"/>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <!-- Editable value -->
+                                <TextBox Grid.Column="3"
+                                         Text="{Binding SettingsStaticDelayMs, UpdateSourceTrigger=PropertyChanged, StringFormat=0}"
+                                         Width="60"
+                                         Background="{StaticResource SurfaceBrush}"
+                                         Foreground="{StaticResource TextPrimaryBrush}"
+                                         BorderBrush="{StaticResource SurfaceLightBrush}"
+                                         BorderThickness="1"
+                                         Padding="4,4"
+                                         VerticalAlignment="Center"
+                                         HorizontalContentAlignment="Right"
+                                         PreviewTextInput="NumericTextBox_PreviewTextInput"
+                                         DataObject.Pasting="NumericTextBox_Pasting"/>
+                                <!-- ms suffix -->
+                                <TextBlock Grid.Column="4"
+                                           Text="ms"
                                            Style="{StaticResource CaptionText}"
-                                           Width="60"
-                                           TextAlignment="Right"
+                                           Foreground="{StaticResource TextMutedBrush}"
                                            VerticalAlignment="Center"
-                                           Margin="8,0,0,0"/>
+                                           Margin="4,0,0,0"/>
                             </Grid>
                         </StackPanel>
-
-                        <!-- Restart Note for Audio changes -->
-                        <TextBlock Text="Note: Audio device changes take effect after restart."
-                                   Style="{StaticResource CaptionText}"
-                                   Foreground="{StaticResource WarningBrush}"
-                                   Margin="0,0,0,16"
-                                   TextWrapping="Wrap"/>
 
                         <!-- Logging Section -->
                         <TextBlock Text="LOGGING" Style="{StaticResource CaptionText}"
@@ -775,67 +857,76 @@
                 </ScrollViewer>
 
                 <!-- Settings Actions -->
-                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-                    <Button Content="Cancel"
-                            Command="{Binding CloseSettingsCommand}"
-                            Padding="16,8"
-                            Margin="0,0,8,0"
-                            Background="Transparent"
-                            Foreground="{StaticResource TextSecondaryBrush}"
-                            BorderThickness="1"
-                            BorderBrush="{StaticResource SurfaceLightBrush}"
-                            Cursor="Hand">
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="Button">
-                                            <Border Background="{TemplateBinding Background}"
-                                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                                    CornerRadius="4"
-                                                    Padding="{TemplateBinding Padding}">
-                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                                <Style.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-                    <Button Content="Save"
-                            Command="{Binding SaveSettingsCommand}"
-                            Padding="16,8"
-                            Background="{StaticResource PrimaryBrush}"
-                            Foreground="White"
-                            BorderThickness="0"
-                            Cursor="Hand">
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="Button">
-                                            <Border Background="{TemplateBinding Background}"
-                                                    CornerRadius="4"
-                                                    Padding="{TemplateBinding Padding}">
-                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                                <Style.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Opacity" Value="0.9"/>
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
+                <StackPanel Grid.Row="2" Margin="0,16,0,0">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Cancel"
+                                Command="{Binding CloseSettingsCommand}"
+                                Padding="16,8"
+                                Margin="0,0,8,0"
+                                Background="Transparent"
+                                Foreground="{StaticResource TextSecondaryBrush}"
+                                BorderThickness="1"
+                                BorderBrush="{StaticResource SurfaceLightBrush}"
+                                Cursor="Hand">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border Background="{TemplateBinding Background}"
+                                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                                        CornerRadius="4"
+                                                        Padding="{TemplateBinding Padding}">
+                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                        <Button Content="Save"
+                                Command="{Binding SaveSettingsCommand}"
+                                Padding="16,8"
+                                Background="{StaticResource PrimaryBrush}"
+                                Foreground="White"
+                                BorderThickness="0"
+                                Cursor="Hand">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border Background="{TemplateBinding Background}"
+                                                        CornerRadius="4"
+                                                        Padding="{TemplateBinding Padding}">
+                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Opacity" Value="0.9"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- Version display -->
+                    <TextBlock Text="{Binding AppVersion, StringFormat='v{0}'}"
+                               Style="{StaticResource CaptionText}"
+                               Foreground="{StaticResource TextMutedBrush}"
+                               HorizontalAlignment="Center"
+                               Margin="0,12,0,0"/>
                 </StackPanel>
             </Grid>
         </Border>

@@ -81,6 +81,24 @@ public interface IAudioPipeline : IAsyncDisposable
     void SetMuted(bool muted);
 
     /// <summary>
+    /// Switches to a different audio output device.
+    /// </summary>
+    /// <param name="deviceId">The device ID to switch to, or null for system default.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the async operation.</returns>
+    /// <remarks>
+    /// <para>
+    /// This will briefly interrupt playback while reinitializing the audio output.
+    /// The audio buffer is preserved, so playback resumes from approximately the same position.
+    /// </para>
+    /// <para>
+    /// After switching, the sync timing is re-anchored to account for any timing
+    /// discontinuity during the device switch.
+    /// </para>
+    /// </remarks>
+    Task SwitchDeviceAsync(string? deviceId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Event raised when pipeline state changes.
     /// </summary>
     event EventHandler<AudioPipelineState>? StateChanged;

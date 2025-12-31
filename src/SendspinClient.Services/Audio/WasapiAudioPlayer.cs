@@ -28,7 +28,7 @@ namespace SendspinClient.Services.Audio;
 public sealed class WasapiAudioPlayer : IAudioPlayer
 {
     private readonly ILogger<WasapiAudioPlayer> _logger;
-    private readonly string? _deviceId;
+    private string? _deviceId;
     private WasapiOut? _wasapiOut;
     private AudioSampleProviderAdapter? _sampleProvider;
     private AudioFormat? _format;
@@ -210,6 +210,98 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         _wasapiOut?.Stop();
         SetState(AudioPlayerState.Stopped);
         _logger.LogInformation("Playback stopped");
+    }
+
+    /// <inheritdoc/>
+    public Task SwitchDeviceAsync(string? deviceId, CancellationToken cancellationToken = default)
+    {
+        return Task.Run(
+            () =>
+            {
+                try
+                {
+                    // Remember current state
+                    var wasPlaying = State == AudioPlayerState.Playing;
+                    var currentSampleProvider = _sampleProvider;
+
+                    _logger.LogInformation(
+                        "Switching audio device from {OldDevice} to {NewDevice}",
+                        _deviceId ?? "System Default",
+                        deviceId ?? "System Default");
+
+                    // Stop and dispose current output
+                    if (_wasapiOut != null)
+                    {
+                        _wasapiOut.PlaybackStopped -= OnPlaybackStopped;
+                        _wasapiOut.Stop();
+                        _wasapiOut.Dispose();
+                        _wasapiOut = null;
+                    }
+
+                    // Update device ID
+                    _deviceId = deviceId;
+
+                    // Get the new audio device
+                    MMDevice? device = null;
+                    if (!string.IsNullOrEmpty(_deviceId))
+                    {
+                        try
+                        {
+                            using var enumerator = new MMDeviceEnumerator();
+                            device = enumerator.GetDevice(_deviceId);
+                            _logger.LogInformation("Using audio device: {DeviceName}", device.FriendlyName);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to get device {DeviceId}, falling back to default", _deviceId);
+                            device = null;
+                        }
+                    }
+
+                    // Create new WASAPI output
+                    if (device != null)
+                    {
+                        _wasapiOut = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: false, latency: 50);
+                    }
+                    else
+                    {
+                        _wasapiOut = new WasapiOut(AudioClientShareMode.Shared, latency: 50);
+                    }
+
+                    _wasapiOut.PlaybackStopped += OnPlaybackStopped;
+                    _outputLatencyMs = 50;
+
+                    // Re-attach sample provider if we had one
+                    if (currentSampleProvider != null)
+                    {
+                        _wasapiOut.Init(currentSampleProvider);
+                        _logger.LogDebug("Sample source re-attached to new device");
+                    }
+
+                    SetState(AudioPlayerState.Stopped);
+
+                    // Resume playback if we were playing
+                    if (wasPlaying && currentSampleProvider != null)
+                    {
+                        _wasapiOut.Play();
+                        SetState(AudioPlayerState.Playing);
+                        _logger.LogInformation("Playback resumed on new device");
+                    }
+
+                    _logger.LogInformation(
+                        "Audio device switched successfully: {Device}, latency: {Latency}ms",
+                        device?.FriendlyName ?? "System Default",
+                        _outputLatencyMs);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to switch audio device");
+                    SetState(AudioPlayerState.Error);
+                    ErrorOccurred?.Invoke(this, new AudioPlayerError("Failed to switch audio device", ex));
+                    throw;
+                }
+            },
+            cancellationToken);
     }
 
     /// <inheritdoc/>
