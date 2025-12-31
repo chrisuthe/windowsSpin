@@ -118,7 +118,7 @@ public sealed class SendspinConnection : ISendspinConnection
             {
                 try
                 {
-                    var goodbye = new ClientGoodbyeMessage { Reason = reason };
+                    var goodbye = ClientGoodbyeMessage.Create(reason);
                     await SendMessageAsync(goodbye, cancellationToken);
 
                     await _webSocket.CloseAsync(

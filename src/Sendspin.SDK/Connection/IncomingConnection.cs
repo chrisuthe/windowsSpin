@@ -88,7 +88,7 @@ public sealed class IncomingConnection : ISendspinConnection
             {
                 try
                 {
-                    var goodbye = new ClientGoodbyeMessage { Reason = reason };
+                    var goodbye = ClientGoodbyeMessage.Create(reason);
                     await SendMessageAsync(goodbye, cancellationToken);
 
                     _socket.Close();
