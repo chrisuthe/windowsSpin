@@ -2,6 +2,8 @@
 
 A cross-platform .NET SDK for the Sendspin synchronized multi-room audio protocol.
 
+[![NuGet](https://img.shields.io/nuget/v/Sendspin.SDK.svg)](https://www.nuget.org/packages/Sendspin.SDK/)
+
 ## Features
 
 - **Multi-room Audio Sync**: Microsecond-precision clock synchronization using Kalman filtering
@@ -9,12 +11,81 @@ A cross-platform .NET SDK for the Sendspin synchronized multi-room audio protoco
 - **Server Discovery**: mDNS-based automatic server discovery
 - **Audio Decoding**: Built-in PCM, FLAC, and Opus codec support
 - **Cross-Platform**: Works on Windows, Linux, and macOS
+- **Audio Device Switching**: Hot-switch audio output devices without interrupting playback
 
 ## Installation
 
 ```bash
 dotnet add package Sendspin.SDK
 ```
+
+**Supported Frameworks**: .NET 8.0, .NET 10.0
+
+---
+
+## ⚠️ Breaking Changes in v2.0.0
+
+If you're upgrading from v1.x, please review the following breaking changes:
+
+### 1. `IClockSynchronizer.HardwareLatencyMs` Removed
+
+**What changed**: The `HardwareLatencyMs` property has been removed from the `IClockSynchronizer` interface.
+
+**Why**: Hardware latency compensation is now handled internally by the audio buffer layer (`TimedAudioBuffer.OutputLatencyMicroseconds`), providing more accurate sync error calculation.
+
+**Migration**:
+```csharp
+// Before (v1.x)
+clockSync.HardwareLatencyMs = player.OutputLatencyMs;
+
+// After (v2.0) - No action needed!
+// The AudioPipeline automatically sets buffer.OutputLatencyMicroseconds
+```
+
+### 2. `IAudioPipeline.SwitchDeviceAsync()` Required
+
+**What changed**: The `IAudioPipeline` interface now requires a `SwitchDeviceAsync()` method.
+
+**Why**: Enables hot-switching audio devices without stopping playback - essential for multi-room setups.
+
+**Migration**: Implement the new method in your `IAudioPipeline` implementation:
+```csharp
+public async Task SwitchDeviceAsync(string? deviceId, CancellationToken cancellationToken = default)
+{
+    // Switch your audio player to the new device
+    await _player.SwitchDeviceAsync(deviceId, cancellationToken);
+
+    // Reset sync tracking to prevent timing discontinuities
+    if (_buffer is TimedAudioBuffer timedBuffer)
+    {
+        timedBuffer.ResetSyncTracking();
+    }
+}
+```
+
+### 3. `IAudioPlayer.SwitchDeviceAsync()` Required
+
+**What changed**: The `IAudioPlayer` interface now requires a `SwitchDeviceAsync()` method.
+
+**Why**: Platform-specific audio players need to support device switching.
+
+**Migration**: Implement the new method in your `IAudioPlayer` implementation:
+```csharp
+public async Task SwitchDeviceAsync(string? deviceId, CancellationToken cancellationToken = default)
+{
+    // Stop current playback
+    Stop();
+
+    // Reinitialize with new device
+    _deviceId = deviceId;
+    await InitializeAsync(_currentFormat, cancellationToken);
+
+    // Resume if we were playing
+    Play();
+}
+```
+
+---
 
 ## Quick Start
 
@@ -48,6 +119,47 @@ client.GroupStateChanged += (sender, group) =>
 // Send commands
 await client.SendCommandAsync("play");
 await client.SetVolumeAsync(75);
+```
+
+## New in v2.0.0
+
+### Audio Device Hot-Switching
+
+Switch audio output devices without interrupting the stream:
+
+```csharp
+// Switch to a specific device
+await audioPipeline.SwitchDeviceAsync("device-id-here");
+
+// Switch to system default
+await audioPipeline.SwitchDeviceAsync(null);
+```
+
+### mDNS Advertising Control
+
+Control when your client is discoverable by servers:
+
+```csharp
+var hostService = new SendspinHostService(...);
+await hostService.StartAsync();
+
+// When manually connecting to a server, stop advertising
+await hostService.StopAdvertisingAsync();
+
+// When disconnecting, resume advertising
+await hostService.StartAdvertisingAsync();
+
+// Check current state
+if (hostService.IsAdvertising) { ... }
+```
+
+### Improved Sync Tracking
+
+Reset sync timing after device switches or other timing discontinuities:
+
+```csharp
+// Soft reset - keeps buffered audio, resets timing anchors
+timedBuffer.ResetSyncTracking();
 ```
 
 ## Architecture
