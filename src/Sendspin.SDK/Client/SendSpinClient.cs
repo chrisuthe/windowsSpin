@@ -23,7 +23,6 @@ public sealed class SendspinClientService : ISendspinClient
     private TaskCompletionSource<bool>? _handshakeTcs;
     private GroupState? _currentGroup;
     private CancellationTokenSource? _timeSyncCts;
-    private Task? _timeSyncTask;
     private bool _disposed;
 
     // Burst sync configuration - send multiple messages and use smallest RTT
@@ -312,7 +311,9 @@ public sealed class SendspinClientService : ISendspinClient
         StopTimeSyncLoop();
 
         _timeSyncCts = new CancellationTokenSource();
-        _timeSyncTask = TimeSyncLoopAsync(_timeSyncCts.Token);
+
+        // Fire-and-forget: task runs until cancelled, no need to await
+        _ = TimeSyncLoopAsync(_timeSyncCts.Token);
 
         _logger.LogDebug("Time sync loop started (adaptive intervals)");
     }
@@ -322,7 +323,6 @@ public sealed class SendspinClientService : ISendspinClient
         _timeSyncCts?.Cancel();
         _timeSyncCts?.Dispose();
         _timeSyncCts = null;
-        _timeSyncTask = null;
         _logger.LogDebug("Time sync loop stopped");
     }
 

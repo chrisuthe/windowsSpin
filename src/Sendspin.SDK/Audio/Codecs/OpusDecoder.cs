@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
-using Concentus.Structs;
+using Concentus;
 using Sendspin.SDK.Models;
 
 namespace Sendspin.SDK.Audio.Codecs;
@@ -13,7 +13,7 @@ namespace Sendspin.SDK.Audio.Codecs;
 /// </summary>
 public sealed class OpusDecoder : IAudioDecoder
 {
-    private readonly Concentus.Structs.OpusDecoder _decoder;
+    private readonly IOpusDecoder _decoder;
     private readonly short[] _shortBuffer;
     private bool _disposed;
 
@@ -37,8 +37,8 @@ public sealed class OpusDecoder : IAudioDecoder
 
         Format = format;
 
-        // Create Concentus decoder
-        _decoder = new Concentus.Structs.OpusDecoder(format.SampleRate, format.Channels);
+        // Create Concentus decoder using the factory (preferred over deprecated constructor)
+        _decoder = OpusCodecFactory.CreateDecoder(format.SampleRate, format.Channels);
 
         // Opus max frame is 120ms, but typically 20ms (960 samples at 48kHz per channel)
         // Allocate for worst case: 120ms * sampleRate / 1000 * channels
@@ -51,13 +51,10 @@ public sealed class OpusDecoder : IAudioDecoder
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        // Concentus expects byte array
-        var data = encodedData.ToArray();
-
-        // Decode to short buffer (Concentus outputs interleaved shorts)
+        // Decode to short buffer using Span overload (Concentus outputs interleaved shorts)
         // frameSize is samples per channel
         var maxFrameSize = MaxSamplesPerFrame / Format.Channels;
-        var samplesPerChannel = _decoder.Decode(data, 0, data.Length, _shortBuffer, 0, maxFrameSize);
+        var samplesPerChannel = _decoder.Decode(encodedData, _shortBuffer.AsSpan(), maxFrameSize);
 
         var totalSamples = samplesPerChannel * Format.Channels;
 

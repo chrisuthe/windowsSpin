@@ -52,7 +52,6 @@ public sealed class AudioPipeline : IAudioPipeline
     private int _volume = 100;
     private bool _muted;
     private long _lastSyncLogTime;
-    private long _chunksProcessed;
 
     // How often to log sync status during playback (microseconds)
     private const long SyncLogIntervalMicroseconds = 5_000_000; // 5 seconds
@@ -231,7 +230,6 @@ public sealed class AudioPipeline : IAudioPipeline
             {
                 // Add decoded samples to buffer with server timestamp
                 _buffer.Write(_decodeBuffer.AsSpan(0, samplesDecoded), chunk.ServerTimestamp);
-                _chunksProcessed++;
 
                 // Periodically log sync error during playback
                 if (State == AudioPipelineState.Playing)
@@ -374,9 +372,8 @@ public sealed class AudioPipeline : IAudioPipeline
             var syncStatus = _clockSync.GetStatus();
             _player.Play();
 
-            // Reset sync monitoring counters
+            // Reset sync monitoring counter
             _lastSyncLogTime = _precisionTimer.GetCurrentTimeMicroseconds();
-            _chunksProcessed = 0;
 
             SetState(AudioPipelineState.Playing);
             _logger.LogInformation(

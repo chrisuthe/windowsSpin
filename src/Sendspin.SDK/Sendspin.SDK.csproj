@@ -1,14 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>1.0.2</Version>
+    <Version>2.0.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -19,8 +19,21 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageReleaseNotes>Bug fixes and improvements for track handling and error clearing.</PackageReleaseNotes>
-    <Copyright>Copyright © 2024 Sendspin Contributors</Copyright>
+    <PackageReleaseNotes>
+v2.0.0 - Breaking Changes:
+- BREAKING: IClockSynchronizer.HardwareLatencyMs property removed (latency now handled in audio buffer layer)
+- BREAKING: IAudioPipeline now requires SwitchDeviceAsync() method implementation
+- BREAKING: IAudioPlayer now requires SwitchDeviceAsync() method implementation
+- Now multi-targets net8.0 and net10.0
+
+New Features:
+- Audio device hot-switching without stopping playback
+- SendspinHostService: Control mDNS advertising independently (StopAdvertisingAsync/StartAdvertisingAsync)
+- TimedAudioBuffer.ResetSyncTracking() for soft re-anchor after device switches
+- Improved server name display from mDNS discovery (smarter hostname cleanup)
+- Sync timing improvements for better multi-room accuracy
+    </PackageReleaseNotes>
+    <Copyright>Copyright © 2024-2025 Sendspin Contributors</Copyright>
 
     <!-- Enable source link for debugging -->
     <PublishRepositoryUrl>true</PublishRepositoryUrl>

@@ -94,7 +94,6 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     private double _microsecondsPerSample;      // Duration of one sample in microseconds
 
     private bool _disposed;
-    private bool _hasEverPlayed;  // Track if we've ever started playback (for resume detection)
 
     /// <inheritdoc/>
     public AudioFormat Format { get; }
@@ -224,7 +223,6 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 var firstSegment = _segments.Peek();
 
                 _playbackStarted = true;
-                _hasEverPlayed = true;
                 _nextExpectedPlaybackTime = firstSegment.LocalPlaybackTime;
 
                 // Initialize sync error tracking (CLI-style: track samples READ)
