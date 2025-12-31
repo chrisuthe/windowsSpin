@@ -43,6 +43,7 @@ public sealed class SendspinClientService : ISendspinClient
     public event EventHandler<GroupState>? GroupStateChanged;
     public event EventHandler<byte[]>? ArtworkReceived;
     public event EventHandler<ClockSyncStatus>? ClockSyncConverged;
+    public event EventHandler<SyncOffsetEventArgs>? SyncOffsetApplied;
 
     public SendspinClientService(
         ILogger<SendspinClientService> logger,
@@ -238,6 +239,10 @@ public sealed class SendspinClientService : ISendspinClient
 
                 case MessageTypes.ServerCommand:
                     HandleServerCommand(json);
+                    break;
+
+                case MessageTypes.ClientSyncOffset:
+                    HandleSyncOffset(json);
                     break;
 
                 default:
@@ -656,6 +661,47 @@ public sealed class SendspinClientService : ISendspinClient
 
         // Notify UI of state change
         GroupStateChanged?.Invoke(this, _currentGroup);
+    }
+
+    /// <summary>
+    /// Handles client/sync_offset messages from GroupSync calibration tool.
+    /// Applies the calculated offset to the static delay for speaker synchronization.
+    /// </summary>
+    private void HandleSyncOffset(string json)
+    {
+        var message = MessageSerializer.Deserialize<ClientSyncOffsetMessage>(json);
+        if (message?.Payload is null)
+        {
+            _logger.LogWarning("client/sync_offset: Invalid message format");
+            return;
+        }
+
+        var payload = message.Payload;
+        _logger.LogInformation(
+            "client/sync_offset: Applying offset {Offset}ms from {Source}",
+            payload.OffsetMs,
+            payload.Source ?? "unknown");
+
+        // Clamp offset to reasonable range (-5000 to +5000 ms)
+        const double MinOffset = -5000.0;
+        const double MaxOffset = 5000.0;
+        var clampedOffset = Math.Clamp(payload.OffsetMs, MinOffset, MaxOffset);
+
+        if (Math.Abs(clampedOffset - payload.OffsetMs) > 0.001)
+        {
+            _logger.LogWarning(
+                "client/sync_offset: Offset clamped from {Original}ms to {Clamped}ms",
+                payload.OffsetMs,
+                clampedOffset);
+        }
+
+        // Apply the offset to the clock synchronizer
+        _clockSynchronizer.StaticDelayMs = clampedOffset;
+
+        _logger.LogDebug("client/sync_offset: Static delay set to {Delay}ms", clampedOffset);
+
+        // Raise event for UI notification
+        SyncOffsetApplied?.Invoke(this, new SyncOffsetEventArgs(payload.PlayerId, clampedOffset, payload.Source));
     }
 
     private async Task HandleStreamStartAsync(string json)
