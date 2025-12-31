@@ -29,6 +29,10 @@ public static class MessageTypes
     public const string ServerCommand = "server/command";
     public const string ClientState = "client/state";
     public const string ServerState = "server/state";
+
+    // Sync offset (GroupSync calibration)
+    public const string ClientSyncOffset = "client/sync_offset";
+    public const string ClientSyncOffsetAck = "client/sync_offset_ack";
 }
 
 /// <summary>
