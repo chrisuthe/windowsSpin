@@ -1559,6 +1559,9 @@ public partial class MainViewModel : ViewModelBase
             // Apply notification setting immediately
             _notificationService.IsEnabled = SettingsShowNotifications;
 
+            // Apply logging settings immediately (no restart required)
+            App.Current.ReconfigureLogging(SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging);
+
             // Check if player name changed - requires reconnect to take effect
             var playerNameChanged = _clientCapabilities.ClientName != SettingsPlayerName;
             if (playerNameChanged)

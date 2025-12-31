@@ -731,13 +731,6 @@
                             </Grid>
                         </Border>
 
-                        <!-- Restart Note -->
-                        <TextBlock Text="Note: Logging changes take effect after restart."
-                                   Style="{StaticResource CaptionText}"
-                                   Foreground="{StaticResource WarningBrush}"
-                                   Margin="0,8,0,16"
-                                   TextWrapping="Wrap"/>
-
                         <!-- Diagnostics Section -->
                         <TextBlock Text="DIAGNOSTICS" Style="{StaticResource CaptionText}"
                                    Foreground="{StaticResource TextMutedBrush}"

@@ -1,0 +1,57 @@
+<Window x:Class="SendspinClient.Views.LoggingWarningDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Verbose Logging Enabled"
+        Width="420"
+        Height="200"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="ToolWindow"
+        ResizeMode="NoResize"
+        Background="#1E1E2E">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Warning Icon and Title -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,16">
+            <TextBlock Text="&#x26A0;" FontSize="24" Foreground="#F9E2AF" VerticalAlignment="Center" Margin="0,0,12,0"/>
+            <TextBlock Text="Verbose Logging Detected" FontSize="16" FontWeight="SemiBold" Foreground="#CDD6F4" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Message -->
+        <TextBlock Grid.Row="1"
+                   Text="Logging is enabled at a higher level than normal. This is typically only used for debugging and may impact performance."
+                   TextWrapping="Wrap"
+                   Foreground="#A6ADC8"
+                   FontSize="13"
+                   LineHeight="20"/>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button x:Name="LeaveButton"
+                    Content="Leave It"
+                    Click="LeaveButton_Click"
+                    Width="100"
+                    Padding="12,8"
+                    Margin="0,0,12,0"
+                    Background="Transparent"
+                    Foreground="#A6ADC8"
+                    BorderBrush="#45475A"
+                    BorderThickness="1"
+                    Cursor="Hand"/>
+            <Button x:Name="DisableButton"
+                    Content="Disable Logging"
+                    Click="DisableButton_Click"
+                    Width="120"
+                    Padding="12,8"
+                    Background="#89B4FA"
+                    Foreground="#1E1E2E"
+                    BorderThickness="0"
+                    Cursor="Hand"
+                    FontWeight="Medium"/>
+        </StackPanel>
+    </Grid>
+</Window>

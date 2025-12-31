@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using SendspinClient.Configuration;
+using SendspinClient.Views;
 using Sendspin.SDK.Audio;
 using Sendspin.SDK.Client;
 using Sendspin.SDK.Discovery;
@@ -28,6 +29,7 @@ public partial class App : Application
     private IConfiguration? _configuration;
     private MainViewModel? _mainViewModel;
     private TaskbarIcon? _trayIcon;
+    private LoggingSettings _currentLoggingSettings = new();
 
     /// <summary>
     /// Gets the current application instance.
@@ -56,6 +58,9 @@ public partial class App : Application
 
         // Configure Serilog from settings
         ConfigureSerilog(_configuration);
+
+        // Check for verbose logging and show warning if needed
+        CheckVerboseLoggingOnStartup();
 
         // Configure services
         var services = new ServiceCollection();
@@ -250,10 +255,13 @@ public partial class App : Application
         services.AddTransient<MainViewModel>();
     }
 
-    private static void ConfigureSerilog(IConfiguration configuration)
+    private void ConfigureSerilog(IConfiguration configuration)
     {
         var settings = new LoggingSettings();
         configuration.GetSection(LoggingSettings.SectionName).Bind(settings);
+
+        // Store current settings for later use
+        _currentLoggingSettings = settings;
 
         // Parse log level from configuration
         var logLevel = settings.LogLevel?.ToLowerInvariant() switch
@@ -303,6 +311,140 @@ public partial class App : Application
             settings.LogLevel,
             settings.EnableFileLogging,
             settings.EnableFileLogging ? settings.GetEffectiveLogDirectory() : "N/A");
+    }
+
+    /// <summary>
+    /// Checks if verbose logging is enabled on startup and shows a warning dialog.
+    /// </summary>
+    private void CheckVerboseLoggingOnStartup()
+    {
+        if (!IsVerboseLoggingEnabled())
+            return;
+
+        var dialog = new LoggingWarningDialog();
+        var result = dialog.ShowDialog();
+
+        if (result == true && dialog.DisableLogging)
+        {
+            // Disable logging immediately
+            ReconfigureLogging("Warning", enableFileLogging: false, enableConsoleLogging: false);
+
+            // Also save the settings so they persist
+            _ = SaveLoggingSettingsAsync("Warning", enableFileLogging: false, enableConsoleLogging: false);
+        }
+    }
+
+    /// <summary>
+    /// Checks if logging is configured at a verbose level (more verbose than Warning)
+    /// and either file or console logging is enabled.
+    /// </summary>
+    private bool IsVerboseLoggingEnabled()
+    {
+        var logLevel = _currentLoggingSettings.LogLevel?.ToLowerInvariant() ?? "information";
+        var isVerbose = logLevel is "verbose" or "trace" or "debug" or "information" or "info";
+        var hasOutput = _currentLoggingSettings.EnableFileLogging || _currentLoggingSettings.EnableConsoleLogging;
+
+        return isVerbose && hasOutput;
+    }
+
+    /// <summary>
+    /// Reconfigures Serilog at runtime with new settings.
+    /// This allows logging changes to take effect without restarting the app.
+    /// </summary>
+    /// <param name="logLevel">The new log level (Verbose, Debug, Information, Warning, Error, Fatal)</param>
+    /// <param name="enableFileLogging">Whether to enable file logging</param>
+    /// <param name="enableConsoleLogging">Whether to enable console logging</param>
+    public void ReconfigureLogging(string logLevel, bool enableFileLogging, bool enableConsoleLogging)
+    {
+        // Update current settings
+        _currentLoggingSettings.LogLevel = logLevel;
+        _currentLoggingSettings.EnableFileLogging = enableFileLogging;
+        _currentLoggingSettings.EnableConsoleLogging = enableConsoleLogging;
+
+        // Parse log level
+        var level = logLevel?.ToLowerInvariant() switch
+        {
+            "verbose" or "trace" => LogEventLevel.Verbose,
+            "debug" => LogEventLevel.Debug,
+            "information" or "info" => LogEventLevel.Information,
+            "warning" or "warn" => LogEventLevel.Warning,
+            "error" => LogEventLevel.Error,
+            "fatal" or "critical" => LogEventLevel.Fatal,
+            _ => LogEventLevel.Information
+        };
+
+        var logConfig = new LoggerConfiguration()
+            .MinimumLevel.Is(level)
+            .Enrich.FromLogContext();
+
+        // Always add debug output for development
+        logConfig.WriteTo.Debug(outputTemplate: _currentLoggingSettings.OutputTemplate);
+
+        // Console logging
+        if (enableConsoleLogging)
+        {
+            logConfig.WriteTo.Console(outputTemplate: _currentLoggingSettings.OutputTemplate);
+        }
+
+        // File logging with rotation
+        if (enableFileLogging)
+        {
+            var logDirectory = _currentLoggingSettings.GetEffectiveLogDirectory();
+            Directory.CreateDirectory(logDirectory);
+
+            var logFilePath = Path.Combine(logDirectory, "windowsspin-.log");
+
+            logConfig.WriteTo.File(
+                path: logFilePath,
+                rollingInterval: RollingInterval.Day,
+                fileSizeLimitBytes: _currentLoggingSettings.MaxFileSizeMB * 1024 * 1024,
+                retainedFileCountLimit: _currentLoggingSettings.RetainedFileCount,
+                rollOnFileSizeLimit: true,
+                outputTemplate: _currentLoggingSettings.OutputTemplate,
+                shared: true);
+        }
+
+        // Replace the global logger
+        Log.Logger = logConfig.CreateLogger();
+        Log.Information("Logging reconfigured. Level: {LogLevel}, File: {FileLogging}, Console: {ConsoleLogging}",
+            logLevel, enableFileLogging, enableConsoleLogging);
+    }
+
+    /// <summary>
+    /// Saves logging settings to the user's appsettings.json file.
+    /// </summary>
+    private static async Task SaveLoggingSettingsAsync(string logLevel, bool enableFileLogging, bool enableConsoleLogging)
+    {
+        try
+        {
+            AppPaths.EnsureUserDataDirectoryExists();
+            var appSettingsPath = AppPaths.UserSettingsPath;
+
+            System.Text.Json.Nodes.JsonNode? root;
+            if (File.Exists(appSettingsPath))
+            {
+                var json = await File.ReadAllTextAsync(appSettingsPath);
+                root = System.Text.Json.Nodes.JsonNode.Parse(json) ?? new System.Text.Json.Nodes.JsonObject();
+            }
+            else
+            {
+                root = new System.Text.Json.Nodes.JsonObject();
+            }
+
+            var loggingSection = root["Logging"]?.AsObject() ?? new System.Text.Json.Nodes.JsonObject();
+            loggingSection["LogLevel"] = logLevel;
+            loggingSection["EnableFileLogging"] = enableFileLogging;
+            loggingSection["EnableConsoleLogging"] = enableConsoleLogging;
+            root["Logging"] = loggingSection;
+
+            var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
+            var updatedJson = root.ToJsonString(options);
+            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+        }
+        catch
+        {
+            // Ignore errors - settings won't persist but logging is already disabled
+        }
     }
 
     protected override async void OnExit(ExitEventArgs e)

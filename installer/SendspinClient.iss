@@ -87,8 +87,61 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
 
-#if !IsSelfContained
 [Code]
+// Disable verbose logging in user settings on install/upgrade
+// This ensures logging is off by default and when upgrading from older versions
+// Uses PowerShell to properly handle JSON merging
+procedure DisableLoggingInUserSettings();
+var
+  ResultCode: Integer;
+  PowerShellScript: String;
+begin
+  // PowerShell script to update or create user settings with logging disabled
+  // This properly merges with existing settings, preserving other user preferences
+  PowerShellScript :=
+    '$settingsDir = "$env:LOCALAPPDATA\WindowsSpin"; ' +
+    '$settingsPath = "$settingsDir\appsettings.json"; ' +
+    'if (-not (Test-Path $settingsDir)) { New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null }; ' +
+    'if (Test-Path $settingsPath) { ' +
+    '  $json = Get-Content $settingsPath -Raw | ConvertFrom-Json; ' +
+    '} else { ' +
+    '  $json = [PSCustomObject]@{}; ' +
+    '}; ' +
+    'if (-not $json.Logging) { ' +
+    '  $json | Add-Member -NotePropertyName "Logging" -NotePropertyValue ([PSCustomObject]@{}) -Force; ' +
+    '}; ' +
+    '$json.Logging | Add-Member -NotePropertyName "LogLevel" -NotePropertyValue "Warning" -Force; ' +
+    '$json.Logging | Add-Member -NotePropertyName "EnableFileLogging" -NotePropertyValue $false -Force; ' +
+    '$json.Logging | Add-Member -NotePropertyName "EnableConsoleLogging" -NotePropertyValue $false -Force; ' +
+    '$json | ConvertTo-Json -Depth 10 | Set-Content $settingsPath -Encoding UTF8';
+
+  Log('Disabling logging in user settings via PowerShell');
+
+  if not Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -Command "' + PowerShellScript + '"',
+              '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    Log('Failed to execute PowerShell script');
+  end
+  else if ResultCode <> 0 then
+  begin
+    Log('PowerShell script returned error code: ' + IntToStr(ResultCode));
+  end
+  else
+  begin
+    Log('User settings updated - logging disabled');
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+  begin
+    // Disable logging after files are installed
+    DisableLoggingInUserSettings();
+  end;
+end;
+
+#if !IsSelfContained
 // Check if .NET 10.0 Desktop Runtime is installed (only for framework-dependent builds)
 function IsDotNet10DesktopInstalled(): Boolean;
 var
