@@ -2,12 +2,19 @@ name: CI
 
 on:
   push:
-    branches: [master, main]
+    # Run on all pushes except tags (tags use release.yml)
+    tags-ignore:
+      - 'v*.*.*'
   pull_request:
     branches: [master, main]
 
+permissions:
+  contents: write  # Required for creating prereleases
+  id-token: write  # Required for Azure OIDC authentication
+
 env:
   DOTNET_VERSION: '10.0.x'
+  PROJECT_PATH: 'src/SendspinClient/SendspinClient.csproj'
 
 jobs:
   build:
@@ -28,6 +35,148 @@ jobs:
       - name: Build
         run: dotnet build -c Release --no-restore
 
-      - name: Publish (verify publishable)
+  # Dev builds - create signed installers for every push
+  dev-build:
+    runs-on: windows-latest
+    # Only run on direct pushes, not on PRs (PRs from forks don't have access to secrets)
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Generate dev version
+        id: version
         run: |
-          dotnet publish src/SendspinClient/SendspinClient.csproj -c Release -r win-x64 --self-contained false -o publish/win-x64
+          $shortSha = "${{ github.sha }}".Substring(0, 7)
+          $version = "0.0.0-dev.$shortSha"
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "SHORT_SHA=$shortSha" >> $env:GITHUB_OUTPUT
+          echo "Dev version: $version"
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.PROJECT_PATH }}
+
+      - name: Build Release
+        run: dotnet build ${{ env.PROJECT_PATH }} -c Release --no-restore -p:Version=${{ steps.version.outputs.VERSION }}
+
+      - name: Publish win-x64 (framework-dependent)
+        run: |
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained false -p:Version=${{ steps.version.outputs.VERSION }} -o src/SendspinClient/bin/publish/win-x64-framework
+
+      - name: Publish win-x64 (self-contained)
+        run: |
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:Version=${{ steps.version.outputs.VERSION }} -o src/SendspinClient/bin/publish/win-x64-selfcontained
+
+      # Sign the main application EXEs before creating installers
+      - name: Sign Application EXEs (framework-dependent)
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          files-folder: src/SendspinClient/bin/publish/win-x64-framework
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Sign Application EXEs (self-contained)
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          files-folder: src/SendspinClient/bin/publish/win-x64-selfcontained
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Create dist directory
+        run: New-Item -ItemType Directory -Force -Path dist
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Build Installer (framework-dependent)
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} /DBuildType=framework installer/SendspinClient.iss
+
+      - name: Build Installer (self-contained)
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} /DBuildType=selfcontained installer/SendspinClient.iss
+          # List output to verify
+          Get-ChildItem -Path dist -Recurse
+
+      # Sign the installer EXEs
+      - name: Sign Installer EXEs
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          files-folder: dist
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Create portable ZIPs
+        run: |
+          Compress-Archive -Path src/SendspinClient/bin/publish/win-x64-framework/* -DestinationPath dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+          Compress-Archive -Path src/SendspinClient/bin/publish/win-x64-selfcontained/* -DestinationPath dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-selfcontained-win-x64.zip
+
+      # Clean up old dev prereleases (keep last 5)
+      - name: Clean up old dev prereleases
+        uses: dev-drprasad/delete-older-releases@v0.3.4
+        with:
+          keep_latest: 5
+          delete_tag_pattern: v0.0.0-dev
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Dev Prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          name: Dev Build ${{ steps.version.outputs.SHORT_SHA }}
+          body: |
+            ⚠️ **Development Build** - Not for production use
+
+            This is an automated development build from commit [`${{ steps.version.outputs.SHORT_SHA }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }}).
+
+            **Changes in this build:**
+            ${{ github.event.head_commit.message }}
+
+            ---
+            📦 **Downloads:**
+            - `WindowsSpin-...-Setup.exe` - Requires [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
+            - `WindowsSpin-...-Setup-SelfContained.exe` - Standalone (no .NET required)
+            - Portable ZIPs also available
+
+            🔐 All executables are code-signed.
+          draft: false
+          prerelease: true
+          files: |
+            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-Setup.exe
+            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-Setup-SelfContained.exe
+            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-selfcontained-win-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
