@@ -592,8 +592,9 @@ public sealed class SendspinClientService : ISendspinClient
                 Album = meta.Album ?? existing.Album,
                 ArtworkUrl = meta.ArtworkUrl ?? existing.ArtworkUrl,
                 ArtworkUri = existing.ArtworkUri,
-                Duration = meta.Progress?.TrackDuration ?? existing.Duration,
-                Position = meta.Progress?.TrackProgress ?? existing.Position
+                // Server sends milliseconds, TrackMetadata uses seconds
+                Duration = meta.Progress?.TrackDuration / 1000.0 ?? existing.Duration,
+                Position = meta.Progress?.TrackProgress / 1000.0 ?? existing.Position
             };
 
             // Update shuffle/repeat from metadata
