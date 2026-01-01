@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Configuration;
@@ -58,6 +59,23 @@ public partial class MainViewModel : ViewModelBase
     /// Uses a combination of title and artist since URI is not always available.
     /// </summary>
     private string? _previousTrackId;
+
+    /// <summary>
+    /// Timer for smooth position interpolation between server updates.
+    /// </summary>
+    private readonly DispatcherTimer _positionTimer;
+
+    /// <summary>
+    /// The last position value received from the server.
+    /// Used as anchor point for local interpolation.
+    /// </summary>
+    private double _lastServerPosition;
+
+    /// <summary>
+    /// Timestamp when we received the last server position update.
+    /// Used to calculate elapsed time for interpolation.
+    /// </summary>
+    private DateTime _lastServerPositionUpdate = DateTime.MinValue;
 
     /// <summary>
     /// Gets the application version string for display in the UI.
@@ -282,6 +300,35 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     public bool IsPlaying => PlaybackState == PlaybackState.Playing;
 
+    /// <summary>
+    /// Gets the current position formatted as a time string (e.g., "3:45" or "1:23:45").
+    /// </summary>
+    public string PositionFormatted => FormatTime(Position);
+
+    /// <summary>
+    /// Gets the total duration formatted as a time string (e.g., "3:45" or "1:23:45").
+    /// </summary>
+    public string DurationFormatted => FormatTime(Duration);
+
+    /// <summary>
+    /// Gets the progress percentage (0-100) for progress bar display.
+    /// </summary>
+    public double ProgressPercent => Duration > 0 ? (Position / Duration) * 100 : 0;
+
+    /// <summary>
+    /// Formats seconds as a time string (M:SS or H:MM:SS for long tracks).
+    /// </summary>
+    private static string FormatTime(double seconds)
+    {
+        if (seconds < 0 || double.IsNaN(seconds) || double.IsInfinity(seconds))
+            return "0:00";
+
+        var ts = TimeSpan.FromSeconds(seconds);
+        return ts.TotalHours >= 1
+            ? ts.ToString(@"h\:mm\:ss")
+            : ts.ToString(@"m\:ss");
+    }
+
     public MainViewModel(
         ILogger<MainViewModel> logger,
         ILoggerFactory loggerFactory,
@@ -322,6 +369,39 @@ public partial class MainViewModel : ViewModelBase
 
         // Subscribe to audio pipeline events for codec display
         _audioPipeline.StateChanged += OnAudioPipelineStateChanged;
+
+        // Initialize position interpolation timer (250ms interval for smooth progress)
+        _positionTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(250)
+        };
+        _positionTimer.Tick += OnPositionTimerTick;
+        _positionTimer.Start();
+    }
+
+    /// <summary>
+    /// Timer tick handler for smooth position interpolation.
+    /// Calculates current position based on last server update + elapsed time.
+    /// </summary>
+    private void OnPositionTimerTick(object? sender, EventArgs e)
+    {
+        // Only interpolate when playing and we have valid anchor data
+        if (PlaybackState != PlaybackState.Playing ||
+            _lastServerPositionUpdate == DateTime.MinValue ||
+            Duration <= 0)
+        {
+            return;
+        }
+
+        // Calculate interpolated position
+        var elapsed = (DateTime.UtcNow - _lastServerPositionUpdate).TotalSeconds;
+        var interpolatedPosition = _lastServerPosition + elapsed;
+
+        // Clamp to valid range (don't exceed duration)
+        interpolatedPosition = Math.Min(interpolatedPosition, Duration);
+
+        // Update position (this triggers OnPositionChanged which updates UI bindings)
+        Position = interpolatedPosition;
     }
 
     public async Task InitializeAsync()
@@ -649,26 +729,34 @@ public partial class MainViewModel : ViewModelBase
                 IsMuted = group.Muted;
                 CurrentTrack = group.Metadata;
 
-            if (group.Metadata?.Duration.HasValue == true)
-            {
-                Duration = group.Metadata.Duration.Value;
-            }
+                if (group.Metadata?.Duration.HasValue == true)
+                {
+                    Duration = group.Metadata.Duration.Value;
+                }
 
-            if (CurrentTrack != null)
-            {
-                StatusMessage = $"Now Playing: {CurrentTrack.Title ?? "Unknown"}\n" +
-                               $"by {CurrentTrack.Artist ?? "Unknown Artist"}";
-            }
+                // Update position from server and set anchor for interpolation
+                if (group.Metadata?.Position.HasValue == true)
+                {
+                    _lastServerPosition = group.Metadata.Position.Value;
+                    _lastServerPositionUpdate = DateTime.UtcNow;
+                    Position = _lastServerPosition;
+                }
 
-            // Fetch artwork if URL changed
-            var artworkUrl = group.Metadata?.ArtworkUrl;
-            if (!string.IsNullOrEmpty(artworkUrl) && artworkUrl != _lastArtworkUrl)
-            {
-                _lastArtworkUrl = artworkUrl;
-                FetchArtworkAsync(artworkUrl).SafeFireAndForget(_logger);
-            }
+                if (CurrentTrack != null)
+                {
+                    StatusMessage = $"Now Playing: {CurrentTrack.Title ?? "Unknown"}\n" +
+                                   $"by {CurrentTrack.Artist ?? "Unknown Artist"}";
+                }
 
-            _logger.LogDebug("Manual client group state updated: {State}", group.PlaybackState);
+                // Fetch artwork if URL changed
+                var artworkUrl = group.Metadata?.ArtworkUrl;
+                if (!string.IsNullOrEmpty(artworkUrl) && artworkUrl != _lastArtworkUrl)
+                {
+                    _lastArtworkUrl = artworkUrl;
+                    FetchArtworkAsync(artworkUrl).SafeFireAndForget(_logger);
+                }
+
+                _logger.LogDebug("Manual client group state updated: {State}", group.PlaybackState);
             }
             finally
             {
@@ -813,6 +901,14 @@ public partial class MainViewModel : ViewModelBase
                 if (group.Metadata?.Duration.HasValue == true)
                 {
                     Duration = group.Metadata.Duration.Value;
+                }
+
+                // Update position from server and set anchor for interpolation
+                if (group.Metadata?.Position.HasValue == true)
+                {
+                    _lastServerPosition = group.Metadata.Position.Value;
+                    _lastServerPositionUpdate = DateTime.UtcNow;
+                    Position = _lastServerPosition;
                 }
 
                 // Update status with now playing info
@@ -1016,6 +1112,32 @@ public partial class MainViewModel : ViewModelBase
         {
             _discordService.ClearPresence();
         }
+
+        // Reset position interpolation anchor when playback stops
+        if (value != PlaybackState.Playing)
+        {
+            _lastServerPositionUpdate = DateTime.MinValue;
+        }
+    }
+
+    /// <summary>
+    /// Called when the playback position changes.
+    /// Updates computed properties for progress display.
+    /// </summary>
+    partial void OnPositionChanged(double value)
+    {
+        OnPropertyChanged(nameof(PositionFormatted));
+        OnPropertyChanged(nameof(ProgressPercent));
+    }
+
+    /// <summary>
+    /// Called when the track duration changes.
+    /// Updates computed properties for progress display.
+    /// </summary>
+    partial void OnDurationChanged(double value)
+    {
+        OnPropertyChanged(nameof(DurationFormatted));
+        OnPropertyChanged(nameof(ProgressPercent));
     }
 
     /// <summary>
@@ -1053,10 +1175,13 @@ public partial class MainViewModel : ViewModelBase
         }
         else if (value == null)
         {
-            // Track cleared - reset artwork
+            // Track cleared - reset artwork and progress
             AlbumArtwork = null;
             _lastArtworkUrl = null;
             _previousTrackId = null;
+            Position = 0;
+            Duration = 0;
+            _lastServerPositionUpdate = DateTime.MinValue;
 
             // Clear Discord presence when track is cleared
             _discordService.ClearPresence();
@@ -1875,6 +2000,9 @@ public partial class MainViewModel : ViewModelBase
     public async Task ShutdownAsync()
     {
         _logger.LogInformation("Shutting down MainViewModel");
+
+        // Stop position interpolation timer
+        _positionTimer.Stop();
 
         // Cancel any pending volume changes
         _volumeDebouncesCts?.Cancel();
