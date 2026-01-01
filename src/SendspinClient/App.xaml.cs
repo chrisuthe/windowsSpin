@@ -155,7 +155,17 @@ public partial class App : Application
         services.AddSingleton<IClockSynchronizer>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<KalmanClockSynchronizer>>();
-            var clockSync = new KalmanClockSynchronizer(logger);
+
+            // Read Kalman filter configuration (all have sensible defaults)
+            var forgetFactor = _configuration!.GetValue<double>("Audio:ClockSync:ForgetFactor", 1.001);
+            var adaptiveCutoff = _configuration!.GetValue<double>("Audio:ClockSync:AdaptiveCutoff", 0.75);
+            var minSamplesForForgetting = _configuration!.GetValue<int>("Audio:ClockSync:MinSamplesForForgetting", 100);
+
+            var clockSync = new KalmanClockSynchronizer(
+                logger,
+                forgetFactor: forgetFactor,
+                adaptiveCutoff: adaptiveCutoff,
+                minSamplesForForgetting: minSamplesForForgetting);
 
             // Apply static delay from configuration
             var staticDelayMs = _configuration!.GetValue<double>("Audio:StaticDelayMs", 0);
