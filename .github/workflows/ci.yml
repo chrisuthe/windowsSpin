@@ -2,9 +2,7 @@ name: CI
 
 on:
   push:
-    # Run on all pushes except tags (tags use release.yml)
-    tags-ignore:
-      - 'v*.*.*'
+    branches: [master, main]
   pull_request:
     branches: [master, main]
 
@@ -35,11 +33,11 @@ jobs:
       - name: Build
         run: dotnet build -c Release --no-restore
 
-  # Dev builds - create signed installers for every push
+  # Dev builds - create signed installers for every push to branches
   dev-build:
     runs-on: windows-latest
-    # Only run on direct pushes, not on PRs (PRs from forks don't have access to secrets)
-    if: github.event_name == 'push'
+    # Only run on direct branch pushes, not PRs or tags (tags use release.yml)
+    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
 
     steps:
       - name: Checkout code
