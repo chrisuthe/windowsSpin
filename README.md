@@ -197,7 +197,7 @@ Enable detailed logging by setting environment variables:
 set Logging__LogLevel__Default=Debug
 
 # Set specific namespace to Trace
-set Logging__LogLevel__SendspinClient.Core=Trace
+set Logging__LogLevel__Sendspin.SDK=Trace
 ```
 
 Logs include:

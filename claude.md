@@ -1,5 +1,29 @@
 # Sendspin Windows Client - Project Notes
 
+## Project Structure
+
+The solution is organized into three projects:
+
+```
+src/
+├── Sendspin.SDK/              # Cross-platform protocol SDK (NuGet package)
+│   ├── Audio/                 # Audio pipeline, buffer, decoders
+│   ├── Client/                # Main client orchestration
+│   ├── Connection/            # WebSocket connection management
+│   ├── Discovery/             # mDNS server discovery
+│   ├── Protocol/              # Message serialization and types
+│   └── Synchronization/       # Clock sync (Kalman filter)
+├── SendspinClient.Services/   # Windows-specific services
+│   ├── Audio/                 # WASAPI player (NAudio)
+│   ├── Discord/               # Discord Rich Presence
+│   └── Notifications/         # Windows toast notifications
+└── SendspinClient/            # WPF desktop application
+    ├── ViewModels/            # MVVM view models
+    └── Views/                 # XAML views
+```
+
+> **Historical Note**: Prior to v2.0.0, the core protocol implementation was in `SendspinClient.Core`. This was renamed to `Sendspin.SDK` to support NuGet packaging and cross-platform use.
+
 ## Project Purpose
 
 This project is a Windows implementation of the Sendspin protocol, providing a native Windows-based player that can:
@@ -32,9 +56,9 @@ When making changes to sync, audio buffering, or timing logic, ALWAYS refer back
 - Sync correction via frame drop/insert to handle drift
 
 ### Critical Files
-- `TimedAudioBuffer.cs` - Audio buffering with timestamp-based playback
-- `KalmanClockSynchronizer.cs` - Clock offset and drift tracking
-- `AudioPipeline.cs` - Orchestrates decoder, buffer, and player
+- `src/Sendspin.SDK/Audio/TimedAudioBuffer.cs` - Audio buffering with timestamp-based playback
+- `src/Sendspin.SDK/Synchronization/KalmanClockSynchronizer.cs` - Clock offset and drift tracking
+- `src/Sendspin.SDK/Audio/AudioPipeline.cs` - Orchestrates decoder, buffer, and player
 
 ## Known Issues / Areas of Complexity
 
