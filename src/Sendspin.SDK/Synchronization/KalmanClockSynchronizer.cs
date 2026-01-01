@@ -35,6 +35,12 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
     private readonly double _measurementNoise;     // Expected measurement noise (RTT variance)
     private long _staticDelayMicroseconds;         // User-configurable playback delay
 
+    // Adaptive forgetting configuration (from time-filter reference)
+    private readonly double _forgetVarianceFactor; // forgetFactor^2 - covariance scaling factor
+    private readonly double _adaptiveCutoff;       // Threshold multiplier for triggering forgetting
+    private readonly int _minSamplesForForgetting; // Don't adapt until this many samples collected
+    private int _adaptiveForgettingTriggerCount;   // Diagnostic counter
+
     // Convergence tracking
     private const int MinMeasurementsForConvergence = 5;
     private const double MaxOffsetUncertaintyForConvergence = 1000.0; // 1ms uncertainty threshold
@@ -119,16 +125,29 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
     /// <param name="processNoiseOffset">Process noise for offset (default: 100 μs²/s).</param>
     /// <param name="processNoiseDrift">Process noise for drift (default: 1 μs²/s²).</param>
     /// <param name="measurementNoise">Measurement noise variance (default: 10000 μs², ~3ms std dev).</param>
+    /// <param name="forgetFactor">Adaptive forgetting factor (default: 1.0 = disabled, 1.001 = recommended).
+    /// When prediction error exceeds the threshold, covariance is scaled by forgetFactor² to
+    /// "forget" old measurements faster and recover from network disruptions.</param>
+    /// <param name="adaptiveCutoff">Threshold multiplier for triggering adaptive forgetting (default: 0.75).
+    /// Forgetting triggers when prediction error exceeds adaptiveCutoff × sqrt(predicted variance).</param>
+    /// <param name="minSamplesForForgetting">Minimum measurements before adaptive forgetting activates (default: 100).
+    /// Prevents forgetting during initial convergence phase.</param>
     public KalmanClockSynchronizer(
         ILogger<KalmanClockSynchronizer>? logger = null,
         double processNoiseOffset = 100.0,
         double processNoiseDrift = 1.0,
-        double measurementNoise = 10000.0)
+        double measurementNoise = 10000.0,
+        double forgetFactor = 1.0,
+        double adaptiveCutoff = 0.75,
+        int minSamplesForForgetting = 100)
     {
         _logger = logger;
         _processNoiseOffset = processNoiseOffset;
         _processNoiseDrift = processNoiseDrift;
         _measurementNoise = measurementNoise;
+        _forgetVarianceFactor = forgetFactor * forgetFactor; // Square for covariance scaling
+        _adaptiveCutoff = adaptiveCutoff;
+        _minSamplesForForgetting = minSamplesForForgetting;
 
         Reset();
     }
@@ -148,6 +167,7 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
             _lastUpdateTime = 0;
             _measurementCount = 0;
             _driftReliableLogged = false;
+            _adaptiveForgettingTriggerCount = 0;
         }
 
         _logger?.LogDebug("Clock synchronizer reset");
@@ -211,6 +231,33 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
                         + _processNoiseOffset * dt;
             double p01 = _covariance + _driftVariance * dt;
             double p11 = _driftVariance + _processNoiseDrift * dt;
+
+            // ═══════════════════════════════════════════════════════════════════
+            // ADAPTIVE FORGETTING (from time-filter reference implementation)
+            // ═══════════════════════════════════════════════════════════════════
+            // When prediction error is large (network disruption, clock adjustment),
+            // scale covariance to "forget" old measurements faster and recover quickly.
+            if (_measurementCount >= _minSamplesForForgetting && _forgetVarianceFactor > 1.0)
+            {
+                double predictionError = Math.Abs(measuredOffset - predictedOffset);
+                double threshold = _adaptiveCutoff * Math.Sqrt(p00);
+
+                if (predictionError > threshold)
+                {
+                    p00 *= _forgetVarianceFactor;
+                    p01 *= _forgetVarianceFactor;
+                    p11 *= _forgetVarianceFactor;
+                    _adaptiveForgettingTriggerCount++;
+
+                    _logger?.LogWarning(
+                        "⚡ Adaptive forgetting triggered (#{Count}): prediction error {Error:F0}μs > " +
+                        "threshold {Threshold:F0}μs. Scaling covariance by {Factor:F6} for faster recovery.",
+                        _adaptiveForgettingTriggerCount,
+                        predictionError,
+                        threshold,
+                        _forgetVarianceFactor);
+                }
+            }
 
             // ═══════════════════════════════════════════════════════════════════
             // KALMAN FILTER UPDATE STEP
@@ -379,7 +426,8 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
                 DriftUncertaintyMicrosecondsPerSecond = Math.Sqrt(_driftVariance),
                 MeasurementCount = _measurementCount,
                 IsConverged = IsConverged,
-                IsDriftReliable = IsDriftReliable
+                IsDriftReliable = IsDriftReliable,
+                AdaptiveForgettingTriggerCount = _adaptiveForgettingTriggerCount
             };
         }
     }
@@ -466,6 +514,12 @@ public record ClockSyncStatus
     /// Whether drift estimate is reliable enough for compensation.
     /// </summary>
     public bool IsDriftReliable { get; init; }
+
+    /// <summary>
+    /// Number of times adaptive forgetting was triggered due to large prediction errors.
+    /// This indicates recovery from network disruptions or clock adjustments.
+    /// </summary>
+    public int AdaptiveForgettingTriggerCount { get; init; }
 
     /// <summary>
     /// Offset in milliseconds for display.
