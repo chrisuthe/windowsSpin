@@ -9,8 +9,8 @@
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="WindowsSpin"
         Icon="Resources/Icons/sendspinDesktop.ico"
-        Height="630" Width="400"
-        MinHeight="550" MinWidth="350"
+        Height="680" Width="400"
+        MinHeight="600" MinWidth="350"
         ResizeMode="{Binding IsSettingsOpen, Converter={StaticResource BoolToResizeModeConverter}}"
         Background="{StaticResource BackgroundDarkBrush}"
         WindowStyle="SingleBorderWindow">
@@ -430,6 +430,40 @@
                            Opacity="0.6"
                            Margin="0,8,0,0"
                            Visibility="{Binding CurrentCodec, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+                <!-- Progress Bar Section -->
+                <Grid Margin="0,16,0,0" Width="280"
+                      Visibility="{Binding CurrentTrack, Converter={StaticResource NullToVisibilityConverter}}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Elapsed Time -->
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding PositionFormatted}"
+                               Style="{StaticResource CaptionText}"
+                               Opacity="0.8"
+                               VerticalAlignment="Center"/>
+
+                    <!-- Progress Bar -->
+                    <ProgressBar Grid.Column="1"
+                                 Margin="12,0"
+                                 Value="{Binding ProgressPercent, Mode=OneWay}"
+                                 Maximum="100"
+                                 Height="4"
+                                 VerticalAlignment="Center"
+                                 Foreground="{StaticResource AccentBrush}"
+                                 Background="{StaticResource SurfaceLightBrush}"/>
+
+                    <!-- Duration -->
+                    <TextBlock Grid.Column="2"
+                               Text="{Binding DurationFormatted}"
+                               Style="{StaticResource CaptionText}"
+                               Opacity="0.8"
+                               VerticalAlignment="Center"/>
+                </Grid>
             </StackPanel>
         </Border>
 
