@@ -32,7 +32,7 @@ This project adheres to a code of conduct that we expect all contributors to fol
    ```
 3. **Add the upstream repository**:
    ```bash
-   git remote add upstream https://github.com/original-owner/windowsSpin.git
+   git remote add upstream https://github.com/chrisuthe/windowsSpin.git
    ```
 4. **Create a branch** for your changes:
    ```bash
@@ -88,7 +88,8 @@ For development and testing, you need a Music Assistant server with Sendspin sup
 ```
 windowsSpin/
 ├── src/
-│   ├── SendspinClient.Core/          # Core protocol implementation
+│   ├── Sendspin.SDK/                  # Cross-platform protocol SDK (NuGet package)
+│   │   ├── Audio/                     # Audio pipeline, buffer, decoders
 │   │   ├── Client/                    # Client services and capabilities
 │   │   ├── Connection/                # WebSocket connection management
 │   │   ├── Discovery/                 # mDNS discovery and advertisement
@@ -96,12 +97,13 @@ windowsSpin/
 │   │   │   └── Messages/              # Protocol message types
 │   │   ├── Models/                    # Data models
 │   │   └── Synchronization/           # Clock synchronization
-│   ├── SendspinClient.Services/       # Windows audio services
-│   └── SendspinClient/                # WPF application
+│   ├── SendspinClient.Services/       # Windows-specific services (NAudio, notifications)
+│   └── SendspinClient/                # WPF desktop application
 │       ├── ViewModels/                # MVVM view models
+│       ├── Views/                     # XAML views
 │       ├── Resources/                 # UI resources and converters
 │       └── MainWindow.xaml            # Main UI
-├── tests/                             # Unit and integration tests (planned)
+├── docs/                              # Documentation
 ├── .editorconfig                      # Editor configuration
 ├── stylecop.json                      # StyleCop settings
 ├── CodeAnalysis.ruleset               # Analyzer configuration

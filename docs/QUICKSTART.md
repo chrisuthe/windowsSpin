@@ -15,7 +15,7 @@ Get up and running with Sendspin Windows Client development in minutes.
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/windowsSpin.git
+git clone https://github.com/chrisuthe/windowsSpin.git
 cd windowsSpin
 
 # Restore and build
@@ -35,15 +35,17 @@ The application will start and automatically discover Sendspin servers on your n
 
 ```
 src/
-├── SendspinClient.Core/          # Protocol implementation (no UI)
+├── Sendspin.SDK/                 # Cross-platform protocol SDK (NuGet package)
+│   ├── Audio/                    # Audio pipeline, buffer, decoders
 │   ├── Client/                   # Main client logic
 │   ├── Connection/               # WebSocket connections
 │   ├── Discovery/                # mDNS discovery
 │   ├── Protocol/                 # Message types and serialization
 │   └── Synchronization/          # Clock sync (Kalman filter)
-├── SendspinClient.Services/      # Windows audio services
-└── SendspinClient/               # WPF application
-    └── ViewModels/               # MVVM view models
+├── SendspinClient.Services/      # Windows-specific services (NAudio, notifications)
+└── SendspinClient/               # WPF desktop application
+    ├── ViewModels/               # MVVM view models
+    └── Views/                    # XAML views
 ```
 
 ## Common Development Tasks
@@ -55,7 +57,7 @@ src/
 ```csharp
 using System.Text.Json.Serialization;
 
-namespace SendspinClient.Core.Protocol.Messages;
+namespace Sendspin.SDK.Protocol.Messages;
 
 /// <summary>
 /// Description of your new message.
@@ -148,11 +150,11 @@ Set environment variables:
 ```bash
 # PowerShell
 $env:Logging__LogLevel__Default="Debug"
-$env:Logging__LogLevel__SendspinClient.Core="Trace"
+$env:Logging__LogLevel__Sendspin.SDK="Trace"
 
 # Command Prompt
 set Logging__LogLevel__Default=Debug
-set Logging__LogLevel__SendspinClient.Core=Trace
+set Logging__LogLevel__Sendspin.SDK=Trace
 ```
 
 ### Useful Breakpoints
@@ -285,14 +287,14 @@ public async Task<bool> MyMethodAsync(string parameter)
 - [MVVM Toolkit](https://learn.microsoft.com/en-us/dotnet/communitytoolkit/mvvm/)
 
 ### Community
-- [GitHub Issues](https://github.com/yourusername/windowsSpin/issues)
+- [GitHub Issues](https://github.com/chrisuthe/windowsSpin/issues)
 - [Music Assistant Discord](https://discord.gg/musicassistant)
 
 ## Next Steps
 
 1. **Read the Architecture**: Review [ARCHITECTURE.md](ARCHITECTURE.md) for design details
 2. **Browse the Code**: Start with `SendspinClientService.cs` - the main orchestrator
-3. **Pick an Issue**: Check [GitHub Issues](https://github.com/yourusername/windowsSpin/issues) for "good first issue"
+3. **Pick an Issue**: Check [GitHub Issues](https://github.com/chrisuthe/windowsSpin/issues) for "good first issue"
 4. **Join Discussion**: Ask questions in GitHub Discussions or Discord
 
 Happy coding!

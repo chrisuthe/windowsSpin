@@ -47,7 +47,7 @@ When you run WindowsSpin, it automatically discovers Music Assistant servers on 
 1. Go to the [Releases page](https://github.com/chrisuthe/windowsSpin/releases)
 2. Download the portable `.zip` file
 3. Extract to a folder of your choice
-4. Run `WindowsSpin.exe`
+4. Run `SendspinClient.exe`
 
 ## Getting Started
 
