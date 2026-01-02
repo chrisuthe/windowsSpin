@@ -9,11 +9,12 @@
     <LangVersion>latest</LangVersion>
     <ApplicationIcon>Resources\Icons\sendspinTray.ico</ApplicationIcon>
 
-    <!-- Version info -->
-    <Version>1.0.0</Version>
-    <FileVersion>1.0.0.0</FileVersion>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <InformationalVersion>1.0.0</InformationalVersion>
+    <!-- Version info - set via -p:Version= during CI builds -->
+    <Version>0.6.0</Version>
+    <!-- Derive other version properties from Version so CI override works -->
+    <FileVersion>$(Version).0</FileVersion>
+    <AssemblyVersion>$(Version).0</AssemblyVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
