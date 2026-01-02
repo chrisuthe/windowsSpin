@@ -486,6 +486,57 @@ Enable verbose logging in appsettings.json:
 
 ---
 
+## NuGet Package: Sendspin.SDK
+
+> **Important**: The `src/Sendspin.SDK/` project in this repository is the source for the [Sendspin.SDK NuGet package](https://www.nuget.org/packages/Sendspin.SDK). Changes to this project affect external consumers who depend on the NuGet package.
+
+### When to Publish to NuGet
+
+Publish a new version when SDK changes include:
+- **Bug fixes** that affect SDK consumers (bump patch: 2.1.0 → 2.1.1)
+- **New features** like new protocol messages, events, or public APIs (bump minor: 2.1.0 → 2.2.0)
+- **Breaking changes** to interfaces or behavior (bump major: 2.x → 3.0.0)
+
+Do NOT publish for:
+- Changes only to `SendspinClient` or `SendspinClient.Services` (Windows app only)
+- Internal refactoring that doesn't change public API
+- Documentation-only changes
+
+### Publishing Checklist
+
+1. **Update version** in `src/Sendspin.SDK/Sendspin.SDK.csproj`:
+   ```xml
+   <Version>X.Y.Z</Version>
+   ```
+
+2. **Update release notes** in the same file:
+   ```xml
+   <PackageReleaseNotes>
+   vX.Y.Z:
+   - Description of changes
+   ...
+   </PackageReleaseNotes>
+   ```
+
+3. **Build and pack**:
+   ```bash
+   dotnet pack src/Sendspin.SDK/Sendspin.SDK.csproj -c Release
+   ```
+
+4. **Publish to NuGet**:
+   ```bash
+   dotnet nuget push src/Sendspin.SDK/bin/Release/Sendspin.SDK.X.Y.Z.nupkg --api-key YOUR_KEY --source https://api.nuget.org/v3/index.json
+   ```
+
+### Semantic Versioning
+
+Follow [SemVer](https://semver.org/):
+- **MAJOR** (3.0.0): Breaking changes to public interfaces
+- **MINOR** (2.1.0): New features, backward compatible
+- **PATCH** (2.0.1): Bug fixes, backward compatible
+
+---
+
 ## Code Conventions
 
 ### Naming
