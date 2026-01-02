@@ -189,6 +189,7 @@ public partial class App : Application
         services.AddSingleton<IAudioPipeline>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<AudioPipeline>>();
+            var bufferLogger = sp.GetRequiredService<ILogger<TimedAudioBuffer>>();
             var decoderFactory = sp.GetRequiredService<IAudioDecoderFactory>();
             var clockSync = sp.GetRequiredService<IClockSynchronizer>();
 
@@ -199,7 +200,7 @@ public partial class App : Application
                 // Use 8 second buffer to match Python CLI's unbounded queue approach
                 // Server sends audio ~5 seconds ahead, so we need room to accumulate
                 // without constant overflow. Sync correction handles buffer depth.
-                bufferFactory: (format, sync) => new TimedAudioBuffer(format, sync, bufferCapacityMs: 8000),
+                bufferFactory: (format, sync) => new TimedAudioBuffer(format, sync, bufferCapacityMs: 8000, bufferLogger),
                 playerFactory: () => sp.GetRequiredService<IAudioPlayer>(),
                 sourceFactory: (buffer, timeFunc) => new BufferedAudioSampleSource(buffer, timeFunc));
         });

@@ -21,8 +21,9 @@ namespace SendspinClient.Services.Audio;
 /// hardware configurations and allows other applications to use audio simultaneously.
 /// </para>
 /// <para>
-/// The 50ms latency setting provides a good balance between responsiveness and
-/// stability. Lower values may cause glitches on some hardware.
+/// The 100ms latency setting provides stability across different hardware while
+/// accounting for Windows Audio Engine overhead in shared mode. The actual latency
+/// reported includes both the WASAPI buffer and additional Windows audio stack delays.
 /// </para>
 /// </remarks>
 public sealed class WasapiAudioPlayer : IAudioPlayer
@@ -125,23 +126,25 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                         }
                     }
 
-                    // Create WASAPI output in shared mode with 50ms latency
-                    // Shared mode is more compatible; 50ms balances latency vs stability
+                    // Create WASAPI output in shared mode with 100ms latency
+                    // Shared mode adds Windows Audio Engine overhead (~10-20ms) on top of
+                    // the requested buffer latency, so we use 100ms for stability
+                    const int RequestedLatencyMs = 100;
+
                     if (device != null)
                     {
-                        _wasapiOut = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: false, latency: 50);
+                        _wasapiOut = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: false, latency: RequestedLatencyMs);
                     }
                     else
                     {
-                        _wasapiOut = new WasapiOut(AudioClientShareMode.Shared, latency: 50);
+                        _wasapiOut = new WasapiOut(AudioClientShareMode.Shared, latency: RequestedLatencyMs);
                     }
 
                     _wasapiOut.PlaybackStopped += OnPlaybackStopped;
 
-                    // Capture the output latency - this is the buffer latency we requested
-                    // from WASAPI. The actual end-to-end latency also includes DAC/driver
-                    // delays which vary by hardware and aren't directly queryable.
-                    _outputLatencyMs = 50; // Our requested latency in shared mode
+                    // Query the actual output latency from the audio client
+                    // This includes both the WASAPI buffer and Windows Audio Engine overhead
+                    _outputLatencyMs = GetActualOutputLatency(_wasapiOut, RequestedLatencyMs);
 
                     SetState(AudioPlayerState.Stopped);
                     _logger.LogInformation(
@@ -258,18 +261,20 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                         }
                     }
 
-                    // Create new WASAPI output
+                    // Create new WASAPI output with 100ms latency
+                    const int RequestedLatencyMs = 100;
+
                     if (device != null)
                     {
-                        _wasapiOut = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: false, latency: 50);
+                        _wasapiOut = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: false, latency: RequestedLatencyMs);
                     }
                     else
                     {
-                        _wasapiOut = new WasapiOut(AudioClientShareMode.Shared, latency: 50);
+                        _wasapiOut = new WasapiOut(AudioClientShareMode.Shared, latency: RequestedLatencyMs);
                     }
 
                     _wasapiOut.PlaybackStopped += OnPlaybackStopped;
-                    _outputLatencyMs = 50;
+                    _outputLatencyMs = GetActualOutputLatency(_wasapiOut, RequestedLatencyMs);
 
                     // Re-attach sample provider if we had one
                     if (currentSampleProvider != null)
@@ -334,6 +339,67 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
             // Unexpected stop while playing
             SetState(AudioPlayerState.Stopped);
         }
+    }
+
+    /// <summary>
+    /// Gets the actual output latency from the WASAPI audio client.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// NAudio's WasapiOut doesn't directly expose the StreamLatency property from the
+    /// underlying AudioClient. We use reflection to access it when possible, falling
+    /// back to the requested latency plus a safety margin for Windows Audio Engine overhead.
+    /// </para>
+    /// <para>
+    /// In shared mode, Windows Audio Engine adds additional buffering (~10-20ms) on top
+    /// of the requested latency. The StreamLatency property accounts for this overhead.
+    /// </para>
+    /// </remarks>
+    /// <param name="wasapiOut">The WasapiOut instance to query.</param>
+    /// <param name="requestedLatencyMs">The latency we requested when creating WasapiOut.</param>
+    /// <returns>The actual output latency in milliseconds.</returns>
+    private int GetActualOutputLatency(WasapiOut wasapiOut, int requestedLatencyMs)
+    {
+        try
+        {
+            // Try to get the actual stream latency via reflection
+            // WasapiOut has a private 'audioClient' field of type AudioClient
+            var audioClientField = typeof(WasapiOut).GetField(
+                "audioClient",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            if (audioClientField?.GetValue(wasapiOut) is AudioClient audioClient)
+            {
+                // StreamLatency is in 100-nanosecond units, convert to milliseconds
+                var streamLatency = audioClient.StreamLatency;
+                var latencyMs = (int)(streamLatency / 10000);
+
+                _logger.LogDebug(
+                    "WASAPI StreamLatency: {StreamLatency} (100ns units) = {LatencyMs}ms",
+                    streamLatency,
+                    latencyMs);
+
+                // Ensure we return at least the requested latency
+                return Math.Max(latencyMs, requestedLatencyMs);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to query WASAPI StreamLatency via reflection, using fallback");
+        }
+
+        // Fallback: use requested latency plus typical Windows Audio Engine overhead
+        // In shared mode, Windows adds ~10-20ms of additional buffering
+        const int WindowsAudioEngineOverheadMs = 15;
+        var fallbackLatency = requestedLatencyMs + WindowsAudioEngineOverheadMs;
+
+        _logger.LogDebug(
+            "Using fallback output latency: {Latency}ms (requested: {Requested}ms + overhead: {Overhead}ms)",
+            fallbackLatency,
+            requestedLatencyMs,
+            WindowsAudioEngineOverheadMs);
+
+        return fallbackLatency;
     }
 
     private void SetState(AudioPlayerState newState)
