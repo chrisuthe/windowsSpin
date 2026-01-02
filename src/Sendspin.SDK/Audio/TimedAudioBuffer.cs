@@ -2,6 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Synchronization;
 
@@ -27,8 +29,14 @@ namespace Sendspin.SDK.Audio;
 /// </remarks>
 public sealed class TimedAudioBuffer : ITimedAudioBuffer
 {
+    private readonly ILogger<TimedAudioBuffer> _logger;
     private readonly IClockSynchronizer _clockSync;
     private readonly object _lock = new();
+
+    // Rate limiting for underrun/overrun logging (microseconds)
+    private const long UnderrunLogIntervalMicroseconds = 1_000_000; // Log at most once per second
+    private long _lastUnderrunLogTime;
+    private long _underrunsSinceLastLog;
 
     // Circular buffer for samples
     private float[] _buffer;
@@ -105,7 +113,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     public event EventHandler? ReanchorRequired;
 
     /// <inheritdoc/>
-    public double TargetBufferMilliseconds { get; set; } = 100;
+    public double TargetBufferMilliseconds { get; set; } = 500;
 
     /// <inheritdoc/>
     public double BufferedMilliseconds
@@ -141,11 +149,17 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     /// <param name="format">Audio format for samples.</param>
     /// <param name="clockSync">Clock synchronizer for timestamp conversion.</param>
     /// <param name="bufferCapacityMs">Maximum buffer capacity in milliseconds (default 500ms).</param>
-    public TimedAudioBuffer(AudioFormat format, IClockSynchronizer clockSync, int bufferCapacityMs = 500)
+    /// <param name="logger">Optional logger for diagnostics (uses NullLogger if not provided).</param>
+    public TimedAudioBuffer(
+        AudioFormat format,
+        IClockSynchronizer clockSync,
+        int bufferCapacityMs = 500,
+        ILogger<TimedAudioBuffer>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(format);
         ArgumentNullException.ThrowIfNull(clockSync);
 
+        _logger = logger ?? NullLogger<TimedAudioBuffer>.Instance;
         Format = format;
         _clockSync = clockSync;
         _sampleRate = format.SampleRate;
@@ -183,6 +197,11 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 var toDrop = (_count + samples.Length) - _buffer.Length;
                 DropOldestSamples(toDrop);
                 _overrunCount++;
+                _logger.LogWarning(
+                    "Buffer overrun #{Count}: dropped {DroppedMs:F1}ms of audio to make room (buffer full at {CapacityMs}ms)",
+                    _overrunCount,
+                    toDrop / (double)_samplesPerMs,
+                    _buffer.Length / (double)_samplesPerMs);
             }
 
             // Write samples to circular buffer
@@ -208,6 +227,8 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 if (_playbackStarted)
                 {
                     _underrunCount++;
+                    _underrunsSinceLastLog++;
+                    LogUnderrunIfNeeded(currentLocalTime);
                 }
 
                 buffer.Fill(0f);
@@ -730,6 +751,36 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         }
 
         return (samplesConsumed, outputPos);
+    }
+
+    /// <summary>
+    /// Logs underrun events with rate limiting to prevent log spam.
+    /// Must be called under lock.
+    /// </summary>
+    /// <remarks>
+    /// During severe underruns, this method can be called many times per second
+    /// (once per audio callback, typically every ~10ms). Rate limiting ensures
+    /// we log at most once per second while still capturing the total count.
+    /// </remarks>
+    private void LogUnderrunIfNeeded(long currentLocalTime)
+    {
+        // Check if enough time has passed since last log
+        if (currentLocalTime - _lastUnderrunLogTime < UnderrunLogIntervalMicroseconds)
+        {
+            return;
+        }
+
+        // Log the accumulated underruns
+        _logger.LogWarning(
+            "Buffer underrun: {Count} events in last {IntervalMs}ms (total: {TotalCount}). " +
+            "Buffer empty, outputting silence. Check network/decoding performance.",
+            _underrunsSinceLastLog,
+            (currentLocalTime - _lastUnderrunLogTime) / 1000,
+            _underrunCount);
+
+        // Reset rate limit state
+        _lastUnderrunLogTime = currentLocalTime;
+        _underrunsSinceLastLog = 0;
     }
 
     /// <summary>
