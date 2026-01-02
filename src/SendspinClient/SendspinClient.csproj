@@ -10,10 +10,15 @@
     <ApplicationIcon>Resources\Icons\sendspinTray.ico</ApplicationIcon>
 
     <!-- Version info - set via -p:Version= during CI builds -->
-    <Version>0.6.0</Version>
-    <!-- Derive other version properties from Version so CI override works -->
-    <FileVersion>$(Version).0</FileVersion>
-    <AssemblyVersion>$(Version).0</AssemblyVersion>
+    <Version>0.6.1</Version>
+    <!--
+      AssemblyVersion/FileVersion must be purely numeric (major.minor.build.revision).
+      For prerelease versions like "0.0.0-dev.xxx", we need separate numeric versions.
+      CI should pass -p:AssemblyVersion= and -p:FileVersion= for prerelease builds.
+      Default values here work for normal release builds (e.g., "0.6.0" -> "0.6.0.0").
+    -->
+    <AssemblyVersion Condition="'$(AssemblyVersion)' == ''">$(Version).0</AssemblyVersion>
+    <FileVersion Condition="'$(FileVersion)' == ''">$(Version).0</FileVersion>
     <InformationalVersion>$(Version)</InformationalVersion>
   </PropertyGroup>
 

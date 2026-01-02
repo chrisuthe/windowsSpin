@@ -53,23 +53,26 @@ jobs:
         run: |
           $shortSha = "${{ github.sha }}".Substring(0, 7)
           $version = "0.0.0-dev.$shortSha"
+          # AssemblyVersion and FileVersion must be purely numeric
+          $numericVersion = "0.0.0.0"
           echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "NUMERIC_VERSION=$numericVersion" >> $env:GITHUB_OUTPUT
           echo "SHORT_SHA=$shortSha" >> $env:GITHUB_OUTPUT
-          echo "Dev version: $version"
+          echo "Dev version: $version (numeric: $numericVersion)"
 
       - name: Restore dependencies
         run: dotnet restore ${{ env.PROJECT_PATH }}
 
       - name: Build Release
-        run: dotnet build ${{ env.PROJECT_PATH }} -c Release --no-restore -p:Version=${{ steps.version.outputs.VERSION }}
+        run: dotnet build ${{ env.PROJECT_PATH }} -c Release --no-restore -p:Version=${{ steps.version.outputs.VERSION }} -p:AssemblyVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -p:FileVersion=${{ steps.version.outputs.NUMERIC_VERSION }}
 
       - name: Publish win-x64 (framework-dependent)
         run: |
-          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained false -p:Version=${{ steps.version.outputs.VERSION }} -o src/SendspinClient/bin/publish/win-x64-framework
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained false -p:Version=${{ steps.version.outputs.VERSION }} -p:AssemblyVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -p:FileVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -o src/SendspinClient/bin/publish/win-x64-framework
 
       - name: Publish win-x64 (self-contained)
         run: |
-          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:Version=${{ steps.version.outputs.VERSION }} -o src/SendspinClient/bin/publish/win-x64-selfcontained
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:Version=${{ steps.version.outputs.VERSION }} -p:AssemblyVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -p:FileVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -o src/SendspinClient/bin/publish/win-x64-selfcontained
 
       # Sign the main application EXEs before creating installers
       - name: Sign Application EXEs (framework-dependent)
