@@ -73,6 +73,10 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     // This allows playback to stabilize before we start measuring drift
     private const long StartupGracePeriodMicroseconds = 500_000; // 500ms
 
+    // Scheduled start grace window: start playback when we're within this time of target
+    // This prevents starting slightly late due to audio callback timing granularity
+    private const long ScheduledStartGraceWindowMicroseconds = 10_000; // 10ms
+
     // Sync correction state
     private int _dropEveryNFrames;        // Drop a frame every N frames (when playing too slow)
     private int _insertEveryNFrames;      // Insert a frame every N frames (when playing too fast)
@@ -90,11 +94,17 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     private long _totalWritten;
     private long _totalRead;
 
+    // Scheduled start: when playback should begin (supports static delay feature)
+    // The first segment's LocalPlaybackTime includes any static delay from IClockSynchronizer.
+    // We wait until this time arrives before outputting audio.
+    private long _scheduledStartLocalTime;      // Target local time when playback should start (μs)
+    private bool _waitingForScheduledStart;     // True while waiting for scheduled start time
+
     // Sync error tracking (CLI-style: track samples READ, not samples OUTPUT)
     // Key insight: We must track samples READ from buffer, not samples OUTPUT.
     // When dropping, we read MORE than we output → samplesReadTime advances → error shrinks.
     // When inserting, we read NOTHING → samplesReadTime stays → error grows toward 0.
-    private long _playbackStartLocalTime;       // Local time when playback started (μs)
+    private long _playbackStartLocalTime;       // Local time when playback actually started (μs)
     private long _lastElapsedMicroseconds;      // Last calculated elapsed time (for stats)
     private long _currentSyncErrorMicroseconds; // Positive = behind (need DROP), Negative = ahead (need INSERT)
     private long _samplesReadSinceStart;        // Total samples READ (consumed) since playback started
@@ -235,21 +245,43 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 return 0;
             }
 
-            // Start playback immediately when we have audio - don't wait for timestamps!
-            // Python CLI approach: start when buffer is ready, let sync correction handle timing.
-            // Waiting for timestamps would cause 2-5 second delays since server sends audio ahead.
-            // The sync correction (drop/insert frames) will handle any drift over time.
+            // Scheduled start logic: wait for the target playback time before starting
+            // This enables the StaticDelayMs feature to work correctly.
+            //
+            // The first segment's LocalPlaybackTime includes any static delay from
+            // IClockSynchronizer.ServerToClientTime(). By waiting for this time to arrive,
+            // positive static delay causes us to start later (as intended).
+            //
+            // Without this, we'd start immediately and the static delay would only affect
+            // sync error calculation, which can't handle large offsets (exceeds re-anchor threshold).
             if (_segments.Count > 0 && !_playbackStarted)
             {
                 var firstSegment = _segments.Peek();
 
+                // First time seeing audio: capture the scheduled start time
+                if (!_waitingForScheduledStart)
+                {
+                    _scheduledStartLocalTime = firstSegment.LocalPlaybackTime;
+                    _waitingForScheduledStart = true;
+                    _nextExpectedPlaybackTime = firstSegment.LocalPlaybackTime;
+                }
+
+                // Check if we've reached the scheduled start time (with grace window)
+                var timeUntilStart = _scheduledStartLocalTime - currentLocalTime;
+                if (timeUntilStart > ScheduledStartGraceWindowMicroseconds)
+                {
+                    // Not ready yet - output silence and wait
+                    buffer.Fill(0f);
+                    return 0;
+                }
+
+                // Scheduled time arrived - start playback!
                 _playbackStarted = true;
-                _nextExpectedPlaybackTime = firstSegment.LocalPlaybackTime;
+                _waitingForScheduledStart = false;
 
                 // Initialize sync error tracking (CLI-style: track samples READ)
-                // Use the ACTUAL start time (now), not the intended playback time.
-                // The first chunk's LocalPlaybackTime may be seconds in the FUTURE
-                // (server sends audio ~5s ahead) - that's normal buffer, not sync error!
+                // Use the ACTUAL start time (now), not the scheduled time.
+                // This establishes a clean baseline for sync error calculation.
                 //
                 // sync_error = elapsedWallClock - samplesReadTime
                 //   Positive = wall clock ahead = playing too slow = DROP to catch up
@@ -346,6 +378,10 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             _playbackStarted = false;
             _nextExpectedPlaybackTime = 0;
 
+            // Reset scheduled start state
+            _scheduledStartLocalTime = 0;
+            _waitingForScheduledStart = false;
+
             // Reset sync error tracking (CLI-style: reset EVERYTHING on clear)
             // This matches Python CLI's clear() behavior for track changes
             _playbackStartLocalTime = 0;
@@ -381,6 +417,10 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             // Signal that playback needs to re-establish its timing anchor
             // on the next Read() call, but keep buffered audio
             _playbackStarted = false;
+
+            // Reset scheduled start state (will re-capture from next segment)
+            _scheduledStartLocalTime = 0;
+            _waitingForScheduledStart = false;
 
             // Reset sync error tracking
             _playbackStartLocalTime = 0;
