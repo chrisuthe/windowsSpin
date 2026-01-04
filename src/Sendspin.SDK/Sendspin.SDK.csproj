@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>2.2.1</Version>
+    <Version>3.0.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,22 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v3.0.0 - Breaking Changes:
+- BREAKING: IClockSynchronizer interface now requires HasMinimalSync property
+  - Returns true after 2+ time sync measurements (vs IsConverged which requires 5+)
+  - Existing implementations must add this property
+
+New Features:
+- Quick-start playback: reduced time-to-playback from ~5 seconds to ~300-500ms
+  - AudioPipeline now uses HasMinimalSync instead of IsConverged for playback gating
+  - Matches JS/CLI player behavior for faster startup
+  - Sync correction system handles any initial estimation errors
+- Default convergence timeout reduced from 5000ms to 1000ms
+
+Migration Guide:
+- If you implement IClockSynchronizer, add: bool HasMinimalSync => MeasurementCount >= 2;
+- If you only use KalmanClockSynchronizer (most users), no changes needed
+
 v2.2.1:
 Bug Fixes:
 - CRITICAL: Fixed sync error calculation that prevented resampling correction from converging
