@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>3.0.1</Version>
+    <Version>3.0.2</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,13 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v3.0.2:
+Documentation:
+- Completely rewritten README with updated architecture diagram
+- Added sync correction tier table explaining hysteresis behavior
+- Updated Quick Start example with device info configuration
+- Added migration guides for v2.0 and v3.0 upgrades
+
 v3.0.1:
 New Features:
 - Configurable device info: ClientCapabilities now exposes ProductName, Manufacturer, and SoftwareVersion
