@@ -41,6 +41,26 @@ public interface ITimedAudioBuffer : IDisposable
     long OutputLatencyMicroseconds { get; set; }
 
     /// <summary>
+    /// Gets the target playback rate for smooth sync correction via resampling.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Values: 1.0 = normal speed, &gt;1.0 = speed up (behind), &lt;1.0 = slow down (ahead).
+    /// </para>
+    /// <para>
+    /// Range is typically 0.96-1.04 (±4%), but most corrections use 0.98-1.02 (±2%).
+    /// This is imperceptible to human ears unlike discrete sample dropping.
+    /// </para>
+    /// </remarks>
+    double TargetPlaybackRate { get; }
+
+    /// <summary>
+    /// Event raised when target playback rate changes.
+    /// Subscribers should update their resampler ratio accordingly.
+    /// </summary>
+    event Action<double>? TargetPlaybackRateChanged;
+
+    /// <summary>
     /// Adds decoded audio samples with their target playback timestamp.
     /// Called from decoder thread.
     /// </summary>
@@ -146,6 +166,15 @@ public record AudioBufferStats
     public SyncCorrectionMode CurrentCorrectionMode { get; init; }
 
     /// <summary>
+    /// Gets the target playback rate for resampling-based sync correction.
+    /// </summary>
+    /// <remarks>
+    /// 1.0 = normal, &gt;1.0 = speed up, &lt;1.0 = slow down.
+    /// Only meaningful when <see cref="CurrentCorrectionMode"/> is <see cref="SyncCorrectionMode.Resampling"/>.
+    /// </remarks>
+    public double TargetPlaybackRate { get; init; } = 1.0;
+
+    /// <summary>
     /// Gets the total samples read since playback started (for sync debugging).
     /// </summary>
     public long SamplesReadSinceStart { get; init; }
@@ -172,12 +201,20 @@ public enum SyncCorrectionMode
     None,
 
     /// <summary>
+    /// Using playback rate adjustment via resampling (smooth, imperceptible correction).
+    /// This is the preferred mode for small errors (2-15ms).
+    /// </summary>
+    Resampling,
+
+    /// <summary>
     /// Dropping samples to catch up (playing too slow).
+    /// Used for larger errors (&gt;15ms) that need faster correction.
     /// </summary>
     Dropping,
 
     /// <summary>
     /// Inserting samples to slow down (playing too fast).
+    /// Used for larger errors (&gt;15ms) that need faster correction.
     /// </summary>
     Inserting,
 }

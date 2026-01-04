@@ -29,9 +29,11 @@ namespace SendspinClient.Services.Audio;
 public sealed class WasapiAudioPlayer : IAudioPlayer
 {
     private readonly ILogger<WasapiAudioPlayer> _logger;
+    private readonly bool _useResampling;
     private string? _deviceId;
     private WasapiOut? _wasapiOut;
     private AudioSampleProviderAdapter? _sampleProvider;
+    private DynamicResamplerSampleProvider? _resampler;
     private AudioFormat? _format;
     private float _volume = 1.0f;
     private bool _isMuted;
@@ -93,10 +95,15 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// Optional device ID for a specific audio output device.
     /// If null or empty, the system default device is used.
     /// </param>
-    public WasapiAudioPlayer(ILogger<WasapiAudioPlayer> logger, string? deviceId = null)
+    /// <param name="useResampling">
+    /// Whether to use dynamic resampling for smooth sync correction.
+    /// When enabled, playback rate is adjusted based on the buffer's TargetPlaybackRate.
+    /// </param>
+    public WasapiAudioPlayer(ILogger<WasapiAudioPlayer> logger, string? deviceId = null, bool useResampling = true)
     {
         _logger = logger;
         _deviceId = deviceId;
+        _useResampling = useResampling;
     }
 
     /// <inheritdoc/>
@@ -175,15 +182,35 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
         ArgumentNullException.ThrowIfNull(source);
 
+        // Dispose previous resampler if any
+        _resampler?.Dispose();
+        _resampler = null;
+
         // Create NAudio adapter with current volume/mute state
         _sampleProvider = new AudioSampleProviderAdapter(source, _format);
         _sampleProvider.Volume = _volume;
         _sampleProvider.IsMuted = _isMuted;
 
-        // Initialize WASAPI with our provider
-        _wasapiOut.Init(_sampleProvider);
+        // Try to get buffer from source for resampler (if source is BufferedAudioSampleSource)
+        ITimedAudioBuffer? buffer = null;
+        if (source is BufferedAudioSampleSource bufferedSource)
+        {
+            buffer = bufferedSource.Buffer;
+        }
 
-        _logger.LogDebug("Sample source configured");
+        // Optionally wrap with resampler for smooth sync correction
+        if (_useResampling && buffer != null)
+        {
+            _resampler = new DynamicResamplerSampleProvider(_sampleProvider, buffer);
+            _wasapiOut.Init(_resampler);
+            _logger.LogDebug("Sample source configured with dynamic resampling for sync correction");
+        }
+        else
+        {
+            _wasapiOut.Init(_sampleProvider);
+            _logger.LogDebug("Sample source configured{Reason}",
+                _useResampling ? " (no buffer available for resampling)" : " (resampling disabled)");
+        }
     }
 
     /// <inheritdoc/>
@@ -277,7 +304,13 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                     _outputLatencyMs = GetActualOutputLatency(_wasapiOut, RequestedLatencyMs);
 
                     // Re-attach sample provider if we had one
-                    if (currentSampleProvider != null)
+                    // Use resampler if it was configured, otherwise just the sample provider
+                    if (_resampler != null)
+                    {
+                        _wasapiOut.Init(_resampler);
+                        _logger.LogDebug("Sample source re-attached to new device (with resampling)");
+                    }
+                    else if (currentSampleProvider != null)
                     {
                         _wasapiOut.Init(currentSampleProvider);
                         _logger.LogDebug("Sample source re-attached to new device");
@@ -320,6 +353,8 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
             _wasapiOut = null;
         }
 
+        _resampler?.Dispose();
+        _resampler = null;
         _sampleProvider = null;
         SetState(AudioPlayerState.Uninitialized);
 

@@ -166,7 +166,21 @@ The buffer handles:
 1. Storing PCM samples with server timestamps
 2. Converting timestamps to local playback time
 3. Tracking sync error (drift between expected and actual playback)
-4. Applying sync correction (drop/insert samples)
+4. Applying tiered sync correction (resampling for small errors, drop/insert for larger)
+
+**Tiered Sync Correction Strategy** (matching JS client):
+| Sync Error | Correction Method | Notes |
+|------------|-------------------|-------|
+| < 2ms | None (deadband) | Imperceptible error, no action needed |
+| 2-15ms | Playback rate adjustment (0.96x-1.04x) | Smooth, inaudible via `TargetPlaybackRate` |
+| 15-500ms | Frame drop/insert | Faster correction for larger drift |
+| > 500ms | Re-anchor | Clear buffer and restart sync |
+
+**Resampling Sync Correction** (v2.2.0+):
+- `ITimedAudioBuffer.TargetPlaybackRate` exposes the desired rate (1.0 = normal)
+- `TargetPlaybackRateChanged` event notifies when rate changes
+- Windows app uses `DynamicResamplerSampleProvider` (NAudio's WdlResampler) to apply rate
+- Human pitch perception threshold is ~±3%, we use up to ±4% for inaudible corrections
 
 **Sync Error Calculation**:
 ```csharp
@@ -175,16 +189,41 @@ The buffer handles:
 // When INSERTING: read 0, output 1 → samplesRead += 0
 
 syncError = elapsedTime - samplesReadTime - outputLatency
-// Positive = behind (need DROP)
-// Negative = ahead (need INSERT)
+// Positive = behind (need DROP or speed up)
+// Negative = ahead (need INSERT or slow down)
 ```
 
 **Critical Constants** (matching CLI):
 ```csharp
-CorrectionDeadbandMicroseconds = 2_000;      // 2ms - ignore smaller errors
-ReanchorThresholdMicroseconds = 500_000;     // 500ms - clear buffer and restart
+CorrectionDeadbandMicroseconds = 2_000;       // 2ms - ignore smaller errors
+ResamplingThresholdMicroseconds = 15_000;     // 15ms - resampling vs drop/insert boundary
+ReanchorThresholdMicroseconds = 500_000;      // 500ms - clear buffer and restart
 MaxSpeedCorrection = 0.04;                    // 4% max correction rate
 CorrectionTargetSeconds = 2.0;                // Time to correct error
+```
+
+### Clock Sync Gating
+
+**Key file**: `src/Sendspin.SDK/Audio/AudioPipeline.cs`
+
+The pipeline waits for `IClockSynchronizer.IsConverged` before starting playback. This ensures the Kalman filter has enough measurements to provide accurate timestamp conversion.
+
+```csharp
+// AudioPipeline constructor parameters
+waitForConvergence: true,     // Enable/disable gating (default: true)
+convergenceTimeoutMs: 5000    // Max wait time before proceeding anyway
+```
+
+Configuration via `appsettings.json`:
+```json
+{
+  "Audio": {
+    "ClockSync": {
+      "WaitForConvergence": true,
+      "ConvergenceTimeoutMs": 5000
+    }
+  }
+}
 ```
 
 ### High-Precision Timer
@@ -252,7 +291,21 @@ Settings are stored in two locations:
   "Audio": {
     "StaticDelayMs": 200,
     "DeviceId": null,
-    "ClockSync": { ... }
+    "Buffer": {
+      "TargetMs": 250,
+      "CapacityMs": 8000
+    },
+    "ClockSync": {
+      "ForgetFactor": 1.001,
+      "AdaptiveCutoff": 0.75,
+      "MinSamplesForForgetting": 100,
+      "WaitForConvergence": true,
+      "ConvergenceTimeoutMs": 5000
+    },
+    "SyncCorrection": {
+      "UseResampling": true,
+      "ResamplingThresholdMs": 15
+    }
   },
   "Player": {
     "Name": "My PC"
@@ -269,6 +322,18 @@ Settings are stored in two locations:
   }
 }
 ```
+
+### Audio Buffer Configuration
+- `Buffer.TargetMs`: Target buffer depth before starting playback (default: 250ms)
+- `Buffer.CapacityMs`: Maximum buffer capacity (default: 8000ms)
+
+### Clock Sync Configuration
+- `ClockSync.WaitForConvergence`: Wait for Kalman filter to converge before playback (default: true)
+- `ClockSync.ConvergenceTimeoutMs`: Max wait time for convergence (default: 5000ms)
+
+### Sync Correction Configuration
+- `SyncCorrection.UseResampling`: Use smooth playback rate adjustment (default: true)
+- `SyncCorrection.ResamplingThresholdMs`: Error threshold for resampling vs drop/insert (default: 15ms)
 
 ### Static Delay Tuning
 If this player consistently plays behind/ahead of others:
@@ -595,6 +660,7 @@ Follow [SemVer](https://semver.org/):
 | `src/Sendspin.SDK/Client/SendSpinHostService.cs` | Server-initiated connection mode |
 | `src/Sendspin.SDK/Client/SendSpinClient.cs` | Client-initiated connection mode |
 | `src/SendspinClient.Services/Audio/WasapiAudioPlayer.cs` | Windows audio output |
+| `src/SendspinClient.Services/Audio/DynamicResamplerSampleProvider.cs` | Playback rate resampling for sync |
 | `src/Sendspin.SDK/Protocol/Messages/MessageTypes.cs` | Protocol message definitions |
 
 ---
