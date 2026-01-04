@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
+using Microsoft.Extensions.Logging;
 using NAudio.Dsp;
 using NAudio.Wave;
 using Sendspin.SDK.Audio;
@@ -27,6 +28,7 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     private readonly ISampleProvider _source;
     private readonly ITimedAudioBuffer? _buffer;
     private readonly WdlResampler _resampler;
+    private readonly ILogger? _logger;
     private readonly object _rateLock = new();
 
     private double _playbackRate = 1.0;
@@ -81,12 +83,14 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     /// </summary>
     /// <param name="source">The upstream sample provider to read from.</param>
     /// <param name="buffer">Optional buffer to subscribe to for rate change events.</param>
-    public DynamicResamplerSampleProvider(ISampleProvider source, ITimedAudioBuffer? buffer = null)
+    /// <param name="logger">Optional logger for debugging.</param>
+    public DynamicResamplerSampleProvider(ISampleProvider source, ITimedAudioBuffer? buffer = null, ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(source);
 
         _source = source;
         _buffer = buffer;
+        _logger = logger;
         WaveFormat = source.WaveFormat;
 
         // Initialize WDL resampler
@@ -104,6 +108,11 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
         if (_buffer != null)
         {
             _buffer.TargetPlaybackRateChanged += OnTargetPlaybackRateChanged;
+            _logger?.LogDebug("Subscribed to TargetPlaybackRateChanged event from buffer");
+        }
+        else
+        {
+            _logger?.LogWarning("No buffer provided - rate changes will not be received!");
         }
     }
 
@@ -121,16 +130,15 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
             currentRate = _playbackRate;
         }
 
-        // If rate is 1.0 (or very close), bypass resampling for efficiency
-        if (Math.Abs(currentRate - 1.0) < 0.0001)
-        {
-            return _source.Read(buffer, offset, count);
-        }
+        // NOTE: We intentionally do NOT bypass the resampler even at rate 1.0.
+        // Bypassing causes audible pops when transitioning in/out of resampling mode
+        // because the WDL resampler has internal filter state that gets disrupted.
+        // At rate 1.0, the resampler acts as a passthrough but maintains consistent state.
 
         // Calculate how many source samples we need for the requested output samples
         // At rate > 1.0 (speeding up), we need MORE input samples
         // At rate < 1.0 (slowing down), we need FEWER input samples
-        var inputSamplesNeeded = (int)Math.Ceiling(count * currentRate) + WaveFormat.Channels * 4;
+        var inputSamplesNeeded = (int)Math.Ceiling(count * currentRate);
 
         // Ensure source buffer is large enough
         if (_sourceBuffer.Length < inputSamplesNeeded)
@@ -140,6 +148,7 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
 
         // Read from source
         var inputRead = _source.Read(_sourceBuffer, 0, inputSamplesNeeded);
+
         if (inputRead == 0)
         {
             // Source is empty - fill with silence
