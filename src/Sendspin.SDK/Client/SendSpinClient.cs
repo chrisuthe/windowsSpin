@@ -96,7 +96,12 @@ public sealed class SendspinClientService : ISendspinClient
                 SupportedCommands = new List<string> { "volume", "mute" }
             },
             artworkSupport: null, // Not requesting artwork role
-            deviceInfo: new DeviceInfo()
+            deviceInfo: new DeviceInfo
+            {
+                ProductName = _capabilities.ProductName,
+                Manufacturer = _capabilities.Manufacturer,
+                SoftwareVersion = _capabilities.SoftwareVersion
+            }
         );
 
         // Log the full JSON being sent for debugging

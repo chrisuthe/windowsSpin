@@ -55,8 +55,12 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     private readonly int _samplesPerMs;
 
     // Sync correction constants (matching Python CLI behavior)
-    // Deadband: don't correct errors smaller than this (avoids jitter from tiny corrections)
-    private const long CorrectionDeadbandMicroseconds = 2_000; // 2ms
+    // Entry deadband: start correcting when error exceeds this threshold
+    private const long CorrectionEntryDeadbandMicroseconds = 2_000; // 2ms
+
+    // Exit deadband: stop correcting when error drops below this threshold (hysteresis)
+    // Using a smaller exit threshold prevents oscillation between correcting and not correcting
+    private const long CorrectionExitDeadbandMicroseconds = 500; // 0.5ms
 
     // Maximum speed adjustment: limits how aggressively we correct (prevents audible artifacts)
     // 0.04 = 4% max speed change (matches Python CLI's _MAX_SPEED_CORRECTION)
@@ -91,6 +95,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     private bool _needsReanchor;          // Flag to trigger re-anchoring
     private int _reanchorEventPending;    // 0 = not pending, 1 = pending (for thread-safe event coalescing)
     private float[]? _lastOutputFrame;    // Last output frame for smooth drop/insert (Python CLI approach)
+    private bool _inCorrectionMode;       // Hysteresis state: true when actively correcting
 
     // Statistics
     private long _underrunCount;
@@ -409,6 +414,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             Interlocked.Exchange(ref _reanchorEventPending, 0);
             _lastOutputFrame = null;
             TargetPlaybackRate = 1.0;
+            _inCorrectionMode = false;
             // Note: Don't reset _samplesDroppedForSync/_samplesInsertedForSync - these are cumulative stats
         }
     }
@@ -449,6 +455,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             Interlocked.Exchange(ref _reanchorEventPending, 0);
             _lastOutputFrame = null;
             TargetPlaybackRate = 1.0;
+            _inCorrectionMode = false;
         }
     }
 
@@ -665,23 +672,44 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
 
         var absError = Math.Abs(_currentSyncErrorMicroseconds);
 
-        // Tier 1: Deadband - no correction needed
-        if (absError <= CorrectionDeadbandMicroseconds)
+        // Tier 1: Deadband with hysteresis - prevents oscillation between correcting and not correcting
+        // Entry threshold (2ms): start correcting when error exceeds this
+        // Exit threshold (0.5ms): stop correcting when error drops below this
+        if (_inCorrectionMode)
         {
-            SetTargetPlaybackRate(1.0);
-            _dropEveryNFrames = 0;
-            _insertEveryNFrames = 0;
-            return;
+            // Already correcting - only exit when error is very small
+            if (absError <= CorrectionExitDeadbandMicroseconds)
+            {
+                _inCorrectionMode = false;
+                SetTargetPlaybackRate(1.0);
+                _dropEveryNFrames = 0;
+                _insertEveryNFrames = 0;
+                return;
+            }
+        }
+        else
+        {
+            // Not correcting - only enter correction when error exceeds entry threshold
+            if (absError <= CorrectionEntryDeadbandMicroseconds)
+            {
+                SetTargetPlaybackRate(1.0);
+                _dropEveryNFrames = 0;
+                _insertEveryNFrames = 0;
+                return;
+            }
+
+            // Error exceeded entry threshold - enter correction mode
+            _inCorrectionMode = true;
         }
 
-        // Tier 2: Small errors (2-15ms) - use smooth playback rate adjustment
+        // Tier 2: Small errors (0.5-15ms when in correction mode) - use smooth playback rate adjustment
         // This is imperceptible to human ears and avoids click artifacts
         if (absError <= ResamplingThresholdMicroseconds)
         {
-            // Map error to rate: 2ms → ~1.001x, 15ms → 1.02x (or inverse for ahead)
-            // Linear interpolation from deadband to threshold
-            var errorAboveDeadband = absError - CorrectionDeadbandMicroseconds;
-            var rangeSize = ResamplingThresholdMicroseconds - CorrectionDeadbandMicroseconds;
+            // Map error to rate: exit threshold → ~1.0005x, 15ms → 1.04x (or inverse for ahead)
+            // Linear interpolation from exit deadband to threshold
+            var errorAboveDeadband = absError - CorrectionExitDeadbandMicroseconds;
+            var rangeSize = ResamplingThresholdMicroseconds - CorrectionExitDeadbandMicroseconds;
             var correctionPercent = (errorAboveDeadband / (double)rangeSize) * MaxSpeedCorrection;
 
             // Clamp to max 4% (0.96 to 1.04) but typically only use 2% (0.98 to 1.02)

@@ -54,4 +54,20 @@ public sealed class ClientCapabilities
     /// Maximum artwork dimension.
     /// </summary>
     public int ArtworkMaxSize { get; set; } = 512;
+
+    /// <summary>
+    /// Product name reported to the server (e.g., "Sendspin Windows Client", "My Custom Player").
+    /// </summary>
+    public string? ProductName { get; set; }
+
+    /// <summary>
+    /// Manufacturer name reported to the server (e.g., "Anthropic", "My Company").
+    /// </summary>
+    public string? Manufacturer { get; set; }
+
+    /// <summary>
+    /// Software version reported to the server.
+    /// If null, will not be included in the device info.
+    /// </summary>
+    public string? SoftwareVersion { get; set; }
 }
