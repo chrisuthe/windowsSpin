@@ -149,7 +149,17 @@ public partial class App : Application
         // Client capabilities configuration
         // Read player name from configuration (defaults to computer name)
         var playerName = _configuration!.GetValue<string>("Player:Name", Environment.MachineName) ?? Environment.MachineName;
-        services.AddSingleton(new ClientCapabilities { ClientName = playerName });
+
+        // Get app version for device info
+        var appVersion = GetAppVersion();
+
+        services.AddSingleton(new ClientCapabilities
+        {
+            ClientName = playerName,
+            ProductName = "Sendspin Windows Client",
+            Manufacturer = null, // Set by SDK consumers as needed
+            SoftwareVersion = appVersion
+        });
 
         // Clock synchronization for multi-room audio sync
         services.AddSingleton<IClockSynchronizer>(sp =>
@@ -530,5 +540,29 @@ public partial class App : Application
         var logger = _serviceProvider?.GetService<ILogger<App>>();
         logger?.LogWarning(e.Exception, "Unobserved task exception");
         e.SetObserved();
+    }
+
+    /// <summary>
+    /// Gets the application version from assembly metadata.
+    /// </summary>
+    private static string GetAppVersion()
+    {
+        var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+        var version = assembly.GetName().Version;
+
+        // Try to get informational version (includes pre-release tags)
+        var infoVersion = assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .FirstOrDefault()?.InformationalVersion;
+
+        if (!string.IsNullOrEmpty(infoVersion))
+        {
+            // Strip the +hash suffix if present (e.g., "1.0.0+abc123" -> "1.0.0")
+            var plusIndex = infoVersion.IndexOf('+');
+            return plusIndex > 0 ? infoVersion[..plusIndex] : infoVersion;
+        }
+
+        return version?.ToString(3) ?? "Unknown";
     }
 }
