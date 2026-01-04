@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>2.2.0</Version>
+    <Version>2.2.1</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,14 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v2.2.1:
+Bug Fixes:
+- CRITICAL: Fixed sync error calculation that prevented resampling correction from converging
+  - Removed incorrect output latency subtraction from sync error formula
+  - Output latency is a constant offset that doesn't affect sync rate correction
+  - Previously caused permanent negative sync error (~-115ms), continuous slowdown, and buffer growth
+- ITimedAudioBuffer.OutputLatencyMicroseconds is now informational only (not used in sync calculation)
+
 v2.2.0:
 New Features:
 - Tiered sync correction strategy matching JS client for smoother playback:

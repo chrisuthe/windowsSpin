@@ -33,11 +33,15 @@ public interface ITimedAudioBuffer : IDisposable
     bool IsReadyForPlayback { get; }
 
     /// <summary>
-    /// Gets or sets the output latency in microseconds.
+    /// Gets or sets the output latency in microseconds (informational).
     /// This is the delay between when samples are read from the buffer
     /// and when they actually play through the speakers (WASAPI buffer latency).
-    /// Used to compensate for output buffer delay in sync error calculation.
     /// </summary>
+    /// <remarks>
+    /// This value is stored for diagnostic/logging purposes but is NOT used in sync
+    /// error calculation. The sync error tracks the rate at which we consume samples
+    /// relative to wall clock time, which is independent of the constant output latency offset.
+    /// </remarks>
     long OutputLatencyMicroseconds { get; set; }
 
     /// <summary>
