@@ -60,6 +60,14 @@ public interface ISendspinClient : IAsyncDisposable
     Task SetVolumeAsync(int volume);
 
     /// <summary>
+    /// Sends the current player state (volume, muted) to the server.
+    /// This is used to report local state changes to Music Assistant.
+    /// </summary>
+    /// <param name="volume">Current volume level (0-100).</param>
+    /// <param name="muted">Current mute state.</param>
+    Task SendPlayerStateAsync(int volume, bool muted);
+
+    /// <summary>
     /// Clears the audio buffer, causing the pipeline to restart buffering.
     /// Use this when audio sync parameters change and you want immediate effect.
     /// </summary>

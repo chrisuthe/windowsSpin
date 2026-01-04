@@ -177,6 +177,16 @@ public sealed class SendspinClientService : ISendspinClient
     }
 
     /// <inheritdoc/>
+    public async Task SendPlayerStateAsync(int volume, bool muted)
+    {
+        var clampedVolume = Math.Clamp(volume, 0, 100);
+        var stateMessage = ClientStateMessage.CreateSynchronized(clampedVolume, muted);
+
+        _logger.LogDebug("Sending player state: Volume={Volume}, Muted={Muted}", clampedVolume, muted);
+        await _connection.SendMessageAsync(stateMessage);
+    }
+
+    /// <inheritdoc/>
     public void ClearAudioBuffer()
     {
         _logger.LogDebug("Clearing audio buffer for immediate sync parameter effect");

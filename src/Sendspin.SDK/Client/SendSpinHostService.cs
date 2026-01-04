@@ -375,6 +375,37 @@ public sealed class SendspinHostService : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Sends the current player state (volume, muted) to a specific server or all connected servers.
+    /// </summary>
+    public async Task SendPlayerStateAsync(int volume, bool muted, string? serverId = null)
+    {
+        List<SendspinClientService> clients;
+        lock (_connectionsLock)
+        {
+            if (serverId != null)
+            {
+                if (_connections.TryGetValue(serverId, out var conn))
+                {
+                    clients = new List<SendspinClientService> { conn.Client };
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Server {serverId} not connected");
+                }
+            }
+            else
+            {
+                clients = _connections.Values.Select(c => c.Client).ToList();
+            }
+        }
+
+        foreach (var client in clients)
+        {
+            await client.SendPlayerStateAsync(volume, muted);
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         await StopAsync();

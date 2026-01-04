@@ -489,10 +489,13 @@ public partial class MainViewModel : ViewModelBase
 
         try
         {
-            await SendCommandToActiveClientAsync(Commands.Mute, new Dictionary<string, object>
-            {
-                ["muted"] = !IsMuted
-            });
+            // Toggle the local mute state and send it to the server
+            var newMutedState = !IsMuted;
+            _logger.LogDebug("Toggling mute: {Muted}", newMutedState);
+
+            // Send player state to notify Music Assistant of our mute change
+            // This is what JS/Python clients do - they report state rather than sending commands
+            await SendPlayerStateToActiveClientAsync(Volume, newMutedState);
         }
         catch (Exception ex)
         {
@@ -520,6 +523,30 @@ public partial class MainViewModel : ViewModelBase
         else
         {
             _logger.LogWarning("No active connection to send command {Command}", command);
+        }
+    }
+
+    /// <summary>
+    /// Sends the current player state (volume, muted) to the server.
+    /// This notifies Music Assistant of our current volume/mute state.
+    /// </summary>
+    private async Task SendPlayerStateToActiveClientAsync(int volume, bool muted)
+    {
+        // Prefer manual client (discovery/manual connection mode)
+        if (_manualClient?.ConnectionState == ConnectionState.Connected)
+        {
+            _logger.LogDebug("Sending player state via manual client: Volume={Volume}, Muted={Muted}", volume, muted);
+            await _manualClient.SendPlayerStateAsync(volume, muted);
+        }
+        // Fall back to host service (server-initiated connection mode)
+        else if (ConnectedServers.Count > 0)
+        {
+            _logger.LogDebug("Sending player state via host service: Volume={Volume}, Muted={Muted}", volume, muted);
+            await _hostService.SendPlayerStateAsync(volume, muted);
+        }
+        else
+        {
+            _logger.LogWarning("No active connection to send player state");
         }
     }
 
@@ -1483,10 +1510,10 @@ public partial class MainViewModel : ViewModelBase
             await Task.Delay(150, cancellationToken);
 
             _logger.LogDebug("Sending volume change: {Volume}", volume);
-            await SendCommandToActiveClientAsync(Commands.Volume, new Dictionary<string, object>
-            {
-                ["volume"] = volume
-            });
+
+            // Send player state to notify Music Assistant of our volume change
+            // This is what JS/Python clients do - they report state rather than sending commands
+            await SendPlayerStateToActiveClientAsync(volume, IsMuted);
         }
         catch (OperationCanceledException)
         {
