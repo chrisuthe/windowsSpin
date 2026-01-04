@@ -201,7 +201,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         // Optionally wrap with resampler for smooth sync correction
         if (_useResampling && buffer != null)
         {
-            _resampler = new DynamicResamplerSampleProvider(_sampleProvider, buffer);
+            _resampler = new DynamicResamplerSampleProvider(_sampleProvider, buffer, _logger);
             _wasapiOut.Init(_resampler);
             _logger.LogDebug("Sample source configured with dynamic resampling for sync correction");
         }
