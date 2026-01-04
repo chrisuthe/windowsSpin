@@ -482,11 +482,10 @@ elapsedTimeMicroseconds = currentLocalTime - _playbackStartLocalTime;
 // How much audio we've READ (not output)
 samplesReadTimeMicroseconds = _samplesReadSinceStart * _microsecondsPerSample;
 
-// Account for WASAPI output buffer delay (~50ms)
-adjustedElapsedMicroseconds = elapsedTimeMicroseconds - OutputLatencyMicroseconds;
-
 // Sync error: positive = behind (DROP), negative = ahead (INSERT)
-_currentSyncErrorMicroseconds = adjustedElapsedMicroseconds - samplesReadTimeMicroseconds;
+// NOTE: Output latency is NOT included - it's a constant offset that doesn't
+// affect the rate at which we should consume samples
+_currentSyncErrorMicroseconds = elapsedTimeMicroseconds - samplesReadTimeMicroseconds;
 ```
 
 ### Correction Constants (matching CLI)
@@ -510,16 +509,23 @@ StartupGracePeriodMicroseconds = 500_000     // 500ms - don't correct immediatel
 - Output last frame WITHOUT reading
 - Effect: `samplesRead` stays still, error grows toward 0
 
-### Output Latency Compensation
+### Output Latency Does NOT Affect Sync Error
 
-**Problem**: Wall clock shows 50ms elapsed, but audio in WASAPI buffer hasn't played yet.
+**Misconception**: Output latency (WASAPI buffer) needs to be subtracted from elapsed time.
 
-**Solution**: Subtract output latency from elapsed time before comparing:
+**Reality**: Output latency is a **constant offset** that delays ALL audio equally. At steady-state:
+- With rate=1.0, we read samples at the same rate wall clock advances
+- Sync error = elapsed - samplesRead = 0 (regardless of output latency)
+
+Including output latency in the calculation creates a constant negative offset, making the system think it's "ahead" and causing continuous slowdown with buffer growth.
 
 ```csharp
-// Without compensation: sync error = 50ms - 0ms = 50ms (false positive)
-// With compensation:    sync error = (50ms - 50ms) - 0ms = 0ms (correct)
+// WRONG: Creates constant -50ms offset causing buffer accumulation
 var adjustedElapsed = elapsedTime - OutputLatencyMicroseconds;
+syncError = adjustedElapsed - samplesReadTime;  // Always ~-50ms at steady-state!
+
+// CORRECT: Converges to 0 at steady-state
+syncError = elapsedTime - samplesReadTime;
 ```
 
 ### Anchor Point

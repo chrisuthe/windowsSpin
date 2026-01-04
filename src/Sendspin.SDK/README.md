@@ -31,7 +31,7 @@ If you're upgrading from v1.x, please review the following breaking changes:
 
 **What changed**: The `HardwareLatencyMs` property has been removed from the `IClockSynchronizer` interface.
 
-**Why**: Hardware latency compensation is now handled internally by the audio buffer layer (`TimedAudioBuffer.OutputLatencyMicroseconds`), providing more accurate sync error calculation.
+**Why**: Hardware latency is a constant offset that doesn't affect the sync correction rate. The `TimedAudioBuffer.OutputLatencyMicroseconds` property stores the output latency for diagnostic purposes but it is NOT used in the sync error calculation.
 
 **Migration**:
 ```csharp
@@ -39,7 +39,7 @@ If you're upgrading from v1.x, please review the following breaking changes:
 clockSync.HardwareLatencyMs = player.OutputLatencyMs;
 
 // After (v2.0) - No action needed!
-// The AudioPipeline automatically sets buffer.OutputLatencyMicroseconds
+// The AudioPipeline stores buffer.OutputLatencyMicroseconds for diagnostics
 ```
 
 ### 2. `IAudioPipeline.SwitchDeviceAsync()` Required

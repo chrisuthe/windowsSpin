@@ -623,20 +623,17 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         // How much server time have we actually READ (consumed) from the buffer?
         var samplesReadTimeMicroseconds = (long)(_samplesReadSinceStart * _microsecondsPerSample);
 
-        // Account for output buffer latency (WASAPI buffer delay).
-        // When elapsed time = 50ms and we've read 50ms of samples, the speaker has
-        // only played ~0ms (samples are still in the WASAPI buffer).
-        // Without this compensation, we'd see a constant ~50ms "behind" error.
-        //
-        // By subtracting output latency from elapsed time, we're asking:
-        // "How much audio should have ACTUALLY played through the speaker?"
-        // instead of "How much wall clock time has passed?"
-        var adjustedElapsedMicroseconds = elapsedTimeMicroseconds - OutputLatencyMicroseconds;
-
-        // Sync error = adjusted_elapsed - samples_read_time
+        // Sync error = elapsed - samples_read_time
         // Positive = we haven't read enough (behind) = need to DROP (read faster)
         // Negative = we've read too much (ahead) = need to INSERT (slow down reading)
-        _currentSyncErrorMicroseconds = adjustedElapsedMicroseconds - samplesReadTimeMicroseconds;
+        //
+        // NOTE: Output latency (WASAPI buffer delay) is NOT included here. The output
+        // latency is a constant offset that affects WHEN audio reaches the speaker,
+        // but not the RATE at which we should consume samples. At steady state with
+        // rate=1.0, sync error should be ~0 regardless of output latency. Including
+        // output latency here would create a constant negative offset, making us
+        // appear permanently "ahead" and causing continuous slowdown with buffer growth.
+        _currentSyncErrorMicroseconds = elapsedTimeMicroseconds - samplesReadTimeMicroseconds;
     }
 
     /// <summary>

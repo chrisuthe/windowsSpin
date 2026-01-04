@@ -476,14 +476,14 @@ _samplesReadSinceStart += actualRead;  // += 2, not += 1
 _samplesReadSinceStart += actualRead;  // += 0
 ```
 
-### 4. Output Latency Compensation
-WASAPI has ~34-50ms output buffer latency. Sync error must account for this:
+### 4. Output Latency Does NOT Affect Sync Error
+WASAPI has ~34-50ms output buffer latency. However, this is a **constant offset** that does NOT affect the sync correction rate. The sync error simply compares wall clock elapsed time vs samples consumed:
 ```csharp
-var adjustedElapsed = elapsedTime - OutputLatencyMicroseconds;
-_syncError = adjustedElapsed - samplesReadTime;
+// Correct: no output latency adjustment
+_syncError = elapsedTime - samplesReadTime;
 ```
 
-Without this compensation, you'll see a constant offset equal to the output buffer latency.
+Output latency affects WHEN audio plays (all audio is delayed equally), but not WHETHER we're keeping up with the server's pace. At steady-state with rate=1.0, sync error should hover around 0.
 
 ### 5. DateTime Resolution
 Use `HighPrecisionTimer` for any timing-critical code:
