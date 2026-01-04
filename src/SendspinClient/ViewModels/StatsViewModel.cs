@@ -113,6 +113,18 @@ public partial class StatsViewModel : ViewModelBase
     [ObservableProperty]
     private long _droppedSamples;
 
+    /// <summary>
+    /// Gets the target playback rate display (e.g., "1.02x" for 2% speedup).
+    /// </summary>
+    [ObservableProperty]
+    private string _playbackRateDisplay = "1.00x";
+
+    /// <summary>
+    /// Gets the color for the playback rate (cyan when actively correcting).
+    /// </summary>
+    [ObservableProperty]
+    private Brush _playbackRateColor = Brushes.White;
+
     #endregion
 
     #region Clock Sync Properties
@@ -280,9 +292,10 @@ public partial class StatsViewModel : ViewModelBase
             SyncErrorColor = new SolidColorBrush(Color.FromRgb(0xf8, 0x71, 0x71)); // Red
         }
 
-        // Correction Mode
+        // Correction Mode - now with tiered strategy
         CorrectionModeDisplay = stats.CurrentCorrectionMode switch
         {
+            SyncCorrectionMode.Resampling => "Resampling",
             SyncCorrectionMode.Dropping => "Dropping",
             SyncCorrectionMode.Inserting => "Inserting",
             _ => "None",
@@ -290,10 +303,18 @@ public partial class StatsViewModel : ViewModelBase
 
         CorrectionModeColor = stats.CurrentCorrectionMode switch
         {
+            SyncCorrectionMode.Resampling => new SolidColorBrush(Color.FromRgb(0x60, 0xa5, 0xfa)), // Blue (smooth)
             SyncCorrectionMode.Dropping => new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)), // Yellow
             SyncCorrectionMode.Inserting => new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)), // Yellow
             _ => new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)), // Green
         };
+
+        // Playback Rate (for resampling-based sync correction)
+        var rate = stats.TargetPlaybackRate;
+        PlaybackRateDisplay = $"{rate:F3}x";
+        PlaybackRateColor = Math.Abs(rate - 1.0) > 0.001
+            ? new SolidColorBrush(Color.FromRgb(0x60, 0xa5, 0xfa)) // Blue when actively adjusting
+            : Brushes.White;
 
         // Playback state
         IsPlaybackActive = stats.IsPlaybackActive ? "Yes" : "No";

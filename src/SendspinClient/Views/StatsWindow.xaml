@@ -128,16 +128,22 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Samples Dropped" Style="{StaticResource StatLabel}"/>
-                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SamplesDroppedForSync}" Style="{StaticResource StatValue}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Playback Rate" Style="{StaticResource StatLabel}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding PlaybackRateDisplay}"
+                                   Style="{StaticResource StatValue}"
+                                   Foreground="{Binding PlaybackRateColor}"/>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Samples Inserted" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
-                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SamplesInsertedForSync}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Samples Dropped" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SamplesDroppedForSync}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
 
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Dropped Samples (overflow)" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
-                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DroppedSamples}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Samples Inserted" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SamplesInsertedForSync}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Dropped Samples (overflow)" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DroppedSamples}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
                     </Grid>
                 </Border>
 
