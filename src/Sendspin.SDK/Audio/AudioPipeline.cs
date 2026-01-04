@@ -426,8 +426,9 @@ public sealed class AudioPipeline : IAudioPipeline
             return false;
         }
 
-        // If clock is already converged, proceed
-        if (_clockSync.IsConverged)
+        // If clock has minimal sync (2+ measurements), proceed
+        // Full convergence happens in background, sync correction handles any estimation errors
+        if (_clockSync.HasMinimalSync)
         {
             return false;
         }

@@ -43,6 +43,7 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
 
     // Convergence tracking
     private const int MinMeasurementsForConvergence = 5;
+    private const int MinMeasurementsForPlayback = 2;  // Quick start: 2 measurements like JS/CLI players
     private const double MaxOffsetUncertaintyForConvergence = 1000.0; // 1ms uncertainty threshold
 
     // Drift reliability threshold - don't apply drift until uncertainty is below this
@@ -88,6 +89,7 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
 
     /// <summary>
     /// Whether the synchronizer has converged to a stable estimate.
+    /// Requires 5+ measurements and low offset uncertainty.
     /// </summary>
     public bool IsConverged
     {
@@ -97,6 +99,26 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
             {
                 return _measurementCount >= MinMeasurementsForConvergence
                        && Math.Sqrt(_offsetVariance) < MaxOffsetUncertaintyForConvergence;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether the synchronizer has enough measurements for playback (at least 2).
+    /// Unlike <see cref="IsConverged"/>, this doesn't require statistical convergence.
+    /// The sync correction system handles any estimation errors during initial playback.
+    /// </summary>
+    /// <remarks>
+    /// This matches the JS/CLI player behavior which starts after 2 measurements (~300-500ms)
+    /// rather than waiting for full Kalman filter convergence (5+ measurements, ~1-5 seconds).
+    /// </remarks>
+    public bool HasMinimalSync
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _measurementCount >= MinMeasurementsForPlayback;
             }
         }
     }
@@ -455,8 +477,15 @@ public interface IClockSynchronizer
 
     /// <summary>
     /// Whether the synchronizer has converged to a stable estimate.
+    /// Requires 5+ measurements and low offset uncertainty.
     /// </summary>
     bool IsConverged { get; }
+
+    /// <summary>
+    /// Whether the synchronizer has enough measurements for playback (at least 2).
+    /// Unlike <see cref="IsConverged"/>, this doesn't require statistical convergence.
+    /// </summary>
+    bool HasMinimalSync { get; }
 
     /// <summary>
     /// Resets the synchronizer state.
