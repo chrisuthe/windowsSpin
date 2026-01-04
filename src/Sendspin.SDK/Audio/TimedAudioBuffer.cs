@@ -69,6 +69,11 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     // 500ms matches Python CLI's _REANCHOR_THRESHOLD_US (more lenient than before)
     private const long ReanchorThresholdMicroseconds = 500_000; // 500ms
 
+    // Resampling threshold: use smooth playback rate adjustment for errors below this
+    // Above this threshold, use frame drop/insert for faster correction
+    // Matches JS client's tiered approach: <15ms = resampling, 15-200ms = frame manipulation
+    private const long ResamplingThresholdMicroseconds = 15_000; // 15ms
+
     // Startup grace period: don't apply sync correction for first 500ms
     // This allows playback to stabilize before we start measuring drift
     private const long StartupGracePeriodMicroseconds = 500_000; // 500ms
@@ -123,7 +128,13 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     public event EventHandler? ReanchorRequired;
 
     /// <inheritdoc/>
-    public double TargetBufferMilliseconds { get; set; } = 500;
+    public double TargetBufferMilliseconds { get; set; } = 250;
+
+    /// <inheritdoc/>
+    public double TargetPlaybackRate { get; private set; } = 1.0;
+
+    /// <inheritdoc/>
+    public event Action<double>? TargetPlaybackRateChanged;
 
     /// <inheritdoc/>
     public double BufferedMilliseconds
@@ -397,6 +408,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             _needsReanchor = false;
             Interlocked.Exchange(ref _reanchorEventPending, 0);
             _lastOutputFrame = null;
+            TargetPlaybackRate = 1.0;
             // Note: Don't reset _samplesDroppedForSync/_samplesInsertedForSync - these are cumulative stats
         }
     }
@@ -436,6 +448,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             _needsReanchor = false;
             Interlocked.Exchange(ref _reanchorEventPending, 0);
             _lastOutputFrame = null;
+            TargetPlaybackRate = 1.0;
         }
     }
 
@@ -444,6 +457,17 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     {
         lock (_lock)
         {
+            // Determine current correction mode based on active correction method
+            SyncCorrectionMode correctionMode;
+            if (_dropEveryNFrames > 0)
+                correctionMode = SyncCorrectionMode.Dropping;
+            else if (_insertEveryNFrames > 0)
+                correctionMode = SyncCorrectionMode.Inserting;
+            else if (Math.Abs(TargetPlaybackRate - 1.0) > 0.0001)
+                correctionMode = SyncCorrectionMode.Resampling;
+            else
+                correctionMode = SyncCorrectionMode.None;
+
             return new AudioBufferStats
             {
                 BufferedMs = _count / (double)_samplesPerMs,
@@ -457,9 +481,8 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 IsPlaybackActive = _playbackStarted,
                 SamplesDroppedForSync = _samplesDroppedForSync,
                 SamplesInsertedForSync = _samplesInsertedForSync,
-                CurrentCorrectionMode = _dropEveryNFrames > 0
-                    ? SyncCorrectionMode.Dropping
-                    : (_insertEveryNFrames > 0 ? SyncCorrectionMode.Inserting : SyncCorrectionMode.None),
+                CurrentCorrectionMode = correctionMode,
+                TargetPlaybackRate = TargetPlaybackRate,
                 SamplesReadSinceStart = _samplesReadSinceStart,
                 SamplesOutputSinceStart = _samplesOutputSinceStart,
                 ElapsedSinceStartMs = _lastElapsedMicroseconds / 1000.0,
@@ -621,8 +644,14 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     /// Must be called under lock.
     /// </summary>
     /// <remarks>
-    /// Calculates how often to drop or insert frames to correct the sync error
-    /// within the target correction time, while respecting the max speed adjustment.
+    /// <para>
+    /// Implements a tiered correction strategy matching the JS client:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>Error &lt; 2ms (deadband): No correction, playback rate = 1.0</item>
+    /// <item>Error 2-15ms: Smooth playback rate adjustment (0.98-1.02x) via resampling</item>
+    /// <item>Error &gt; 15ms: Frame drop/insert for faster correction</item>
+    /// </list>
     /// </remarks>
     private void UpdateCorrectionRate()
     {
@@ -631,6 +660,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         var elapsedSinceStart = (long)(_samplesOutputSinceStart * _microsecondsPerSample);
         if (elapsedSinceStart < StartupGracePeriodMicroseconds)
         {
+            SetTargetPlaybackRate(1.0);
             _dropEveryNFrames = 0;
             _insertEveryNFrames = 0;
             return;
@@ -638,13 +668,41 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
 
         var absError = Math.Abs(_currentSyncErrorMicroseconds);
 
-        // If error is within deadband, no correction needed
+        // Tier 1: Deadband - no correction needed
         if (absError <= CorrectionDeadbandMicroseconds)
         {
+            SetTargetPlaybackRate(1.0);
             _dropEveryNFrames = 0;
             _insertEveryNFrames = 0;
             return;
         }
+
+        // Tier 2: Small errors (2-15ms) - use smooth playback rate adjustment
+        // This is imperceptible to human ears and avoids click artifacts
+        if (absError <= ResamplingThresholdMicroseconds)
+        {
+            // Map error to rate: 2ms → ~1.001x, 15ms → 1.02x (or inverse for ahead)
+            // Linear interpolation from deadband to threshold
+            var errorAboveDeadband = absError - CorrectionDeadbandMicroseconds;
+            var rangeSize = ResamplingThresholdMicroseconds - CorrectionDeadbandMicroseconds;
+            var correctionPercent = (errorAboveDeadband / (double)rangeSize) * MaxSpeedCorrection;
+
+            // Clamp to max 4% (0.96 to 1.04) but typically only use 2% (0.98 to 1.02)
+            correctionPercent = Math.Min(correctionPercent, MaxSpeedCorrection);
+
+            var newRate = _currentSyncErrorMicroseconds > 0
+                ? 1.0 + correctionPercent   // Behind: speed up (consume input faster)
+                : 1.0 - correctionPercent;  // Ahead: slow down (consume input slower)
+
+            SetTargetPlaybackRate(newRate);
+            _dropEveryNFrames = 0;
+            _insertEveryNFrames = 0;
+            return;
+        }
+
+        // Tier 3: Larger errors (>15ms) - use frame drop/insert for faster correction
+        // Reset playback rate to 1.0 since we're using discrete correction
+        SetTargetPlaybackRate(1.0);
 
         // Calculate desired corrections per second to fix error within target time
         // Error in frames = error_us * (sample_rate * channels) / 1,000,000
@@ -677,6 +735,22 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             // Playing too fast - need to insert frames to slow down
             _dropEveryNFrames = 0;
             _insertEveryNFrames = correctionInterval;
+        }
+    }
+
+    /// <summary>
+    /// Sets the target playback rate and raises the change event if different.
+    /// Must be called under lock.
+    /// </summary>
+    private void SetTargetPlaybackRate(double rate)
+    {
+        if (Math.Abs(TargetPlaybackRate - rate) > 0.0001)
+        {
+            TargetPlaybackRate = rate;
+            // Fire event outside of lock would be safer, but since this is called frequently
+            // during audio callbacks, we fire inline to avoid allocation/queuing overhead.
+            // Subscribers should be lightweight (just store the value).
+            TargetPlaybackRateChanged?.Invoke(rate);
         }
     }
 

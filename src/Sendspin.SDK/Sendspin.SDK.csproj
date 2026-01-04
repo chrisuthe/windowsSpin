@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>2.1.1</Version>
+    <Version>2.2.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,19 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v2.2.0:
+New Features:
+- Tiered sync correction strategy matching JS client for smoother playback:
+  - Tier 1 (&lt;2ms): Deadband, no correction needed
+  - Tier 2 (2-15ms): Smooth playback rate adjustment via resampling (imperceptible)
+  - Tier 3 (&gt;15ms): Frame drop/insert for faster correction
+- ITimedAudioBuffer.TargetPlaybackRate property for resampler-based sync correction
+- ITimedAudioBuffer.TargetPlaybackRateChanged event for rate change notifications
+- SyncCorrectionMode.Resampling enum value for stats reporting
+- AudioPipeline clock sync gating: waits for Kalman filter convergence before playback
+- Reduced default buffer target from 500ms to 250ms for faster playback start
+- Configurable convergence timeout (default 5s) prevents indefinite waiting
+
 v2.1.1:
 Bug Fixes:
 - Fixed StaticDelayMs not working: TimedAudioBuffer now respects scheduled start times

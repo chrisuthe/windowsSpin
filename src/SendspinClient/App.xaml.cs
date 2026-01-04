@@ -179,10 +179,14 @@ public partial class App : Application
 
         // Read audio device ID from configuration (null = system default)
         var audioDeviceId = _configuration!.GetValue<string?>("Audio:DeviceId");
+
+        // Read sync correction resampling configuration
+        var useResampling = _configuration!.GetValue<bool>("Audio:SyncCorrection:UseResampling", true);
+
         services.AddTransient<IAudioPlayer>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<WasapiAudioPlayer>>();
-            return new WasapiAudioPlayer(logger, audioDeviceId);
+            return new WasapiAudioPlayer(logger, audioDeviceId, useResampling);
         });
 
         // Audio pipeline - orchestrates decoder, buffer, and player
@@ -193,16 +197,29 @@ public partial class App : Application
             var decoderFactory = sp.GetRequiredService<IAudioDecoderFactory>();
             var clockSync = sp.GetRequiredService<IClockSynchronizer>();
 
+            // Read buffer configuration (matching JS client's faster startup)
+            var bufferTargetMs = _configuration!.GetValue<double>("Audio:Buffer:TargetMs", 250);
+            var bufferCapacityMs = _configuration!.GetValue<int>("Audio:Buffer:CapacityMs", 8000);
+
+            // Read clock sync wait configuration
+            var waitForConvergence = _configuration!.GetValue<bool>("Audio:ClockSync:WaitForConvergence", true);
+            var convergenceTimeoutMs = _configuration!.GetValue<int>("Audio:ClockSync:ConvergenceTimeoutMs", 5000);
+
             return new AudioPipeline(
                 logger,
                 decoderFactory,
                 clockSync,
-                // Use 8 second buffer to match Python CLI's unbounded queue approach
-                // Server sends audio ~5 seconds ahead, so we need room to accumulate
-                // without constant overflow. Sync correction handles buffer depth.
-                bufferFactory: (format, sync) => new TimedAudioBuffer(format, sync, bufferCapacityMs: 8000, bufferLogger),
+                bufferFactory: (format, sync) =>
+                {
+                    var buffer = new TimedAudioBuffer(format, sync, bufferCapacityMs, bufferLogger);
+                    buffer.TargetBufferMilliseconds = bufferTargetMs;
+                    return buffer;
+                },
                 playerFactory: () => sp.GetRequiredService<IAudioPlayer>(),
-                sourceFactory: (buffer, timeFunc) => new BufferedAudioSampleSource(buffer, timeFunc));
+                sourceFactory: (buffer, timeFunc) => new BufferedAudioSampleSource(buffer, timeFunc),
+                precisionTimer: null,
+                waitForConvergence: waitForConvergence,
+                convergenceTimeoutMs: convergenceTimeoutMs);
         });
 
         // Server discovery for client-initiated mode

@@ -56,6 +56,12 @@ public sealed class AudioPipeline : IAudioPipeline
     // How often to log sync status during playback (microseconds)
     private const long SyncLogIntervalMicroseconds = 5_000_000; // 5 seconds
 
+    // Clock sync wait configuration
+    private readonly bool _waitForConvergence;
+    private readonly int _convergenceTimeoutMs;
+    private long _bufferReadyTime;
+    private bool _loggedSyncWaiting;
+
     /// <inheritdoc/>
     public AudioPipelineState State { get; private set; } = AudioPipelineState.Idle;
 
@@ -84,6 +90,8 @@ public sealed class AudioPipeline : IAudioPipeline
     /// <param name="playerFactory">Factory for creating audio players.</param>
     /// <param name="sourceFactory">Factory for creating sample sources.</param>
     /// <param name="precisionTimer">High-precision timer for accurate timing (optional, uses shared instance if null).</param>
+    /// <param name="waitForConvergence">Whether to wait for clock sync convergence before starting playback (default: true).</param>
+    /// <param name="convergenceTimeoutMs">Timeout in milliseconds to wait for clock sync convergence (default: 5000ms).</param>
     public AudioPipeline(
         ILogger<AudioPipeline> logger,
         IAudioDecoderFactory decoderFactory,
@@ -91,7 +99,9 @@ public sealed class AudioPipeline : IAudioPipeline
         Func<AudioFormat, IClockSynchronizer, ITimedAudioBuffer> bufferFactory,
         Func<IAudioPlayer> playerFactory,
         Func<ITimedAudioBuffer, Func<long>, IAudioSampleSource> sourceFactory,
-        IHighPrecisionTimer? precisionTimer = null)
+        IHighPrecisionTimer? precisionTimer = null,
+        bool waitForConvergence = true,
+        int convergenceTimeoutMs = 5000)
     {
         _logger = logger;
         _decoderFactory = decoderFactory;
@@ -100,6 +110,8 @@ public sealed class AudioPipeline : IAudioPipeline
         _playerFactory = playerFactory;
         _sourceFactory = sourceFactory;
         _precisionTimer = precisionTimer ?? HighPrecisionTimer.Shared;
+        _waitForConvergence = waitForConvergence;
+        _convergenceTimeoutMs = convergenceTimeoutMs;
 
         // Log timer precision at startup
         if (HighPrecisionTimer.IsHighResolution)
@@ -204,6 +216,10 @@ public sealed class AudioPipeline : IAudioPipeline
         _buffer?.Clear();
         _decoder?.Reset();
 
+        // Reset sync wait state so we wait for convergence again after clear
+        _bufferReadyTime = 0;
+        _loggedSyncWaiting = false;
+
         if (State == AudioPipelineState.Playing)
         {
             SetState(AudioPipelineState.Buffering);
@@ -237,12 +253,18 @@ public sealed class AudioPipeline : IAudioPipeline
                     LogSyncStatusIfNeeded();
                 }
 
-                // Start playback immediately when buffer is ready - don't wait for convergence!
-                // Python CLI approach: start when buffer ready, let sync correction handle timing.
-                // Clock sync runs continuously and sync correction adjusts playback speed.
+                // Start playback when buffer is ready AND (optionally) clock is synced
+                // JS client approach: wait for clock sync convergence to ensure accurate timing
                 if (State == AudioPipelineState.Buffering && _buffer.IsReadyForPlayback)
                 {
-                    StartPlayback();
+                    if (ShouldWaitForClockSync())
+                    {
+                        LogSyncWaitingIfNeeded();
+                    }
+                    else
+                    {
+                        StartPlayback();
+                    }
                 }
             }
         }
@@ -389,6 +411,66 @@ public sealed class AudioPipeline : IAudioPipeline
         {
             _logger.LogError(ex, "Failed to start playback");
             ErrorOccurred?.Invoke(this, new AudioPipelineError("Failed to start playback", ex));
+        }
+    }
+
+    /// <summary>
+    /// Determines whether we should wait for clock sync convergence before starting playback.
+    /// </summary>
+    /// <returns>True if we should wait, false if we can proceed with playback.</returns>
+    private bool ShouldWaitForClockSync()
+    {
+        // If wait is disabled, always proceed
+        if (!_waitForConvergence)
+        {
+            return false;
+        }
+
+        // If clock is already converged, proceed
+        if (_clockSync.IsConverged)
+        {
+            return false;
+        }
+
+        // Track when buffer first became ready (for timeout calculation)
+        if (_bufferReadyTime == 0)
+        {
+            _bufferReadyTime = _precisionTimer.GetCurrentTimeMicroseconds();
+        }
+
+        // Check for timeout - proceed anyway if we've waited too long
+        var elapsed = _precisionTimer.GetCurrentTimeMicroseconds() - _bufferReadyTime;
+        if (elapsed > _convergenceTimeoutMs * 1000L)
+        {
+            var status = _clockSync.GetStatus();
+            _logger.LogWarning(
+                "Clock sync timeout after {ElapsedMs}ms. Starting playback without full convergence. " +
+                "Measurements: {Count}, Uncertainty: {Uncertainty:F2}ms",
+                elapsed / 1000,
+                status.MeasurementCount,
+                status.OffsetUncertaintyMicroseconds / 1000.0);
+            return false; // Timeout - proceed anyway
+        }
+
+        return true; // Still waiting for convergence
+    }
+
+    /// <summary>
+    /// Logs that we're waiting for clock sync convergence (only once per wait period).
+    /// </summary>
+    private void LogSyncWaitingIfNeeded()
+    {
+        if (!_loggedSyncWaiting)
+        {
+            _loggedSyncWaiting = true;
+            var status = _clockSync.GetStatus();
+            _logger.LogInformation(
+                "Buffer ready ({BufferMs:F0}ms), waiting for clock sync convergence. " +
+                "Measurements: {Count}, Uncertainty: {Uncertainty:F2}ms, Converged: {Converged}",
+                _buffer?.BufferedMilliseconds ?? 0,
+                status.MeasurementCount,
+                status.OffsetUncertaintyMicroseconds / 1000.0,
+                status.IsConverged);
         }
     }
 
