@@ -319,7 +319,12 @@ public sealed class SendspinHostService : IAsyncDisposable
                 SupportedCommands = new List<string> { "volume", "mute" }
             },
             artworkSupport: null,
-            deviceInfo: new DeviceInfo()
+            deviceInfo: new DeviceInfo
+            {
+                ProductName = _capabilities.ProductName,
+                Manufacturer = _capabilities.Manufacturer,
+                SoftwareVersion = _capabilities.SoftwareVersion
+            }
         );
 
         var helloJson = MessageSerializer.Serialize(hello);

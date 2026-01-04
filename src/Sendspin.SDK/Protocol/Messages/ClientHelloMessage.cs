@@ -163,17 +163,29 @@ public sealed class ArtworkSupport
 }
 
 /// <summary>
-/// Device information.
+/// Device information reported to the server.
+/// All fields are optional and will be omitted from JSON if null.
 /// </summary>
 public sealed class DeviceInfo
 {
+    /// <summary>
+    /// Product name (e.g., "Sendspin Windows Client", "My Custom Player").
+    /// </summary>
     [JsonPropertyName("product_name")]
-    public string? ProductName { get; init; } = "Sendspin Windows Client";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ProductName { get; init; }
 
+    /// <summary>
+    /// Manufacturer name (e.g., "Anthropic", "My Company").
+    /// </summary>
     [JsonPropertyName("manufacturer")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Manufacturer { get; init; }
 
+    /// <summary>
+    /// Software version string.
+    /// </summary>
     [JsonPropertyName("software_version")]
-    public string? SoftwareVersion { get; init; } = "0.1.0";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SoftwareVersion { get; init; }
 }
