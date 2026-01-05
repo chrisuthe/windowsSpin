@@ -233,42 +233,9 @@ public sealed class SendspinHostService : IAsyncDisposable
             await SendClientHelloAsync(client, connection);
 
             // Wait for handshake to complete
-            var handshakeComplete = new TaskCompletionSource<bool>();
-            void OnStateChanged(object? s, ConnectionStateChangedEventArgs e)
+            if (!await WaitForHandshakeAsync(client, connection, connectionId))
             {
-                if (e.NewState == ConnectionState.Connected)
-                {
-                    handshakeComplete.TrySetResult(true);
-                }
-                else if (e.NewState == ConnectionState.Disconnected)
-                {
-                    handshakeComplete.TrySetResult(false);
-                }
-            }
-
-            client.ConnectionStateChanged += OnStateChanged;
-
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            cts.Token.Register(() => handshakeComplete.TrySetCanceled());
-
-            try
-            {
-                var success = await handshakeComplete.Task;
-                if (!success)
-                {
-                    _logger.LogWarning("Handshake failed for connection {ConnectionId}", connectionId);
-                    return;
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                _logger.LogWarning("Handshake timeout for connection {ConnectionId}", connectionId);
-                await connection.DisconnectAsync("handshake_timeout");
                 return;
-            }
-            finally
-            {
-                client.ConnectionStateChanged -= OnStateChanged;
             }
 
             // Store the active connection
@@ -305,16 +272,22 @@ public sealed class SendspinHostService : IAsyncDisposable
 
     private async Task SendClientHelloAsync(SendspinClientService client, IncomingConnection connection)
     {
+        // Use audio formats from capabilities (order matters - server picks first supported)
         var hello = ClientHelloMessage.Create(
             clientId: _capabilities.ClientId,
             name: _capabilities.ClientName,
             supportedRoles: _capabilities.Roles,
             playerSupport: new PlayerSupport
             {
-                SupportedFormats = new List<AudioFormatSpec>
-                {
-                    new() { Codec = "pcm", Channels = 2, SampleRate = 44100, BitDepth = 16 }
-                },
+                SupportedFormats = _capabilities.AudioFormats
+                    .Select(f => new AudioFormatSpec
+                    {
+                        Codec = f.Codec,
+                        Channels = f.Channels,
+                        SampleRate = f.SampleRate,
+                        BitDepth = f.BitDepth ?? 16,
+                    })
+                    .ToList(),
                 BufferCapacity = _capabilities.BufferCapacity,
                 SupportedCommands = new List<string> { "volume", "mute" }
             },
@@ -332,6 +305,60 @@ public sealed class SendspinHostService : IAsyncDisposable
         await connection.SendMessageAsync(hello);
     }
 
+    /// <summary>
+    /// Waits for the handshake to complete with timeout.
+    /// </summary>
+    /// <param name="client">The client service to monitor.</param>
+    /// <param name="connection">The connection to disconnect on timeout.</param>
+    /// <param name="connectionId">Connection ID for logging.</param>
+    /// <param name="timeoutSeconds">Handshake timeout in seconds (default: 10).</param>
+    /// <returns>True if handshake completed successfully, false otherwise.</returns>
+    private async Task<bool> WaitForHandshakeAsync(
+        SendspinClientService client,
+        IncomingConnection connection,
+        string connectionId,
+        int timeoutSeconds = 10)
+    {
+        var handshakeComplete = new TaskCompletionSource<bool>();
+
+        void OnStateChanged(object? s, ConnectionStateChangedEventArgs e)
+        {
+            if (e.NewState == ConnectionState.Connected)
+            {
+                handshakeComplete.TrySetResult(true);
+            }
+            else if (e.NewState == ConnectionState.Disconnected)
+            {
+                handshakeComplete.TrySetResult(false);
+            }
+        }
+
+        client.ConnectionStateChanged += OnStateChanged;
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+        cts.Token.Register(() => handshakeComplete.TrySetCanceled());
+
+        try
+        {
+            var success = await handshakeComplete.Task;
+            if (!success)
+            {
+                _logger.LogWarning("Handshake failed for connection {ConnectionId}", connectionId);
+            }
+            return success;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Handshake timeout for connection {ConnectionId}", connectionId);
+            await connection.DisconnectAsync("handshake_timeout");
+            return false;
+        }
+        finally
+        {
+            client.ConnectionStateChanged -= OnStateChanged;
+        }
+    }
+
     private void OnClientConnectionStateChanged(string connectionId, ConnectionStateChangedEventArgs e)
     {
         if (e.NewState == ConnectionState.Disconnected)
@@ -339,7 +366,9 @@ public sealed class SendspinHostService : IAsyncDisposable
             lock (_connectionsLock)
             {
                 var entry = _connections.FirstOrDefault(c => c.Value.ServerId == connectionId);
-                if (entry.Key != null)
+                // FirstOrDefault returns default(KeyValuePair) when not found, which has Key=null.
+                // This check works because dictionary keys are never null (serverId falls back to GUID).
+                if (entry.Key is not null)
                 {
                     _connections.Remove(entry.Key);
                     _logger.LogInformation("Server disconnected: {ServerId}", entry.Key);

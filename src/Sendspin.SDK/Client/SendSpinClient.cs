@@ -25,9 +25,27 @@ public sealed class SendspinClientService : ISendspinClient
     private CancellationTokenSource? _timeSyncCts;
     private bool _disposed;
 
-    // Burst sync configuration - send multiple messages and use smallest RTT
+    #region Time Sync Configuration
+
+    /// <summary>
+    /// Number of time sync messages to send in a burst.
+    /// The measurement with the smallest round-trip time is used for best accuracy.
+    /// </summary>
+    /// <remarks>
+    /// Sending multiple messages allows us to identify network jitter and select
+    /// the cleanest measurement. A burst of 8 typically yields at least one
+    /// measurement with minimal queuing delay.
+    /// </remarks>
     private const int BurstSize = 8;
-    private const int BurstIntervalMs = 50; // 50ms between burst messages
+
+    /// <summary>
+    /// Interval in milliseconds between burst messages.
+    /// Short enough for quick bursts, long enough to avoid packet queuing.
+    /// </summary>
+    private const int BurstIntervalMs = 50;
+
+    #endregion
+
     private readonly object _burstLock = new();
     private readonly List<(long t1, long t2, long t3, long t4, double rtt)> _burstResults = new();
     private readonly HashSet<long> _pendingBurstTimestamps = new();

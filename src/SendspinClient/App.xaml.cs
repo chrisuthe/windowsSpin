@@ -135,9 +135,12 @@ public partial class App : Application
 
     private void ConfigureServices(IServiceCollection services)
     {
-        // Register configuration
+        // Register configuration for components that need runtime access (e.g., settings UI)
+        // Note: Most configuration is read at DI registration time below because the audio
+        // services are singletons with immutable configuration - they don't support runtime
+        // reconfiguration. This is intentional for a desktop app where services are created
+        // once at startup. Using IOptions<T> would add complexity without benefit here.
         services.AddSingleton(_configuration!);
-        services.Configure<LoggingSettings>(_configuration!.GetSection(LoggingSettings.SectionName));
 
         // Logging - use Serilog with configuration from appsettings.json
         services.AddLogging(builder =>
@@ -289,8 +292,11 @@ public partial class App : Application
             return new DiscordRichPresenceService(logger, discordAppId);
         });
 
+        // User settings service for persisting runtime configuration changes
+        services.AddSingleton<IUserSettingsService, UserSettingsService>();
+
         // ViewModels
-        services.AddTransient<MainViewModel>();
+        services.AddSingleton<MainViewModel>();
     }
 
     private void ConfigureSerilog(IConfiguration configuration)
@@ -487,22 +493,57 @@ public partial class App : Application
 
     protected override async void OnExit(ExitEventArgs e)
     {
-        // Dispose tray icon to remove from system tray
-        _trayIcon?.Dispose();
-
-        // Gracefully shutdown the host service
-        if (_mainViewModel != null)
+        try
         {
-            await _mainViewModel.ShutdownAsync();
+            // Dispose tray icon to remove from system tray
+            _trayIcon?.Dispose();
+
+            // Gracefully shutdown the host service
+            if (_mainViewModel != null)
+            {
+                try
+                {
+                    await _mainViewModel.ShutdownAsync();
+                }
+                catch (Exception ex)
+                {
+                    // Log using Serilog's static logger (still available at this point)
+                    Log.Error(ex, "Error during MainViewModel shutdown");
+                }
+            }
+
+            // Dispose service provider (may throw during service disposal)
+            try
+            {
+                _serviceProvider?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error disposing service provider");
+            }
+
+            // Flush and close Serilog to ensure all logs are written
+            Log.Information("WindowsSpin shutting down");
+            try
+            {
+                await Log.CloseAndFlushAsync();
+            }
+            catch
+            {
+                // Ignore - nothing we can do if log flush fails, and no logger available
+            }
         }
-
-        _serviceProvider?.Dispose();
-
-        // Flush and close Serilog to ensure all logs are written
-        Log.Information("WindowsSpin shutting down");
-        await Log.CloseAndFlushAsync();
-
-        base.OnExit(e);
+        catch (Exception ex)
+        {
+            // Last resort catch for any unexpected exceptions
+            // Use Debug.WriteLine since logger may be unavailable
+            System.Diagnostics.Debug.WriteLine($"Unexpected error during shutdown: {ex}");
+        }
+        finally
+        {
+            // Always call base.OnExit to ensure proper WPF shutdown
+            base.OnExit(e);
+        }
     }
 
     private void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)

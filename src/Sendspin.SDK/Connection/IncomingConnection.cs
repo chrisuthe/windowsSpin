@@ -106,7 +106,7 @@ public sealed class IncomingConnection : ISendspinConnection
         }
     }
 
-    public Task SendMessageAsync<T>(T message, CancellationToken cancellationToken = default) where T : IMessage
+    public async Task SendMessageAsync<T>(T message, CancellationToken cancellationToken = default) where T : IMessage
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -117,21 +117,19 @@ public sealed class IncomingConnection : ISendspinConnection
 
         var json = MessageSerializer.Serialize(message);
 
-        _sendLock.Wait(cancellationToken);
+        await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             _logger.LogDebug("Sending: {Message}", json);
-            _socket.Send(json);
+            await _socket.Send(json).ConfigureAwait(false);
         }
         finally
         {
             _sendLock.Release();
         }
-
-        return Task.CompletedTask;
     }
 
-    public Task SendBinaryAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
+    public async Task SendBinaryAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -140,17 +138,15 @@ public sealed class IncomingConnection : ISendspinConnection
             throw new InvalidOperationException("WebSocket is not connected");
         }
 
-        _sendLock.Wait(cancellationToken);
+        await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _socket.Send(data.ToArray());
+            await _socket.Send(data.ToArray()).ConfigureAwait(false);
         }
         finally
         {
             _sendLock.Release();
         }
-
-        return Task.CompletedTask;
     }
 
     /// <summary>

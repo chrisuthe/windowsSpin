@@ -34,6 +34,40 @@ namespace SendspinClient.ViewModels;
 /// </summary>
 public partial class MainViewModel : ViewModelBase
 {
+    #region UI Timing Constants
+
+    /// <summary>
+    /// Interval in milliseconds for the position interpolation timer.
+    /// Updates the progress bar smoothly between server position updates.
+    /// </summary>
+    private const int PositionTimerIntervalMs = 250;
+
+    /// <summary>
+    /// Debounce delay in milliseconds before clearing the audio buffer after static delay changes.
+    /// Prevents excessive buffer clears while the user is actively adjusting the slider.
+    /// </summary>
+    private const int StaticDelayClearDebounceMs = 300;
+
+    /// <summary>
+    /// Debounce delay in milliseconds before auto-saving settings changes.
+    /// Used for static delay, player name, and other settings that auto-save.
+    /// </summary>
+    private const int SettingsAutoSaveDebounceMs = 1000;
+
+    /// <summary>
+    /// Debounce delay in milliseconds before sending volume changes to the server.
+    /// Allows the volume slider to settle before sending the final value.
+    /// </summary>
+    private const int VolumeChangeDebounceMs = 150;
+
+    /// <summary>
+    /// Delay in milliseconds between disconnect and reconnect when applying player name changes.
+    /// Ensures clean disconnection before attempting to reconnect with new settings.
+    /// </summary>
+    private const int ReconnectDelayMs = 500;
+
+    #endregion
+
     private readonly ILogger<MainViewModel> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly IConfiguration _configuration;
@@ -45,6 +79,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly IDiscordRichPresenceService _discordService;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ClientCapabilities _clientCapabilities;
+    private readonly IUserSettingsService _settingsService;
     private SendspinClientService? _manualClient;
     private ISendspinConnection? _manualConnection;
     private readonly SemaphoreSlim _cleanupLock = new(1, 1);
@@ -340,7 +375,8 @@ public partial class MainViewModel : ViewModelBase
         INotificationService notificationService,
         IDiscordRichPresenceService discordService,
         IHttpClientFactory httpClientFactory,
-        ClientCapabilities clientCapabilities)
+        ClientCapabilities clientCapabilities,
+        IUserSettingsService settingsService)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -353,6 +389,7 @@ public partial class MainViewModel : ViewModelBase
         _discordService = discordService;
         _httpClientFactory = httpClientFactory;
         _clientCapabilities = clientCapabilities;
+        _settingsService = settingsService;
 
         // Load current logging settings
         LoadLoggingSettings();
@@ -370,10 +407,10 @@ public partial class MainViewModel : ViewModelBase
         // Subscribe to audio pipeline events for codec display
         _audioPipeline.StateChanged += OnAudioPipelineStateChanged;
 
-        // Initialize position interpolation timer (250ms interval for smooth progress)
+        // Initialize position interpolation timer for smooth progress bar updates
         _positionTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromMilliseconds(250)
+            Interval = TimeSpan.FromMilliseconds(PositionTimerIntervalMs)
         };
         _positionTimer.Tick += OnPositionTimerTick;
         _positionTimer.Start();
@@ -551,6 +588,27 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Creates and configures the manual client for connecting to a server.
+    /// This handles creation of the connection, client service, and event subscriptions.
+    /// </summary>
+    private void CreateAndConfigureManualClient()
+    {
+        _manualConnection = new SendspinConnection(
+            _loggerFactory.CreateLogger<SendspinConnection>());
+
+        _manualClient = new SendspinClientService(
+            _loggerFactory.CreateLogger<SendspinClientService>(),
+            _manualConnection,
+            clockSynchronizer: _clockSynchronizer,
+            capabilities: _clientCapabilities,
+            audioPipeline: _audioPipeline);
+
+        _manualClient.ConnectionStateChanged += OnManualClientConnectionStateChanged;
+        _manualClient.GroupStateChanged += OnManualClientGroupStateChanged;
+        _manualClient.ArtworkReceived += OnManualClientArtworkReceived;
+    }
+
+    /// <summary>
     /// Manually connect to a Sendspin server by URL (for cross-subnet scenarios).
     /// </summary>
     [RelayCommand]
@@ -600,24 +658,11 @@ public partial class MainViewModel : ViewModelBase
 
             _logger.LogInformation("Normalized URL: {OriginalUrl} -> {NormalizedUrl}", ManualServerUrl, serverUri);
 
-            // Create the connection and client service
-            _manualConnection = new SendspinConnection(
-                _loggerFactory.CreateLogger<SendspinConnection>());
+            // Create and configure the client
+            CreateAndConfigureManualClient();
 
-            _manualClient = new SendspinClientService(
-                _loggerFactory.CreateLogger<SendspinClientService>(),
-                _manualConnection,
-                clockSynchronizer: _clockSynchronizer,
-                capabilities: _clientCapabilities,
-                audioPipeline: _audioPipeline);
-
-            // Subscribe to events
-            _manualClient.ConnectionStateChanged += OnManualClientConnectionStateChanged;
-            _manualClient.GroupStateChanged += OnManualClientGroupStateChanged;
-            _manualClient.ArtworkReceived += OnManualClientArtworkReceived;
-
-            // Connect
-            await _manualClient.ConnectAsync(serverUri);
+            // Connect (null-forgiving: CreateAndConfigureManualClient always sets _manualClient)
+            await _manualClient!.ConnectAsync(serverUri);
 
             _logger.LogInformation("Manual connection initiated to {ServerUri}", serverUri);
         }
@@ -1079,24 +1124,11 @@ public partial class MainViewModel : ViewModelBase
 
         try
         {
-            // Create the connection and client service
-            _manualConnection = new SendspinConnection(
-                _loggerFactory.CreateLogger<SendspinConnection>());
+            // Create and configure the client
+            CreateAndConfigureManualClient();
 
-            _manualClient = new SendspinClientService(
-                _loggerFactory.CreateLogger<SendspinClientService>(),
-                _manualConnection,
-                clockSynchronizer: _clockSynchronizer,
-                capabilities: _clientCapabilities,
-                audioPipeline: _audioPipeline);
-
-            // Subscribe to events
-            _manualClient.ConnectionStateChanged += OnManualClientConnectionStateChanged;
-            _manualClient.GroupStateChanged += OnManualClientGroupStateChanged;
-            _manualClient.ArtworkReceived += OnManualClientArtworkReceived;
-
-            // Connect
-            await _manualClient.ConnectAsync(new Uri(url));
+            // Connect (null-forgiving: CreateAndConfigureManualClient always sets _manualClient)
+            await _manualClient!.ConnectAsync(new Uri(url));
 
             _autoConnectedServerId = server.ServerId;
             _logger.LogInformation("Auto-connected to {Name}", server.Name);
@@ -1234,7 +1266,7 @@ public partial class MainViewModel : ViewModelBase
         // Apply delay value immediately (this is cheap)
         _clockSynchronizer.StaticDelayMs = value;
 
-        // Debounce buffer clear - only clear after user stops adjusting for 300ms
+        // Debounce buffer clear - only clear after user stops adjusting the slider
         _staticDelayClearCts?.Cancel();
         _staticDelayClearCts?.Dispose();
         _staticDelayClearCts = new CancellationTokenSource();
@@ -1244,7 +1276,7 @@ public partial class MainViewModel : ViewModelBase
         {
             try
             {
-                await Task.Delay(300, clearCts.Token);
+                await Task.Delay(StaticDelayClearDebounceMs, clearCts.Token);
                 if (!clearCts.Token.IsCancellationRequested)
                 {
                     _audioPipeline.Clear();
@@ -1257,7 +1289,7 @@ public partial class MainViewModel : ViewModelBase
             }
         });
 
-        // Debounce auto-save - save after user stops adjusting for 1 second
+        // Debounce auto-save - save after user stops adjusting the slider
         _staticDelaySaveCts?.Cancel();
         _staticDelaySaveCts?.Dispose();
         _staticDelaySaveCts = new CancellationTokenSource();
@@ -1267,7 +1299,7 @@ public partial class MainViewModel : ViewModelBase
         {
             try
             {
-                await Task.Delay(1000, saveCts.Token);
+                await Task.Delay(SettingsAutoSaveDebounceMs, saveCts.Token);
                 if (!saveCts.Token.IsCancellationRequested)
                 {
                     await SaveStaticDelayAsync(value);
@@ -1287,28 +1319,7 @@ public partial class MainViewModel : ViewModelBase
     {
         try
         {
-            AppPaths.EnsureUserDataDirectoryExists();
-            var appSettingsPath = AppPaths.UserSettingsPath;
-
-            JsonNode? root;
-            if (File.Exists(appSettingsPath))
-            {
-                var json = await File.ReadAllTextAsync(appSettingsPath);
-                root = JsonNode.Parse(json) ?? new JsonObject();
-            }
-            else
-            {
-                root = new JsonObject();
-            }
-
-            var audioSection = root["Audio"]?.AsObject() ?? new JsonObject();
-            audioSection["StaticDelayMs"] = value;
-            root["Audio"] = audioSection;
-
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            var updatedJson = root.ToJsonString(options);
-            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
-
+            await _settingsService.UpdateSettingAsync("Audio", "StaticDelayMs", value);
             _logger.LogInformation("Static delay saved: {DelayMs}ms", value);
         }
         catch (Exception ex)
@@ -1323,7 +1334,7 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     partial void OnSettingsPlayerNameChanged(string value)
     {
-        // Debounce auto-save - save after user stops typing for 1 second
+        // Debounce auto-save - save after user stops typing
         _playerNameSaveCts?.Cancel();
         _playerNameSaveCts?.Dispose();
         _playerNameSaveCts = new CancellationTokenSource();
@@ -1333,7 +1344,7 @@ public partial class MainViewModel : ViewModelBase
         {
             try
             {
-                await Task.Delay(1000, saveCts.Token);
+                await Task.Delay(SettingsAutoSaveDebounceMs, saveCts.Token);
                 if (!saveCts.Token.IsCancellationRequested)
                 {
                     await SavePlayerNameAsync(value);
@@ -1353,27 +1364,7 @@ public partial class MainViewModel : ViewModelBase
     {
         try
         {
-            AppPaths.EnsureUserDataDirectoryExists();
-            var appSettingsPath = AppPaths.UserSettingsPath;
-
-            JsonNode? root;
-            if (File.Exists(appSettingsPath))
-            {
-                var json = await File.ReadAllTextAsync(appSettingsPath);
-                root = JsonNode.Parse(json) ?? new JsonObject();
-            }
-            else
-            {
-                root = new JsonObject();
-            }
-
-            var playerSection = root["Player"]?.AsObject() ?? new JsonObject();
-            playerSection["Name"] = name;
-            root["Player"] = playerSection;
-
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            var updatedJson = root.ToJsonString(options);
-            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+            await _settingsService.UpdateSettingAsync("Player", "Name", name);
 
             // Update client capabilities immediately
             _clientCapabilities.ClientName = name;
@@ -1437,28 +1428,7 @@ public partial class MainViewModel : ViewModelBase
     {
         try
         {
-            AppPaths.EnsureUserDataDirectoryExists();
-            var appSettingsPath = AppPaths.UserSettingsPath;
-
-            JsonNode? root;
-            if (File.Exists(appSettingsPath))
-            {
-                var json = await File.ReadAllTextAsync(appSettingsPath);
-                root = JsonNode.Parse(json) ?? new JsonObject();
-            }
-            else
-            {
-                root = new JsonObject();
-            }
-
-            var audioSection = root["Audio"]?.AsObject() ?? new JsonObject();
-            audioSection["DeviceId"] = deviceId;
-            root["Audio"] = audioSection;
-
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            var updatedJson = root.ToJsonString(options);
-            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
-
+            await _settingsService.UpdateSettingAsync("Audio", "DeviceId", deviceId);
             _logger.LogDebug("Audio device preference saved: {DeviceId}", deviceId ?? "default");
         }
         catch (Exception ex)
@@ -1507,7 +1477,7 @@ public partial class MainViewModel : ViewModelBase
         try
         {
             // Wait briefly before sending to allow slider to settle
-            await Task.Delay(150, cancellationToken);
+            await Task.Delay(VolumeChangeDebounceMs, cancellationToken);
 
             _logger.LogDebug("Sending volume change: {Volume}", volume);
 
@@ -1727,28 +1697,7 @@ public partial class MainViewModel : ViewModelBase
     {
         try
         {
-            AppPaths.EnsureUserDataDirectoryExists();
-            var appSettingsPath = AppPaths.UserSettingsPath;
-
-            JsonNode? root;
-            if (File.Exists(appSettingsPath))
-            {
-                var json = await File.ReadAllTextAsync(appSettingsPath);
-                root = JsonNode.Parse(json) ?? new JsonObject();
-            }
-            else
-            {
-                root = new JsonObject();
-            }
-
-            var connectionSection = root["Connection"]?.AsObject() ?? new JsonObject();
-            connectionSection["AutoConnectServerId"] = serverId;
-            root["Connection"] = connectionSection;
-
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            var updatedJson = root.ToJsonString(options);
-            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
-
+            await _settingsService.UpdateSettingAsync("Connection", "AutoConnectServerId", serverId);
             _logger.LogInformation("Auto-connect preference saved for server: {ServerId}", serverId);
         }
         catch (Exception ex)
@@ -1846,7 +1795,7 @@ public partial class MainViewModel : ViewModelBase
                 await DisconnectFromServerAsync();
 
                 // Small delay to ensure clean disconnection
-                await Task.Delay(500);
+                await Task.Delay(ReconnectDelayMs);
 
                 // Reconnect
                 if (!string.IsNullOrEmpty(currentServerUrl))

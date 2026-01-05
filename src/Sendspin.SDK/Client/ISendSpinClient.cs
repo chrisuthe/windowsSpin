@@ -87,4 +87,16 @@ public interface ISendspinClient : IAsyncDisposable
     /// Event raised when artwork is received.
     /// </summary>
     event EventHandler<byte[]>? ArtworkReceived;
+
+    /// <summary>
+    /// Event raised when the clock synchronizer first converges to a stable estimate.
+    /// This indicates that the client is ready for sample-accurate synchronized playback.
+    /// </summary>
+    event EventHandler<ClockSyncStatus>? ClockSyncConverged;
+
+    /// <summary>
+    /// Event raised when a sync offset is applied from external calibration (e.g., GroupSync).
+    /// The offset adjusts the static delay to compensate for speaker/room acoustics.
+    /// </summary>
+    event EventHandler<SyncOffsetEventArgs>? SyncOffsetApplied;
 }
