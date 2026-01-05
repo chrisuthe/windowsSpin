@@ -12,7 +12,7 @@ namespace SendspinClient;
 public partial class MainWindow : Window
 {
     private const double DefaultWidth = 400;
-    private const double DefaultHeight = 630;
+    private const double DefaultHeight = 780;
 
     public MainWindow()
     {

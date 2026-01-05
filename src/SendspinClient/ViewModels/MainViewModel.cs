@@ -180,6 +180,20 @@ public partial class MainViewModel : ViewModelBase
     private byte[]? _albumArtwork;
 
     /// <summary>
+    /// Gets or sets the current group name from the connected server.
+    /// Used for the Switch Group button tooltip.
+    /// </summary>
+    [ObservableProperty]
+    private string? _currentGroupName;
+
+    /// <summary>
+    /// Gets the tooltip text for the Switch Group button.
+    /// </summary>
+    public string CurrentGroupTooltip => string.IsNullOrEmpty(CurrentGroupName)
+        ? "Switch Group"
+        : $"Current: {CurrentGroupName}\nClick to switch";
+
+    /// <summary>
     /// Gets or sets the status message displayed in the UI.
     /// Shows connection state, errors, or "Now Playing" information.
     /// </summary>
@@ -541,6 +555,32 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Switches to the next available playback group.
+    /// The server will automatically move this player to a different group.
+    /// </summary>
+    [RelayCommand]
+    private async Task SwitchGroupAsync()
+    {
+        if (!IsConnected)
+        {
+            _logger.LogWarning("Switch group command ignored - not connected");
+            return;
+        }
+
+        try
+        {
+            _logger.LogInformation("Sending switch group command to server");
+            await SendCommandToActiveClientAsync(Commands.Switch);
+            _logger.LogInformation("Switch group command sent successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send switch group command");
+            ErrorMessage = "Failed to switch group";
+        }
+    }
+
+    /// <summary>
     /// Sends a command to the active client (manual client or host service).
     /// </summary>
     private async Task SendCommandToActiveClientAsync(string command, Dictionary<string, object>? parameters = null)
@@ -801,6 +841,9 @@ public partial class MainViewModel : ViewModelBase
                 IsMuted = group.Muted;
                 CurrentTrack = group.Metadata;
 
+                // Capture group name for Switch Group button
+                CurrentGroupName = group.Name ?? group.GroupId;
+
                 if (group.Metadata?.Duration.HasValue == true)
                 {
                     Duration = group.Metadata.Duration.Value;
@@ -969,6 +1012,9 @@ public partial class MainViewModel : ViewModelBase
                 Volume = group.Volume;
                 IsMuted = group.Muted;
                 CurrentTrack = group.Metadata;
+
+                // Capture group name for Switch Group button
+                CurrentGroupName = group.Name ?? group.GroupId;
 
                 if (group.Metadata?.Duration.HasValue == true)
                 {
@@ -1250,6 +1296,11 @@ public partial class MainViewModel : ViewModelBase
     partial void OnConnectedServerNameChanged(string? value)
     {
         UpdateTrayToolTip();
+    }
+
+    partial void OnCurrentGroupNameChanged(string? value)
+    {
+        OnPropertyChanged(nameof(CurrentGroupTooltip));
     }
 
     private CancellationTokenSource? _staticDelayClearCts;
