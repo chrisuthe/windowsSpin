@@ -32,6 +32,7 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     private readonly object _rateLock = new();
 
     private double _playbackRate = 1.0;
+    private double _targetRate = 1.0;
     private float[] _sourceBuffer;
     private bool _disposed;
 
@@ -45,6 +46,19 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     /// </summary>
     public const double MaxRate = 1.04;
 
+    /// <summary>
+    /// Smoothing factor for rate changes (0.0 to 1.0).
+    /// Lower values = smoother/slower transitions, higher = faster response.
+    /// At 0.05, we move 5% toward target each update (~10ms), reaching 90% in ~450ms.
+    /// </summary>
+    private const double RateSmoothingFactor = 0.05;
+
+    /// <summary>
+    /// Minimum rate change threshold before updating resampler (0.05% = 0.0005).
+    /// Prevents excessive SetRates() calls that can disturb filter state.
+    /// </summary>
+    private const double RateChangeThreshold = 0.0005;
+
     /// <inheritdoc/>
     public WaveFormat WaveFormat { get; }
 
@@ -54,6 +68,10 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     /// <remarks>
     /// <para>Values: 1.0 = normal speed, &gt;1.0 = faster, &lt;1.0 = slower.</para>
     /// <para>Clamped to range <see cref="MinRate"/> to <see cref="MaxRate"/>.</para>
+    /// <para>
+    /// Rate changes are exponentially smoothed to prevent audio artifacts from rapid
+    /// resampler ratio changes. The actual rate gradually moves toward the target.
+    /// </para>
     /// </remarks>
     public double PlaybackRate
     {
@@ -69,9 +87,17 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
             var clamped = Math.Clamp(value, MinRate, MaxRate);
             lock (_rateLock)
             {
-                if (Math.Abs(_playbackRate - clamped) > 0.0001)
+                // Store the target rate
+                _targetRate = clamped;
+
+                // Apply exponential smoothing: move partway toward target
+                // This prevents rapid rate changes from disturbing resampler filter state
+                var smoothedRate = _playbackRate + (_targetRate - _playbackRate) * RateSmoothingFactor;
+
+                // Only update resampler if change exceeds threshold (reduces SetRates calls)
+                if (Math.Abs(_playbackRate - smoothedRate) > RateChangeThreshold)
                 {
-                    _playbackRate = clamped;
+                    _playbackRate = smoothedRate;
                     UpdateResamplerRates();
                 }
             }
