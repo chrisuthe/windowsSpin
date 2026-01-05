@@ -18,6 +18,10 @@
             <converters:MuteIconConverter x:Key="MuteIconConverter"/>
             <converters:BoolToResizeModeConverter x:Key="BoolToResizeModeConverter"/>
 
+            <!-- Image converters -->
+            <local:ByteArrayToImageConverter x:Key="ByteArrayToImageConverter"/>
+            <local:BlurredImageConverter x:Key="BlurredImageConverter"/>
+
             <!-- System Tray Icon -->
             <tb:TaskbarIcon x:Key="TrayIcon"
                             IconSource="pack://application:,,,/Resources/Icons/sendspinTray.png"

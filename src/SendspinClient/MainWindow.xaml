@@ -9,894 +9,119 @@
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="WindowsSpin"
         Icon="Resources/Icons/sendspinDesktop.ico"
-        Height="680" Width="400"
-        MinHeight="600" MinWidth="350"
+        Height="780" Width="400"
+        MinHeight="750" MinWidth="350"
         ResizeMode="{Binding IsSettingsOpen, Converter={StaticResource BoolToResizeModeConverter}}"
         Background="{StaticResource BackgroundDarkBrush}"
         WindowStyle="SingleBorderWindow">
 
     <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-
-        <!-- Header -->
-        <Border Grid.Row="0" Background="{StaticResource BackgroundBrush}" Padding="16">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <!-- Title and subtitle -->
-                <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                    <!-- Show server name when connected, "Sendspin" when disconnected -->
-                    <TextBlock>
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock" BasedOn="{StaticResource HeaderText}">
-                                <Setter Property="Text" Value="Sendspin"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                                        <Setter Property="Text" Value="{Binding ConnectedServerName}"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-                    <!-- Show "Connected" when connected, "Windows Client" when disconnected -->
-                    <TextBlock Margin="0,4,0,0">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionText}">
-                                <Setter Property="Text" Value="Windows Client"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                                        <Setter Property="Text" Value="Connected"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-                </StackPanel>
-
-                <!-- Right side buttons -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <!-- Disconnect button (visible when connected) -->
-                    <Button Content="Disconnect"
-                            Command="{Binding DisconnectFromServerCommand}"
-                            Padding="12,6"
-                            Margin="0,0,8,0"
-                            Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}"
-                            Background="Transparent"
-                            Foreground="{StaticResource TextSecondaryBrush}"
-                            BorderThickness="1"
-                            BorderBrush="{StaticResource SurfaceLightBrush}"
-                            Cursor="Hand">
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="Button">
-                                            <Border Background="{TemplateBinding Background}"
-                                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                                    CornerRadius="4"
-                                                    Padding="{TemplateBinding Padding}">
-                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                                <Style.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-
-                    <!-- Settings gear icon (always visible) -->
-                    <Button Command="{Binding ToggleSettingsCommand}"
-                            ToolTip="Settings"
-                            Width="36" Height="36"
-                            Background="Transparent"
-                            Foreground="{StaticResource TextSecondaryBrush}"
-                            BorderThickness="0"
-                            Cursor="Hand">
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="Button">
-                                            <Border Background="{TemplateBinding Background}"
-                                                    CornerRadius="4">
-                                                <TextBlock Text="&#x2699;"
-                                                           FontSize="20"
-                                                           HorizontalAlignment="Center"
-                                                           VerticalAlignment="Center"
-                                                           Foreground="{TemplateBinding Foreground}"/>
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                                <Style.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
-                                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                    </Trigger>
-                                    <DataTrigger Binding="{Binding IsSettingsOpen}" Value="True">
-                                        <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-                </StackPanel>
-            </Grid>
-        </Border>
-
-        <!-- Welcome View (visible when disconnected and settings not open) -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-            <ScrollViewer.Style>
-                <Style TargetType="ScrollViewer" BasedOn="{StaticResource DarkScrollViewer}">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                    <Style.Triggers>
-                        <MultiDataTrigger>
-                            <MultiDataTrigger.Conditions>
-                                <Condition Binding="{Binding IsConnected}" Value="False"/>
-                                <Condition Binding="{Binding IsSettingsOpen}" Value="False"/>
-                            </MultiDataTrigger.Conditions>
-                            <Setter Property="Visibility" Value="Visible"/>
-                        </MultiDataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </ScrollViewer.Style>
-            <StackPanel>
-                <!-- Section 1: Player Identity -->
-                <Border Style="{StaticResource WelcomeCardStyle}">
-                    <StackPanel>
-                        <TextBlock Text="This Player" Style="{StaticResource WelcomeSectionHeader}"/>
-
-                        <!-- Editable player name -->
-                        <Grid Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0"
-                                       Text="Name:"
-                                       Style="{StaticResource BodyText}"
-                                       VerticalAlignment="Center"
-                                       Margin="0,0,12,0"/>
-                            <TextBox Grid.Column="1"
-                                     Text="{Binding SettingsPlayerName, UpdateSourceTrigger=PropertyChanged}"
-                                     Padding="8"
-                                     Background="{StaticResource BackgroundDarkBrush}"
-                                     Foreground="{StaticResource TextPrimaryBrush}"
-                                     BorderBrush="{StaticResource SurfaceLightBrush}"
-                                     BorderThickness="1"
-                                     VerticalContentAlignment="Center"/>
-                        </Grid>
-
-                        <!-- Broadcasting indicator (pulsing green dot) -->
-                        <StackPanel Orientation="Horizontal">
-                            <Ellipse Style="{StaticResource BroadcastingIndicator}"/>
-                            <TextBlock Text="Broadcasting - visible to servers"
-                                       Style="{StaticResource BodyText}"
-                                       Foreground="{StaticResource SuccessBrush}"
-                                       VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-
-                <!-- Section 2: Available Servers -->
-                <Border Style="{StaticResource WelcomeCardStyle}">
-                    <StackPanel>
-                        <TextBlock Text="Available Servers" Style="{StaticResource WelcomeSectionHeader}"/>
-
-                        <!-- Server list -->
-                        <ItemsControl ItemsSource="{Binding DiscoveredServers}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Style="{StaticResource ServerCardStyle}"
-                                            MouseLeftButtonUp="ServerCard_Click"
-                                            Tag="{Binding}">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0">
-                                                <TextBlock Text="{Binding Name}"
-                                                           Style="{StaticResource BodyText}"
-                                                           FontWeight="Medium"/>
-                                                <TextBlock Style="{StaticResource CaptionText}"
-                                                           Foreground="{StaticResource TextMutedBrush}">
-                                                    <TextBlock.Text>
-                                                        <MultiBinding StringFormat="{}{0}:{1}">
-                                                            <Binding Path="Host"/>
-                                                            <Binding Path="Port"/>
-                                                        </MultiBinding>
-                                                    </TextBlock.Text>
-                                                </TextBlock>
-                                            </StackPanel>
-                                            <TextBlock Grid.Column="1"
-                                                       Text=">"
-                                                       FontSize="16"
-                                                       Foreground="{StaticResource TextMutedBrush}"
-                                                       VerticalAlignment="Center"
-                                                       Margin="8,0,0,0"/>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-
-                        <!-- Searching state (no servers found yet, but discovery is running) -->
-                        <StackPanel Visibility="{Binding IsSearchingForServers, Converter={StaticResource BoolToVisibilityConverter}}"
-                                    Margin="0,8,0,0">
-                            <TextBlock Text="🔍" Style="{StaticResource SearchingIcon}"/>
-                            <TextBlock Text="Searching for servers..."
-                                       Style="{StaticResource CaptionText}"
-                                       HorizontalAlignment="Center"
-                                       Foreground="{StaticResource TextMutedBrush}"
-                                       Margin="0,8,0,0"/>
-                        </StackPanel>
-
-                        <!-- Empty state (no servers, not searching - probably not hosting) -->
-                        <StackPanel Margin="0,8,0,0">
-                            <StackPanel.Style>
-                                <Style TargetType="StackPanel">
-                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                    <Style.Triggers>
-                                        <MultiDataTrigger>
-                                            <MultiDataTrigger.Conditions>
-                                                <Condition Binding="{Binding DiscoveredServers.Count}" Value="0"/>
-                                                <Condition Binding="{Binding IsSearchingForServers}" Value="False"/>
-                                            </MultiDataTrigger.Conditions>
-                                            <Setter Property="Visibility" Value="Visible"/>
-                                        </MultiDataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </StackPanel.Style>
-                            <TextBlock Text="No servers found"
-                                       Style="{StaticResource BodyText}"
-                                       HorizontalAlignment="Center"
-                                       Margin="0,0,0,4"/>
-                            <TextBlock Text="For cross-subnet connections, use manual connection below."
-                                       Style="{StaticResource CaptionText}"
-                                       HorizontalAlignment="Center"
-                                       Foreground="{StaticResource TextMutedBrush}"
-                                       TextWrapping="Wrap"
-                                       TextAlignment="Center"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-
-                <!-- Section 3: Manual Connection (collapsible) -->
-                <Expander Header="Advanced: Connect by URL"
-                          Style="{StaticResource CollapsibleSectionStyle}">
-                    <StackPanel>
-                        <TextBlock Text="For cross-subnet connections, enter the server URL directly:"
-                                   Style="{StaticResource BodyText}"
-                                   TextWrapping="Wrap"
-                                   Opacity="0.7"
-                                   Margin="0,0,0,12"
-                                   FontSize="11"/>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBox Grid.Column="0"
-                                     Text="{Binding ManualServerUrl, UpdateSourceTrigger=PropertyChanged}"
-                                     Padding="8"
-                                     Background="{StaticResource BackgroundDarkBrush}"
-                                     Foreground="{StaticResource TextPrimaryBrush}"
-                                     BorderBrush="{StaticResource SurfaceLightBrush}"
-                                     BorderThickness="1"
-                                     VerticalContentAlignment="Center"
-                                     FontFamily="Consolas"
-                                     FontSize="11"/>
-                            <Button Grid.Column="1"
-                                    Content="Connect"
-                                    Command="{Binding ConnectToServerCommand}"
-                                    IsEnabled="{Binding IsConnecting, Converter={StaticResource InverseBoolConverter}}"
-                                    Style="{StaticResource PrimaryButtonStyle}"
-                                    Margin="8,0,0,0"/>
-                        </Grid>
-                        <!-- Connecting indicator -->
-                        <TextBlock Text="Connecting..."
-                                   Style="{StaticResource CaptionText}"
-                                   Margin="0,8,0,0"
-                                   Visibility="{Binding IsConnecting, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                    </StackPanel>
-                </Expander>
-            </StackPanel>
-        </ScrollViewer>
-
-        <!-- Auto-Connect Dialog (modal overlay) -->
-        <Border Grid.Row="0" Grid.RowSpan="3"
-                Style="{StaticResource DialogOverlay}"
-                Visibility="{Binding ShowAutoConnectDialog, Converter={StaticResource BoolToVisibilityConverter}}">
-            <Border Style="{StaticResource DialogCard}">
-                <StackPanel>
-                    <TextBlock Text="Connect to this server?"
-                               Style="{StaticResource SubHeaderText}"
-                               Margin="0,0,0,8"/>
-                    <TextBlock Text="{Binding PendingConnectionServer.Name}"
-                               Style="{StaticResource BodyText}"
-                               FontWeight="Medium"
-                               Margin="0,0,0,4"/>
-                    <TextBlock Style="{StaticResource CaptionText}"
-                               Foreground="{StaticResource TextMutedBrush}"
-                               Margin="0,0,0,16">
-                        <TextBlock.Text>
-                            <MultiBinding StringFormat="{}{0}:{1}">
-                                <Binding Path="PendingConnectionServer.Host"/>
-                                <Binding Path="PendingConnectionServer.Port"/>
-                            </MultiBinding>
-                        </TextBlock.Text>
-                    </TextBlock>
-
-                    <TextBlock Text="Always connect to this server when it's available?"
-                               Style="{StaticResource BodyText}"
-                               TextWrapping="Wrap"
-                               Margin="0,0,0,16"/>
-
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="Cancel"
-                                Command="{Binding CancelServerSelectionCommand}"
-                                Style="{StaticResource TextLinkButtonStyle}"
-                                Margin="0,0,8,0"/>
-                        <Button Content="Just Once"
-                                Command="{Binding ConnectOnceCommand}"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                Margin="0,0,8,0"/>
-                        <Button Content="Always"
-                                Command="{Binding ConnectAlwaysCommand}"
-                                Style="{StaticResource PrimaryButtonStyle}"/>
-                    </StackPanel>
-                </StackPanel>
-            </Border>
-        </Border>
-
-        <!-- Now Playing Section - hidden when settings open -->
-        <Border Grid.Row="1"
-                Margin="16,8"
-                Background="{StaticResource SurfaceBrush}"
-                CornerRadius="8"
-                Padding="24"
-                VerticalAlignment="Top">
+        <!-- Layer 0: Blurred Background (full window, behind everything) -->
+        <Border>
             <Border.Style>
                 <Style TargetType="Border">
-                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Setter Property="Visibility" Value="Visible"/>
                     <Style.Triggers>
-                        <MultiDataTrigger>
-                            <MultiDataTrigger.Conditions>
-                                <Condition Binding="{Binding IsConnected}" Value="True"/>
-                                <Condition Binding="{Binding IsSettingsOpen}" Value="False"/>
-                            </MultiDataTrigger.Conditions>
-                            <Setter Property="Visibility" Value="Visible"/>
-                        </MultiDataTrigger>
+                        <DataTrigger Binding="{Binding AlbumArtwork}" Value="{x:Null}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsConnected}" Value="False">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
                     </Style.Triggers>
                 </Style>
             </Border.Style>
-            <StackPanel HorizontalAlignment="Center">
-                <!-- Large Centered Album Art -->
-                <Border HorizontalAlignment="Center"
-                        Width="180" Height="180"
-                        Background="{StaticResource SurfaceLightBrush}"
-                        CornerRadius="8"
-                        Margin="0,0,0,16">
-                    <Grid>
-                        <!-- Placeholder icon when no artwork -->
-                        <TextBlock Text="&#x1F3B5;"
-                                   FontSize="64"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"
-                                   Visibility="{Binding AlbumArtwork, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=inverse}"/>
-                        <!-- Actual artwork -->
-                        <Image Stretch="UniformToFill"
-                               Visibility="{Binding AlbumArtwork, Converter={StaticResource NullToVisibilityConverter}}">
-                            <Image.Source>
-                                <Binding Path="AlbumArtwork">
-                                    <Binding.Converter>
-                                        <local:ByteArrayToImageConverter/>
-                                    </Binding.Converter>
-                                </Binding>
-                            </Image.Source>
-                        </Image>
-                    </Grid>
-                </Border>
+            <Border.Background>
+                <ImageBrush ImageSource="{Binding AlbumArtwork, Converter={StaticResource BlurredImageConverter}}"
+                            Stretch="UniformToFill"/>
+            </Border.Background>
+        </Border>
 
-                <!-- Track Info (centered below album art) -->
-                <TextBlock Text="{Binding CurrentTrack.Title, FallbackValue='Not Playing'}"
-                           Style="{StaticResource SubHeaderText}"
-                           TextAlignment="Center"
-                           TextTrimming="CharacterEllipsis"
-                           MaxWidth="280"/>
-                <TextBlock Text="{Binding CurrentTrack.Artist, FallbackValue=''}"
-                           Style="{StaticResource BodyText}"
-                           TextAlignment="Center"
-                           TextTrimming="CharacterEllipsis"
-                           Margin="0,4,0,0"
-                           MaxWidth="280"/>
-                <TextBlock Text="{Binding CurrentCodec}"
-                           Style="{StaticResource CaptionText}"
-                           TextAlignment="Center"
-                           Opacity="0.6"
-                           Margin="0,8,0,0"
-                           Visibility="{Binding CurrentCodec, Converter={StaticResource NullToVisibilityConverter}}"/>
+        <!-- Layer 1: Dark gradient overlay for readability -->
+        <Border>
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Visible"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsConnected}" Value="False">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#881E1E2E" Offset="0"/>
+                    <GradientStop Color="#AA1E1E2E" Offset="0.4"/>
+                    <GradientStop Color="#DD1E1E2E" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.Background>
+        </Border>
 
-                <!-- Progress Bar Section -->
-                <Grid Margin="0,16,0,0" Width="280"
-                      Visibility="{Binding CurrentTrack, Converter={StaticResource NullToVisibilityConverter}}">
+        <!-- Layer 2: Content Grid -->
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Header (semi-transparent when connected) -->
+            <Border Grid.Row="0" Padding="16">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                <Setter Property="Background" Value="Transparent"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- Elapsed Time -->
-                    <TextBlock Grid.Column="0"
-                               Text="{Binding PositionFormatted}"
-                               Style="{StaticResource CaptionText}"
-                               Opacity="0.8"
-                               VerticalAlignment="Center"/>
-
-                    <!-- Progress Bar -->
-                    <ProgressBar Grid.Column="1"
-                                 Margin="12,0"
-                                 Value="{Binding ProgressPercent, Mode=OneWay}"
-                                 Maximum="100"
-                                 Height="4"
-                                 VerticalAlignment="Center"
-                                 Foreground="{StaticResource AccentBrush}"
-                                 Background="{StaticResource SurfaceLightBrush}"/>
-
-                    <!-- Duration -->
-                    <TextBlock Grid.Column="2"
-                               Text="{Binding DurationFormatted}"
-                               Style="{StaticResource CaptionText}"
-                               Opacity="0.8"
-                               VerticalAlignment="Center"/>
-                </Grid>
-            </StackPanel>
-        </Border>
-
-        <!-- Settings Panel -->
-        <Border Grid.Row="1"
-                Margin="16,8"
-                Background="{StaticResource SurfaceBrush}"
-                CornerRadius="8"
-                Padding="20"
-                VerticalAlignment="Stretch"
-                Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolToVisibilityConverter}}">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-
-                <!-- Settings Header -->
-                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,16">
-                    <TextBlock Text="&#x2699;" FontSize="18" VerticalAlignment="Center" Margin="0,0,8,0"
-                               Foreground="{StaticResource TextSecondaryBrush}"/>
-                    <TextBlock Text="Settings" Style="{StaticResource SubHeaderText}"/>
-                </StackPanel>
-
-                <!-- Settings Content -->
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
-                              Style="{StaticResource DarkScrollViewer}">
-                    <StackPanel>
-                        <!-- General Section -->
-                        <TextBlock Text="GENERAL" Style="{StaticResource CaptionText}"
-                                   Foreground="{StaticResource TextMutedBrush}"
-                                   Margin="0,0,0,12"/>
-
-                        <!-- Show Notifications -->
-                        <Grid Margin="0,0,0,16">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="Show Notifications" Style="{StaticResource BodyText}"/>
-                                <TextBlock Text="Display toast notifications for track changes"
-                                           Style="{StaticResource CaptionText}"
-                                           Foreground="{StaticResource TextMutedBrush}"
-                                           Margin="0,2,0,0"/>
-                            </StackPanel>
-                            <CheckBox Grid.Column="1"
-                                      IsChecked="{Binding SettingsShowNotifications}"
-                                      VerticalAlignment="Center"/>
-                        </Grid>
-
-                        <!-- Discord Rich Presence -->
-                        <Grid Margin="0,0,0,16">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="Discord Rich Presence" Style="{StaticResource BodyText}"/>
-                                <TextBlock Text="Show now playing in Discord activity status"
-                                           Style="{StaticResource CaptionText}"
-                                           Foreground="{StaticResource TextMutedBrush}"
-                                           Margin="0,2,0,0"/>
-                            </StackPanel>
-                            <CheckBox Grid.Column="1"
-                                      IsChecked="{Binding SettingsShowDiscordPresence}"
-                                      VerticalAlignment="Center"/>
-                        </Grid>
-
-                        <!-- Player Name -->
-                        <StackPanel Margin="0,0,0,16">
-                            <TextBlock Text="Player Name" Style="{StaticResource BodyText}"/>
-                            <TextBlock Text="Name shown to servers in multi-room setups"
-                                       Style="{StaticResource CaptionText}"
-                                       Foreground="{StaticResource TextMutedBrush}"
-                                       Margin="0,2,0,0"/>
-                            <TextBox Margin="0,8,0,0"
-                                     Text="{Binding SettingsPlayerName, UpdateSourceTrigger=PropertyChanged}"
-                                     Padding="8"
-                                     Background="{StaticResource BackgroundDarkBrush}"
-                                     Foreground="{StaticResource TextPrimaryBrush}"
-                                     BorderBrush="{StaticResource SurfaceLightBrush}"
-                                     BorderThickness="1"
-                                     VerticalContentAlignment="Center"/>
-                        </StackPanel>
-
-                        <!-- Audio Section -->
-                        <TextBlock Text="AUDIO" Style="{StaticResource CaptionText}"
-                                   Foreground="{StaticResource TextMutedBrush}"
-                                   Margin="0,8,0,12"/>
-
-                        <!-- Playback Device -->
-                        <StackPanel Margin="0,0,0,16">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="Playback Device" Style="{StaticResource BodyText}"/>
-                                    <TextBlock Text="Audio output device for playback"
-                                               Style="{StaticResource CaptionText}"
-                                               Foreground="{StaticResource TextMutedBrush}"
-                                               Margin="0,2,0,0"/>
-                                </StackPanel>
-                                <Button Grid.Column="1"
-                                        Content="&#x21BB;"
-                                        Command="{Binding RefreshAudioDevicesCommand}"
-                                        ToolTip="Refresh device list"
-                                        Width="28" Height="28"
-                                        FontSize="14"
-                                        Background="Transparent"
-                                        Foreground="{StaticResource TextSecondaryBrush}"
-                                        BorderThickness="0"
-                                        Cursor="Hand"
-                                        VerticalAlignment="Center">
-                                    <Button.Style>
-                                        <Style TargetType="Button">
-                                            <Setter Property="Template">
-                                                <Setter.Value>
-                                                    <ControlTemplate TargetType="Button">
-                                                        <Border Background="{TemplateBinding Background}"
-                                                                CornerRadius="4">
-                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                        </Border>
-                                                    </ControlTemplate>
-                                                </Setter.Value>
-                                            </Setter>
-                                            <Style.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
-                                                    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                                </Trigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Button.Style>
-                                </Button>
-                            </Grid>
-                            <ComboBox Margin="0,8,0,0"
-                                      HorizontalAlignment="Stretch"
-                                      ItemsSource="{Binding AvailableAudioDevices}"
-                                      SelectedItem="{Binding SettingsSelectedAudioDevice}"
-                                      DisplayMemberPath="DisplayName"
-                                      Style="{StaticResource DarkComboBox}"
-                                      ItemContainerStyle="{StaticResource DarkComboBoxItem}"/>
-                        </StackPanel>
-
-                        <!-- Audio Sync Section -->
-                        <TextBlock Text="AUDIO SYNC" Style="{StaticResource CaptionText}"
-                                   Foreground="{StaticResource TextMutedBrush}"
-                                   Margin="0,8,0,12"/>
-
-                        <!-- Static Delay -->
-                        <StackPanel Margin="0,0,0,16">
-                            <TextBlock Text="Static Delay" Style="{StaticResource BodyText}"/>
-                            <TextBlock Text="Adjust timing to sync with other players. Positive = play later."
-                                       Style="{StaticResource CaptionText}"
-                                       Foreground="{StaticResource TextMutedBrush}"
-                                       Margin="0,2,0,0"
-                                       TextWrapping="Wrap"/>
-                            <Grid Margin="0,8,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <!-- Decrement button -->
-                                <Button Grid.Column="0"
-                                        Content="−"
-                                        Command="{Binding DecrementStaticDelayCommand}"
-                                        Width="28" Height="28"
-                                        Background="{StaticResource SurfaceBrush}"
-                                        Foreground="{StaticResource TextPrimaryBrush}"
-                                        BorderThickness="1"
-                                        BorderBrush="{StaticResource SurfaceLightBrush}"
-                                        FontSize="16"
-                                        FontWeight="Bold"
-                                        Cursor="Hand"
-                                        VerticalAlignment="Center"
-                                        Margin="0,0,8,0">
-                                    <Button.Style>
-                                        <Style TargetType="Button">
-                                            <Setter Property="Template">
-                                                <Setter.Value>
-                                                    <ControlTemplate TargetType="Button">
-                                                        <Border Background="{TemplateBinding Background}"
-                                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                                BorderThickness="{TemplateBinding BorderThickness}"
-                                                                CornerRadius="4">
-                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                        </Border>
-                                                    </ControlTemplate>
-                                                </Setter.Value>
-                                            </Setter>
-                                            <Style.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter Property="Background" Value="{StaticResource SurfaceLightBrush}"/>
-                                                </Trigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Button.Style>
-                                </Button>
-                                <!-- Slider -->
-                                <Slider Grid.Column="1"
-                                        Minimum="-5000" Maximum="5000"
-                                        Value="{Binding SettingsStaticDelayMs}"
-                                        TickFrequency="500"
-                                        IsSnapToTickEnabled="False"
-                                        VerticalAlignment="Center"/>
-                                <!-- Increment button -->
-                                <Button Grid.Column="2"
-                                        Content="+"
-                                        Command="{Binding IncrementStaticDelayCommand}"
-                                        Width="28" Height="28"
-                                        Background="{StaticResource SurfaceBrush}"
-                                        Foreground="{StaticResource TextPrimaryBrush}"
-                                        BorderThickness="1"
-                                        BorderBrush="{StaticResource SurfaceLightBrush}"
-                                        FontSize="16"
-                                        FontWeight="Bold"
-                                        Cursor="Hand"
-                                        VerticalAlignment="Center"
-                                        Margin="8,0,8,0">
-                                    <Button.Style>
-                                        <Style TargetType="Button">
-                                            <Setter Property="Template">
-                                                <Setter.Value>
-                                                    <ControlTemplate TargetType="Button">
-                                                        <Border Background="{TemplateBinding Background}"
-                                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                                BorderThickness="{TemplateBinding BorderThickness}"
-                                                                CornerRadius="4">
-                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                        </Border>
-                                                    </ControlTemplate>
-                                                </Setter.Value>
-                                            </Setter>
-                                            <Style.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter Property="Background" Value="{StaticResource SurfaceLightBrush}"/>
-                                                </Trigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Button.Style>
-                                </Button>
-                                <!-- Editable value -->
-                                <TextBox Grid.Column="3"
-                                         Text="{Binding SettingsStaticDelayMs, UpdateSourceTrigger=PropertyChanged, StringFormat=0}"
-                                         Width="60"
-                                         Background="{StaticResource SurfaceBrush}"
-                                         Foreground="{StaticResource TextPrimaryBrush}"
-                                         BorderBrush="{StaticResource SurfaceLightBrush}"
-                                         BorderThickness="1"
-                                         Padding="4,4"
-                                         VerticalAlignment="Center"
-                                         HorizontalContentAlignment="Right"
-                                         PreviewTextInput="NumericTextBox_PreviewTextInput"
-                                         DataObject.Pasting="NumericTextBox_Pasting"/>
-                                <!-- ms suffix -->
-                                <TextBlock Grid.Column="4"
-                                           Text="ms"
-                                           Style="{StaticResource CaptionText}"
-                                           Foreground="{StaticResource TextMutedBrush}"
-                                           VerticalAlignment="Center"
-                                           Margin="4,0,0,0"/>
-                            </Grid>
-                        </StackPanel>
-
-                        <!-- Logging Section -->
-                        <TextBlock Text="LOGGING" Style="{StaticResource CaptionText}"
-                                   Foreground="{StaticResource TextMutedBrush}"
-                                   Margin="0,0,0,12"/>
-
-                        <!-- Log Level -->
-                        <StackPanel Margin="0,0,0,16">
-                            <TextBlock Text="Log Level" Style="{StaticResource BodyText}"/>
-                            <TextBlock Text="Controls verbosity of log output"
-                                       Style="{StaticResource CaptionText}"
-                                       Foreground="{StaticResource TextMutedBrush}"
-                                       Margin="0,2,0,0"/>
-                            <ComboBox Margin="0,8,0,0"
-                                      HorizontalAlignment="Stretch"
-                                      ItemsSource="{Binding AvailableLogLevels}"
-                                      SelectedItem="{Binding SettingsLogLevel}"
-                                      Style="{StaticResource DarkComboBox}"
-                                      ItemContainerStyle="{StaticResource DarkComboBoxItem}"/>
-                        </StackPanel>
-
-                        <!-- Enable File Logging -->
-                        <Grid Margin="0,0,0,16">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="File Logging" Style="{StaticResource BodyText}"/>
-                                <TextBlock Text="Write logs to disk for troubleshooting"
-                                           Style="{StaticResource CaptionText}"
-                                           Foreground="{StaticResource TextMutedBrush}"
-                                           Margin="0,2,0,0"/>
-                            </StackPanel>
-                            <CheckBox Grid.Column="1"
-                                      IsChecked="{Binding SettingsEnableFileLogging}"
-                                      VerticalAlignment="Center"/>
-                        </Grid>
-
-                        <!-- Enable Console Logging -->
-                        <Grid Margin="0,0,0,16">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="Console Logging" Style="{StaticResource BodyText}"/>
-                                <TextBlock Text="Output logs to console (for debugging)"
-                                           Style="{StaticResource CaptionText}"
-                                           Foreground="{StaticResource TextMutedBrush}"
-                                           Margin="0,2,0,0"/>
-                            </StackPanel>
-                            <CheckBox Grid.Column="1"
-                                      IsChecked="{Binding SettingsEnableConsoleLogging}"
-                                      VerticalAlignment="Center"/>
-                        </Grid>
-
-                        <!-- Log Folder -->
-                        <Border Background="{StaticResource BackgroundDarkBrush}"
-                                CornerRadius="4"
-                                Padding="12"
-                                Margin="0,0,0,8">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="Log Location" Style="{StaticResource CaptionText}"
-                                               Foreground="{StaticResource TextMutedBrush}"/>
-                                    <TextBlock Text="{Binding LogFilePath}"
-                                               Style="{StaticResource CaptionText}"
-                                               TextTrimming="CharacterEllipsis"
-                                               Margin="0,4,8,0"
-                                               ToolTip="{Binding LogFilePath}"/>
-                                </StackPanel>
-                                <Button Grid.Column="1"
-                                        Content="Open"
-                                        Command="{Binding OpenLogFolderCommand}"
-                                        Padding="12,6"
-                                        Background="Transparent"
-                                        Foreground="{StaticResource PrimaryLightBrush}"
-                                        BorderThickness="1"
-                                        BorderBrush="{StaticResource PrimaryBrush}"
-                                        Cursor="Hand"
-                                        VerticalAlignment="Center">
-                                    <Button.Style>
-                                        <Style TargetType="Button">
-                                            <Setter Property="Template">
-                                                <Setter.Value>
-                                                    <ControlTemplate TargetType="Button">
-                                                        <Border Background="{TemplateBinding Background}"
-                                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                                BorderThickness="{TemplateBinding BorderThickness}"
-                                                                CornerRadius="4"
-                                                                Padding="{TemplateBinding Padding}">
-                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                        </Border>
-                                                    </ControlTemplate>
-                                                </Setter.Value>
-                                            </Setter>
-                                            <Style.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
-                                                    <Setter Property="Foreground" Value="White"/>
-                                                </Trigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Button.Style>
-                                </Button>
-                            </Grid>
-                        </Border>
-
-                        <!-- Diagnostics Section -->
-                        <TextBlock Text="DIAGNOSTICS" Style="{StaticResource CaptionText}"
-                                   Foreground="{StaticResource TextMutedBrush}"
-                                   Margin="0,0,0,12"/>
-
-                        <Button Command="{Binding OpenStatsWindowCommand}"
-                                Padding="12,10"
-                                HorizontalAlignment="Stretch"
-                                Background="{StaticResource SurfaceLightBrush}"
-                                Foreground="{StaticResource TextPrimaryBrush}"
-                                BorderThickness="0"
-                                Cursor="Hand">
-                            <Button.Style>
-                                <Style TargetType="Button">
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="Button">
-                                                <Border Background="{TemplateBinding Background}"
-                                                        CornerRadius="4"
-                                                        Padding="{TemplateBinding Padding}">
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <TextBlock Text="&#x1F4CA;" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                                        <StackPanel>
-                                                            <TextBlock Text="Stats for Nerds" FontWeight="SemiBold"/>
-                                                            <TextBlock Text="Real-time audio sync diagnostics"
-                                                                       FontSize="11" Opacity="0.7"/>
-                                                        </StackPanel>
-                                                    </StackPanel>
-                                                </Border>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
+                    <!-- Title and subtitle -->
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <!-- Show server name when connected, "Sendspin" when disconnected -->
+                        <TextBlock>
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource HeaderText}">
+                                    <Setter Property="Text" Value="Sendspin"/>
                                     <Style.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
-                                        </Trigger>
+                                        <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                            <Setter Property="Text" Value="{Binding ConnectedServerName}"/>
+                                        </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
-                            </Button.Style>
-                        </Button>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <!-- Show "Connected" when connected, "Windows Client" when disconnected -->
+                        <TextBlock Margin="0,4,0,0">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionText}">
+                                    <Setter Property="Text" Value="Windows Client"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                            <Setter Property="Text" Value="Connected"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                     </StackPanel>
-                </ScrollViewer>
 
-                <!-- Settings Actions -->
-                <StackPanel Grid.Row="2" Margin="0,16,0,0">
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="Cancel"
-                                Command="{Binding CloseSettingsCommand}"
-                                Padding="16,8"
+                    <!-- Right side buttons -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <!-- Disconnect button (visible when connected) -->
+                        <Button Content="Disconnect"
+                                Command="{Binding DisconnectFromServerCommand}"
+                                Padding="12,6"
                                 Margin="0,0,8,0"
+                                Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}"
                                 Background="Transparent"
                                 Foreground="{StaticResource TextSecondaryBrush}"
                                 BorderThickness="1"
@@ -925,11 +150,13 @@
                                 </Style>
                             </Button.Style>
                         </Button>
-                        <Button Content="Save"
-                                Command="{Binding SaveSettingsCommand}"
-                                Padding="16,8"
-                                Background="{StaticResource PrimaryBrush}"
-                                Foreground="White"
+
+                        <!-- Settings gear icon (always visible) -->
+                        <Button Command="{Binding ToggleSettingsCommand}"
+                                ToolTip="Settings"
+                                Width="36" Height="36"
+                                Background="Transparent"
+                                Foreground="{StaticResource TextSecondaryBrush}"
                                 BorderThickness="0"
                                 Cursor="Hand">
                             <Button.Style>
@@ -938,68 +165,933 @@
                                         <Setter.Value>
                                             <ControlTemplate TargetType="Button">
                                                 <Border Background="{TemplateBinding Background}"
-                                                        CornerRadius="4"
-                                                        Padding="{TemplateBinding Padding}">
-                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        CornerRadius="4">
+                                                    <TextBlock Text="&#x2699;"
+                                                               FontSize="20"
+                                                               HorizontalAlignment="Center"
+                                                               VerticalAlignment="Center"
+                                                               Foreground="{TemplateBinding Foreground}"/>
                                                 </Border>
                                             </ControlTemplate>
                                         </Setter.Value>
                                     </Setter>
                                     <Style.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter Property="Opacity" Value="0.9"/>
+                                            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                                         </Trigger>
+                                        <DataTrigger Binding="{Binding IsSettingsOpen}" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}"/>
+                                        </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
                             </Button.Style>
                         </Button>
                     </StackPanel>
+                </Grid>
+            </Border>
 
-                    <!-- Version display -->
-                    <TextBlock Text="{Binding AppVersion, StringFormat='v{0}'}"
-                               Style="{StaticResource CaptionText}"
-                               Foreground="{StaticResource TextMutedBrush}"
-                               HorizontalAlignment="Center"
-                               Margin="0,12,0,0"/>
+            <!-- Welcome View (visible when disconnected and settings not open) -->
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer.Style>
+                    <Style TargetType="ScrollViewer" BasedOn="{StaticResource DarkScrollViewer}">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding IsConnected}" Value="False"/>
+                                    <Condition Binding="{Binding IsSettingsOpen}" Value="False"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </MultiDataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ScrollViewer.Style>
+                <StackPanel>
+                    <!-- Section 1: Player Identity -->
+                    <Border Style="{StaticResource WelcomeCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="This Player" Style="{StaticResource WelcomeSectionHeader}"/>
+
+                            <!-- Editable player name -->
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Text="Name:"
+                                           Style="{StaticResource BodyText}"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,12,0"/>
+                                <TextBox Grid.Column="1"
+                                         Text="{Binding SettingsPlayerName, UpdateSourceTrigger=PropertyChanged}"
+                                         Padding="8"
+                                         Background="{StaticResource BackgroundDarkBrush}"
+                                         Foreground="{StaticResource TextPrimaryBrush}"
+                                         BorderBrush="{StaticResource SurfaceLightBrush}"
+                                         BorderThickness="1"
+                                         VerticalContentAlignment="Center"/>
+                            </Grid>
+
+                            <!-- Broadcasting indicator (pulsing green dot) -->
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse Style="{StaticResource BroadcastingIndicator}"/>
+                                <TextBlock Text="Broadcasting - visible to servers"
+                                           Style="{StaticResource BodyText}"
+                                           Foreground="{StaticResource SuccessBrush}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Section 2: Available Servers -->
+                    <Border Style="{StaticResource WelcomeCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Available Servers" Style="{StaticResource WelcomeSectionHeader}"/>
+
+                            <!-- Server list -->
+                            <ItemsControl ItemsSource="{Binding DiscoveredServers}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Style="{StaticResource ServerCardStyle}"
+                                                MouseLeftButtonUp="ServerCard_Click"
+                                                Tag="{Binding}">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0">
+                                                    <TextBlock Text="{Binding Name}"
+                                                               Style="{StaticResource BodyText}"
+                                                               FontWeight="Medium"/>
+                                                    <TextBlock Style="{StaticResource CaptionText}"
+                                                               Foreground="{StaticResource TextMutedBrush}">
+                                                        <TextBlock.Text>
+                                                            <MultiBinding StringFormat="{}{0}:{1}">
+                                                                <Binding Path="Host"/>
+                                                                <Binding Path="Port"/>
+                                                            </MultiBinding>
+                                                        </TextBlock.Text>
+                                                    </TextBlock>
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="1"
+                                                           Text=">"
+                                                           FontSize="16"
+                                                           Foreground="{StaticResource TextMutedBrush}"
+                                                           VerticalAlignment="Center"
+                                                           Margin="8,0,0,0"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <!-- Searching state (no servers found yet, but discovery is running) -->
+                            <StackPanel Visibility="{Binding IsSearchingForServers, Converter={StaticResource BoolToVisibilityConverter}}"
+                                        Margin="0,8,0,0">
+                                <TextBlock Text="🔍" Style="{StaticResource SearchingIcon}"/>
+                                <TextBlock Text="Searching for servers..."
+                                           Style="{StaticResource CaptionText}"
+                                           HorizontalAlignment="Center"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Margin="0,8,0,0"/>
+                            </StackPanel>
+
+                            <!-- Empty state (no servers, not searching - probably not hosting) -->
+                            <StackPanel Margin="0,8,0,0">
+                                <StackPanel.Style>
+                                    <Style TargetType="StackPanel">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <MultiDataTrigger>
+                                                <MultiDataTrigger.Conditions>
+                                                    <Condition Binding="{Binding DiscoveredServers.Count}" Value="0"/>
+                                                    <Condition Binding="{Binding IsSearchingForServers}" Value="False"/>
+                                                </MultiDataTrigger.Conditions>
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </MultiDataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </StackPanel.Style>
+                                <TextBlock Text="No servers found"
+                                           Style="{StaticResource BodyText}"
+                                           HorizontalAlignment="Center"
+                                           Margin="0,0,0,4"/>
+                                <TextBlock Text="For cross-subnet connections, use manual connection below."
+                                           Style="{StaticResource CaptionText}"
+                                           HorizontalAlignment="Center"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           TextWrapping="Wrap"
+                                           TextAlignment="Center"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Section 3: Manual Connection (collapsible) -->
+                    <Expander Header="Advanced: Connect by URL"
+                              Style="{StaticResource CollapsibleSectionStyle}">
+                        <StackPanel>
+                            <TextBlock Text="For cross-subnet connections, enter the server URL directly:"
+                                       Style="{StaticResource BodyText}"
+                                       TextWrapping="Wrap"
+                                       Opacity="0.7"
+                                       Margin="0,0,0,12"
+                                       FontSize="11"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding ManualServerUrl, UpdateSourceTrigger=PropertyChanged}"
+                                         Padding="8"
+                                         Background="{StaticResource BackgroundDarkBrush}"
+                                         Foreground="{StaticResource TextPrimaryBrush}"
+                                         BorderBrush="{StaticResource SurfaceLightBrush}"
+                                         BorderThickness="1"
+                                         VerticalContentAlignment="Center"
+                                         FontFamily="Consolas"
+                                         FontSize="11"/>
+                                <Button Grid.Column="1"
+                                        Content="Connect"
+                                        Command="{Binding ConnectToServerCommand}"
+                                        IsEnabled="{Binding IsConnecting, Converter={StaticResource InverseBoolConverter}}"
+                                        Style="{StaticResource PrimaryButtonStyle}"
+                                        Margin="8,0,0,0"/>
+                            </Grid>
+                            <!-- Connecting indicator -->
+                            <TextBlock Text="Connecting..."
+                                       Style="{StaticResource CaptionText}"
+                                       Margin="0,8,0,0"
+                                       Visibility="{Binding IsConnecting, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Auto-Connect Dialog (modal overlay) -->
+            <Border Grid.Row="0" Grid.RowSpan="3"
+                    Style="{StaticResource DialogOverlay}"
+                    Visibility="{Binding ShowAutoConnectDialog, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Border Style="{StaticResource DialogCard}">
+                    <StackPanel>
+                        <TextBlock Text="Connect to this server?"
+                                   Style="{StaticResource SubHeaderText}"
+                                   Margin="0,0,0,8"/>
+                        <TextBlock Text="{Binding PendingConnectionServer.Name}"
+                                   Style="{StaticResource BodyText}"
+                                   FontWeight="Medium"
+                                   Margin="0,0,0,4"/>
+                        <TextBlock Style="{StaticResource CaptionText}"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   Margin="0,0,0,16">
+                            <TextBlock.Text>
+                                <MultiBinding StringFormat="{}{0}:{1}">
+                                    <Binding Path="PendingConnectionServer.Host"/>
+                                    <Binding Path="PendingConnectionServer.Port"/>
+                                </MultiBinding>
+                            </TextBlock.Text>
+                        </TextBlock>
+
+                        <TextBlock Text="Always connect to this server when it's available?"
+                                   Style="{StaticResource BodyText}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,16"/>
+
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="Cancel"
+                                    Command="{Binding CancelServerSelectionCommand}"
+                                    Style="{StaticResource TextLinkButtonStyle}"
+                                    Margin="0,0,8,0"/>
+                            <Button Content="Just Once"
+                                    Command="{Binding ConnectOnceCommand}"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Margin="0,0,8,0"/>
+                            <Button Content="Always"
+                                    Command="{Binding ConnectAlwaysCommand}"
+                                    Style="{StaticResource PrimaryButtonStyle}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Border>
+
+            <!-- Now Playing Section - Modern Design -->
+            <Grid Grid.Row="1" VerticalAlignment="Center">
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding IsConnected}" Value="True"/>
+                                    <Condition Binding="{Binding IsSettingsOpen}" Value="False"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </MultiDataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+
+                <StackPanel HorizontalAlignment="Center" Margin="24">
+                    <!-- Large Album Art with Shadow (280x280) -->
+                    <Border Width="280" Height="280"
+                            CornerRadius="12"
+                            HorizontalAlignment="Center"
+                            Margin="0,0,0,24">
+                        <Border.Effect>
+                            <DropShadowEffect Color="Black" BlurRadius="40" ShadowDepth="8" Opacity="0.6"/>
+                        </Border.Effect>
+                        <Grid>
+                            <!-- Actual artwork with clipped corners -->
+                            <Border CornerRadius="12" ClipToBounds="True">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding AlbumArtwork}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <Image Source="{Binding AlbumArtwork, Converter={StaticResource ByteArrayToImageConverter}}"
+                                       Stretch="UniformToFill"/>
+                            </Border>
+                            <!-- Placeholder when no artwork -->
+                            <Border Background="{StaticResource SurfaceLightBrush}" CornerRadius="12">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding AlbumArtwork}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock Text="&#x1F3B5;"
+                                           FontSize="96"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"/>
+                            </Border>
+                        </Grid>
+                    </Border>
+
+                    <!-- Track Title -->
+                    <TextBlock Text="{Binding CurrentTrack.Title, FallbackValue='Not Playing'}"
+                               Style="{StaticResource HeaderText}"
+                               TextAlignment="Center"
+                               TextTrimming="CharacterEllipsis"
+                               MaxWidth="320"/>
+
+                    <!-- Artist Name -->
+                    <TextBlock Text="{Binding CurrentTrack.Artist, FallbackValue=''}"
+                               Style="{StaticResource BodyText}"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               TextAlignment="Center"
+                               TextTrimming="CharacterEllipsis"
+                               Margin="0,8,0,0"
+                               MaxWidth="320"/>
+
+                    <!-- Progress Bar Section -->
+                    <Grid Margin="0,24,0,0" Width="320"
+                          Visibility="{Binding CurrentTrack, Converter={StaticResource NullToVisibilityConverter}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding PositionFormatted}"
+                                   Style="{StaticResource CaptionText}"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center"/>
+
+                        <ProgressBar Grid.Column="1"
+                                     Margin="12,0"
+                                     Value="{Binding ProgressPercent, Mode=OneWay}"
+                                     Maximum="100"
+                                     Height="4"
+                                     VerticalAlignment="Center"
+                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                     Background="#40FFFFFF"/>
+
+                        <TextBlock Grid.Column="2"
+                                   Text="{Binding DurationFormatted}"
+                                   Style="{StaticResource CaptionText}"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <!-- Playback Controls -->
+                    <Grid Margin="0,24,0,0" Width="320">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Previous Button -->
+                        <Button Grid.Column="1"
+                                Content="◀◀"
+                                Style="{StaticResource IconButton}"
+                                Command="{Binding PreviousTrackCommand}"
+                                Width="48" Height="48"
+                                FontSize="18"
+                                ToolTip="Previous"/>
+
+                        <!-- Play/Pause (Large Circular with Background) -->
+                        <Button Grid.Column="2"
+                                Style="{StaticResource LargePlayButton}"
+                                Command="{Binding PlayPauseCommand}"
+                                ToolTip="Play/Pause"
+                                Margin="16,0">
+                            <TextBlock Text="{Binding IsPlaying, Converter={StaticResource PlayPauseIconConverter}}"
+                                       FontSize="32"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                        </Button>
+
+                        <!-- Next Button -->
+                        <Button Grid.Column="3"
+                                Content="▶▶"
+                                Style="{StaticResource IconButton}"
+                                Command="{Binding NextTrackCommand}"
+                                Width="48" Height="48"
+                                FontSize="18"
+                                ToolTip="Next"/>
+
+                        <!-- Switch Group Button (right side) -->
+                        <Button Grid.Column="4"
+                                HorizontalAlignment="Right"
+                                Command="{Binding SwitchGroupCommand}"
+                                Style="{StaticResource IconButton}"
+                                ToolTip="{Binding CurrentGroupTooltip}"
+                                Width="40" Height="40"
+                                FontSize="18">
+                            <TextBlock Text="&#x1F4E1;"/>
+                        </Button>
+                    </Grid>
                 </StackPanel>
             </Grid>
-        </Border>
 
-        <!-- Controls -->
-        <Border Grid.Row="2" Background="{StaticResource BackgroundBrush}" Padding="16">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
+            <!-- Settings Panel -->
+            <Border Grid.Row="1"
+                    Margin="16,8"
+                    Background="{StaticResource SurfaceBrush}"
+                    CornerRadius="8"
+                    Padding="20"
+                    VerticalAlignment="Stretch"
+                    Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
 
-                <!-- Playback Controls -->
-                <StackPanel Grid.Row="0"
-                            Orientation="Horizontal"
-                            HorizontalAlignment="Center"
-                            Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <Button Content="&#x23EE;"
-                            Style="{StaticResource IconButton}"
-                            Command="{Binding PreviousTrackCommand}"
-                            ToolTip="Previous"/>
-                    <Button Content="{Binding IsPlaying, Converter={StaticResource PlayPauseIconConverter}}"
-                            Style="{StaticResource IconButton}"
-                            Width="64" Height="64"
-                            FontSize="32"
-                            Command="{Binding PlayPauseCommand}"
-                            ToolTip="Play/Pause"
-                            Margin="16,0"/>
-                    <Button Content="&#x23ED;"
-                            Style="{StaticResource IconButton}"
-                            Command="{Binding NextTrackCommand}"
-                            ToolTip="Next"/>
-                </StackPanel>
+                    <!-- Settings Header -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,16">
+                        <TextBlock Text="&#x2699;" FontSize="18" VerticalAlignment="Center" Margin="0,0,8,0"
+                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock Text="Settings" Style="{StaticResource SubHeaderText}"/>
+                    </StackPanel>
 
-                <!-- Volume Control -->
-                <StackPanel Grid.Row="1"
-                            Margin="0,8,0,0"
-                            Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <Grid>
+                    <!-- Settings Content -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                  Style="{StaticResource DarkScrollViewer}">
+                        <StackPanel>
+                            <!-- General Section -->
+                            <TextBlock Text="GENERAL" Style="{StaticResource CaptionText}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,0,0,12"/>
+
+                            <!-- Show Notifications -->
+                            <Grid Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Show Notifications" Style="{StaticResource BodyText}"/>
+                                    <TextBlock Text="Display toast notifications for track changes"
+                                               Style="{StaticResource CaptionText}"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <CheckBox Grid.Column="1"
+                                          IsChecked="{Binding SettingsShowNotifications}"
+                                          VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <!-- Discord Rich Presence -->
+                            <Grid Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Discord Rich Presence" Style="{StaticResource BodyText}"/>
+                                    <TextBlock Text="Show now playing in Discord activity status"
+                                               Style="{StaticResource CaptionText}"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <CheckBox Grid.Column="1"
+                                          IsChecked="{Binding SettingsShowDiscordPresence}"
+                                          VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <!-- Player Name -->
+                            <StackPanel Margin="0,0,0,16">
+                                <TextBlock Text="Player Name" Style="{StaticResource BodyText}"/>
+                                <TextBlock Text="Name shown to servers in multi-room setups"
+                                           Style="{StaticResource CaptionText}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Margin="0,2,0,0"/>
+                                <TextBox Margin="0,8,0,0"
+                                         Text="{Binding SettingsPlayerName, UpdateSourceTrigger=PropertyChanged}"
+                                         Padding="8"
+                                         Background="{StaticResource BackgroundDarkBrush}"
+                                         Foreground="{StaticResource TextPrimaryBrush}"
+                                         BorderBrush="{StaticResource SurfaceLightBrush}"
+                                         BorderThickness="1"
+                                         VerticalContentAlignment="Center"/>
+                            </StackPanel>
+
+                            <!-- Audio Section -->
+                            <TextBlock Text="AUDIO" Style="{StaticResource CaptionText}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,8,0,12"/>
+
+                            <!-- Playback Device -->
+                            <StackPanel Margin="0,0,0,16">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Playback Device" Style="{StaticResource BodyText}"/>
+                                        <TextBlock Text="Audio output device for playback"
+                                                   Style="{StaticResource CaptionText}"
+                                                   Foreground="{StaticResource TextMutedBrush}"
+                                                   Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1"
+                                            Content="&#x21BB;"
+                                            Command="{Binding RefreshAudioDevicesCommand}"
+                                            ToolTip="Refresh device list"
+                                            Width="28" Height="28"
+                                            FontSize="14"
+                                            Background="Transparent"
+                                            Foreground="{StaticResource TextSecondaryBrush}"
+                                            BorderThickness="0"
+                                            Cursor="Hand"
+                                            VerticalAlignment="Center">
+                                        <Button.Style>
+                                            <Style TargetType="Button">
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <Border Background="{TemplateBinding Background}"
+                                                                    CornerRadius="4">
+                                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                            </Border>
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                                                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                </Grid>
+                                <ComboBox Margin="0,8,0,0"
+                                          HorizontalAlignment="Stretch"
+                                          ItemsSource="{Binding AvailableAudioDevices}"
+                                          SelectedItem="{Binding SettingsSelectedAudioDevice}"
+                                          DisplayMemberPath="DisplayName"
+                                          Style="{StaticResource DarkComboBox}"
+                                          ItemContainerStyle="{StaticResource DarkComboBoxItem}"/>
+                            </StackPanel>
+
+                            <!-- Audio Sync Section -->
+                            <TextBlock Text="AUDIO SYNC" Style="{StaticResource CaptionText}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,8,0,12"/>
+
+                            <!-- Static Delay -->
+                            <StackPanel Margin="0,0,0,16">
+                                <TextBlock Text="Static Delay" Style="{StaticResource BodyText}"/>
+                                <TextBlock Text="Adjust timing to sync with other players. Positive = play later."
+                                           Style="{StaticResource CaptionText}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Margin="0,2,0,0"
+                                           TextWrapping="Wrap"/>
+                                <Grid Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <!-- Decrement button -->
+                                    <Button Grid.Column="0"
+                                            Content="−"
+                                            Command="{Binding DecrementStaticDelayCommand}"
+                                            Width="28" Height="28"
+                                            Background="{StaticResource SurfaceBrush}"
+                                            Foreground="{StaticResource TextPrimaryBrush}"
+                                            BorderThickness="1"
+                                            BorderBrush="{StaticResource SurfaceLightBrush}"
+                                            FontSize="16"
+                                            FontWeight="Bold"
+                                            Cursor="Hand"
+                                            VerticalAlignment="Center"
+                                            Margin="0,0,8,0">
+                                        <Button.Style>
+                                            <Style TargetType="Button">
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <Border Background="{TemplateBinding Background}"
+                                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                                    CornerRadius="4">
+                                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                            </Border>
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="Background" Value="{StaticResource SurfaceLightBrush}"/>
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                    <!-- Slider -->
+                                    <Slider Grid.Column="1"
+                                            Minimum="-5000" Maximum="5000"
+                                            Value="{Binding SettingsStaticDelayMs}"
+                                            TickFrequency="500"
+                                            IsSnapToTickEnabled="False"
+                                            VerticalAlignment="Center"/>
+                                    <!-- Increment button -->
+                                    <Button Grid.Column="2"
+                                            Content="+"
+                                            Command="{Binding IncrementStaticDelayCommand}"
+                                            Width="28" Height="28"
+                                            Background="{StaticResource SurfaceBrush}"
+                                            Foreground="{StaticResource TextPrimaryBrush}"
+                                            BorderThickness="1"
+                                            BorderBrush="{StaticResource SurfaceLightBrush}"
+                                            FontSize="16"
+                                            FontWeight="Bold"
+                                            Cursor="Hand"
+                                            VerticalAlignment="Center"
+                                            Margin="8,0,8,0">
+                                        <Button.Style>
+                                            <Style TargetType="Button">
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <Border Background="{TemplateBinding Background}"
+                                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                                    CornerRadius="4">
+                                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                            </Border>
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="Background" Value="{StaticResource SurfaceLightBrush}"/>
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                    <!-- Editable value -->
+                                    <TextBox Grid.Column="3"
+                                             Text="{Binding SettingsStaticDelayMs, UpdateSourceTrigger=PropertyChanged, StringFormat=0}"
+                                             Width="60"
+                                             Background="{StaticResource SurfaceBrush}"
+                                             Foreground="{StaticResource TextPrimaryBrush}"
+                                             BorderBrush="{StaticResource SurfaceLightBrush}"
+                                             BorderThickness="1"
+                                             Padding="4,4"
+                                             VerticalAlignment="Center"
+                                             HorizontalContentAlignment="Right"
+                                             PreviewTextInput="NumericTextBox_PreviewTextInput"
+                                             DataObject.Pasting="NumericTextBox_Pasting"/>
+                                    <!-- ms suffix -->
+                                    <TextBlock Grid.Column="4"
+                                               Text="ms"
+                                               Style="{StaticResource CaptionText}"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               VerticalAlignment="Center"
+                                               Margin="4,0,0,0"/>
+                                </Grid>
+                            </StackPanel>
+
+                            <!-- Logging Section -->
+                            <TextBlock Text="LOGGING" Style="{StaticResource CaptionText}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,0,0,12"/>
+
+                            <!-- Log Level -->
+                            <StackPanel Margin="0,0,0,16">
+                                <TextBlock Text="Log Level" Style="{StaticResource BodyText}"/>
+                                <TextBlock Text="Controls verbosity of log output"
+                                           Style="{StaticResource CaptionText}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Margin="0,2,0,0"/>
+                                <ComboBox Margin="0,8,0,0"
+                                          HorizontalAlignment="Stretch"
+                                          ItemsSource="{Binding AvailableLogLevels}"
+                                          SelectedItem="{Binding SettingsLogLevel}"
+                                          Style="{StaticResource DarkComboBox}"
+                                          ItemContainerStyle="{StaticResource DarkComboBoxItem}"/>
+                            </StackPanel>
+
+                            <!-- Enable File Logging -->
+                            <Grid Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="File Logging" Style="{StaticResource BodyText}"/>
+                                    <TextBlock Text="Write logs to disk for troubleshooting"
+                                               Style="{StaticResource CaptionText}"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <CheckBox Grid.Column="1"
+                                          IsChecked="{Binding SettingsEnableFileLogging}"
+                                          VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <!-- Enable Console Logging -->
+                            <Grid Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Console Logging" Style="{StaticResource BodyText}"/>
+                                    <TextBlock Text="Output logs to console (for debugging)"
+                                               Style="{StaticResource CaptionText}"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <CheckBox Grid.Column="1"
+                                          IsChecked="{Binding SettingsEnableConsoleLogging}"
+                                          VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <!-- Log Folder -->
+                            <Border Background="{StaticResource BackgroundDarkBrush}"
+                                    CornerRadius="4"
+                                    Padding="12"
+                                    Margin="0,0,0,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Log Location" Style="{StaticResource CaptionText}"
+                                                   Foreground="{StaticResource TextMutedBrush}"/>
+                                        <TextBlock Text="{Binding LogFilePath}"
+                                                   Style="{StaticResource CaptionText}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Margin="0,4,8,0"
+                                                   ToolTip="{Binding LogFilePath}"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1"
+                                            Content="Open"
+                                            Command="{Binding OpenLogFolderCommand}"
+                                            Padding="12,6"
+                                            Background="Transparent"
+                                            Foreground="{StaticResource PrimaryLightBrush}"
+                                            BorderThickness="1"
+                                            BorderBrush="{StaticResource PrimaryBrush}"
+                                            Cursor="Hand"
+                                            VerticalAlignment="Center">
+                                        <Button.Style>
+                                            <Style TargetType="Button">
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <Border Background="{TemplateBinding Background}"
+                                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                                    CornerRadius="4"
+                                                                    Padding="{TemplateBinding Padding}">
+                                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                            </Border>
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
+                                                        <Setter Property="Foreground" Value="White"/>
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                </Grid>
+                            </Border>
+
+                            <!-- Diagnostics Section -->
+                            <TextBlock Text="DIAGNOSTICS" Style="{StaticResource CaptionText}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,0,0,12"/>
+
+                            <Button Command="{Binding OpenStatsWindowCommand}"
+                                    Padding="12,10"
+                                    HorizontalAlignment="Stretch"
+                                    Background="{StaticResource SurfaceLightBrush}"
+                                    Foreground="{StaticResource TextPrimaryBrush}"
+                                    BorderThickness="0"
+                                    Cursor="Hand">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}"
+                                                            CornerRadius="4"
+                                                            Padding="{TemplateBinding Padding}">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Text="&#x1F4CA;" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                            <StackPanel>
+                                                                <TextBlock Text="Stats for Nerds" FontWeight="SemiBold"/>
+                                                                <TextBlock Text="Real-time audio sync diagnostics"
+                                                                           FontSize="11" Opacity="0.7"/>
+                                                            </StackPanel>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Settings Actions -->
+                    <StackPanel Grid.Row="2" Margin="0,16,0,0">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="Cancel"
+                                    Command="{Binding CloseSettingsCommand}"
+                                    Padding="16,8"
+                                    Margin="0,0,8,0"
+                                    Background="Transparent"
+                                    Foreground="{StaticResource TextSecondaryBrush}"
+                                    BorderThickness="1"
+                                    BorderBrush="{StaticResource SurfaceLightBrush}"
+                                    Cursor="Hand">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}"
+                                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                                            CornerRadius="4"
+                                                            Padding="{TemplateBinding Padding}">
+                                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Content="Save"
+                                    Command="{Binding SaveSettingsCommand}"
+                                    Padding="16,8"
+                                    Background="{StaticResource PrimaryBrush}"
+                                    Foreground="White"
+                                    BorderThickness="0"
+                                    Cursor="Hand">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}"
+                                                            CornerRadius="4"
+                                                            Padding="{TemplateBinding Padding}">
+                                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Opacity" Value="0.9"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </StackPanel>
+
+                        <!-- Version display -->
+                        <TextBlock Text="{Binding AppVersion, StringFormat='v{0}'}"
+                                   Style="{StaticResource CaptionText}"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,12,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Volume Control Footer (simplified - only volume when connected) -->
+            <Border Grid.Row="2" Padding="16,12">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                <Setter Property="Background" Value="#80000000"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Grid>
+                    <!-- Volume Control (visible when connected) -->
+                    <Grid Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
@@ -1026,16 +1118,14 @@
                                    VerticalAlignment="Center"
                                    Width="35"/>
                     </Grid>
-                </StackPanel>
 
-                <!-- Error Message -->
-                <TextBlock Grid.Row="1"
-                           Text="{Binding ErrorMessage}"
-                           Foreground="{StaticResource ErrorBrush}"
-                           TextWrapping="Wrap"
-                           Margin="0,8,0,0"
-                           Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
-            </Grid>
-        </Border>
+                    <!-- Error Message (when disconnected or error) -->
+                    <TextBlock Text="{Binding ErrorMessage}"
+                               Foreground="{StaticResource ErrorBrush}"
+                               TextWrapping="Wrap"
+                               Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </Window>
