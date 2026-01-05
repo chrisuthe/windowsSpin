@@ -33,8 +33,9 @@
                         <!-- Playback Controls -->
                         <MenuItem Header="{Binding IsPlaying, Converter={StaticResource PlayPauseTextConverter}}"
                                   Command="{Binding PlayPauseCommand}"/>
-                        <MenuItem Header="⏭ Next" Command="{Binding NextTrackCommand}"/>
-                        <MenuItem Header="⏮ Previous" Command="{Binding PreviousTrackCommand}"/>
+                        <MenuItem Header="▶▶ Next" Command="{Binding NextTrackCommand}"/>
+                        <MenuItem Header="◀◀ Previous" Command="{Binding PreviousTrackCommand}"/>
+                        <MenuItem Header="📡 Switch Group" Command="{Binding SwitchGroupCommand}"/>
                         <Separator/>
 
                         <!-- Volume Controls -->
