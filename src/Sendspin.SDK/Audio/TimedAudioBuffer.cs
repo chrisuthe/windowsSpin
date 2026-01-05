@@ -31,6 +31,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
 {
     private readonly ILogger<TimedAudioBuffer> _logger;
     private readonly IClockSynchronizer _clockSync;
+    private readonly SyncCorrectionOptions _syncOptions;
     private readonly object _lock = new();
 
     // Rate limiting for underrun/overrun logging (microseconds)
@@ -53,40 +54,6 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     private readonly int _sampleRate;
     private readonly int _channels;
     private readonly int _samplesPerMs;
-
-    // Sync correction constants (matching Python CLI behavior)
-    // Entry deadband: start correcting when error exceeds this threshold
-    private const long CorrectionEntryDeadbandMicroseconds = 2_000; // 2ms
-
-    // Exit deadband: stop correcting when error drops below this threshold (hysteresis)
-    // Using a smaller exit threshold prevents oscillation between correcting and not correcting
-    private const long CorrectionExitDeadbandMicroseconds = 500; // 0.5ms
-
-    // Maximum speed adjustment: limits how aggressively we correct (prevents audible artifacts)
-    // 0.02 = 2% max speed change (reduced from CLI's 4% to prevent oscillation on platforms
-    // with higher timing variability like PulseAudio)
-    private const double MaxSpeedCorrection = 0.02;
-
-    // Target time to fix the error (seconds) - how quickly we want to eliminate drift
-    // 3.0 seconds provides gentler convergence, reducing overshoot on jittery audio backends
-    private const double CorrectionTargetSeconds = 3.0;
-
-    // Re-anchor threshold: if error exceeds this, clear buffer and restart sync
-    // 500ms matches Python CLI's _REANCHOR_THRESHOLD_US (more lenient than before)
-    private const long ReanchorThresholdMicroseconds = 500_000; // 500ms
-
-    // Resampling threshold: use smooth playback rate adjustment for errors below this
-    // Above this threshold, use frame drop/insert for faster correction
-    // Matches JS client's tiered approach: <15ms = resampling, 15-200ms = frame manipulation
-    private const long ResamplingThresholdMicroseconds = 15_000; // 15ms
-
-    // Startup grace period: don't apply sync correction for first 500ms
-    // This allows playback to stabilize before we start measuring drift
-    private const long StartupGracePeriodMicroseconds = 500_000; // 500ms
-
-    // Scheduled start grace window: start playback when we're within this time of target
-    // This prevents starting slightly late due to audio callback timing granularity
-    private const long ScheduledStartGraceWindowMicroseconds = 10_000; // 10ms
 
     // Sync correction state
     private int _dropEveryNFrames;        // Drop a frame every N frames (when playing too slow)
@@ -127,6 +94,9 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
 
     /// <inheritdoc/>
     public AudioFormat Format { get; }
+
+    /// <inheritdoc/>
+    public SyncCorrectionOptions SyncOptions => _syncOptions.Clone();
 
     /// <summary>
     /// Event raised when sync error is too large and re-anchoring is needed.
@@ -177,11 +147,13 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     /// <param name="format">Audio format for samples.</param>
     /// <param name="clockSync">Clock synchronizer for timestamp conversion.</param>
     /// <param name="bufferCapacityMs">Maximum buffer capacity in milliseconds (default 500ms).</param>
+    /// <param name="syncOptions">Optional sync correction options. Uses <see cref="SyncCorrectionOptions.Default"/> if not provided.</param>
     /// <param name="logger">Optional logger for diagnostics (uses NullLogger if not provided).</param>
     public TimedAudioBuffer(
         AudioFormat format,
         IClockSynchronizer clockSync,
         int bufferCapacityMs = 500,
+        SyncCorrectionOptions? syncOptions = null,
         ILogger<TimedAudioBuffer>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(format);
@@ -190,6 +162,8 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         _logger = logger ?? NullLogger<TimedAudioBuffer>.Instance;
         Format = format;
         _clockSync = clockSync;
+        _syncOptions = syncOptions?.Clone() ?? SyncCorrectionOptions.Default;
+        _syncOptions.Validate();
         _sampleRate = format.SampleRate;
         _channels = format.Channels;
         _samplesPerMs = (_sampleRate * _channels) / 1000;
@@ -286,7 +260,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
 
                 // Check if we've reached the scheduled start time (with grace window)
                 var timeUntilStart = _scheduledStartLocalTime - currentLocalTime;
-                if (timeUntilStart > ScheduledStartGraceWindowMicroseconds)
+                if (timeUntilStart > _syncOptions.ScheduledStartGraceWindowMicroseconds)
                 {
                     // Not ready yet - output silence and wait
                     buffer.Fill(0f);
@@ -367,8 +341,8 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 // Check if error is too large and we need to re-anchor
                 // But skip this check during startup grace period
                 var elapsedSinceStart = (long)(_samplesOutputSinceStart * _microsecondsPerSample);
-                if (elapsedSinceStart >= StartupGracePeriodMicroseconds
-                    && Math.Abs(_currentSyncErrorMicroseconds) > ReanchorThresholdMicroseconds)
+                if (elapsedSinceStart >= _syncOptions.StartupGracePeriodMicroseconds
+                    && Math.Abs(_currentSyncErrorMicroseconds) > _syncOptions.ReanchorThresholdMicroseconds)
                 {
                     _needsReanchor = true;
                 }
@@ -664,7 +638,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         // Skip correction during startup grace period to allow playback to stabilize
         // This prevents over-correction due to initial timing jitter
         var elapsedSinceStart = (long)(_samplesOutputSinceStart * _microsecondsPerSample);
-        if (elapsedSinceStart < StartupGracePeriodMicroseconds)
+        if (elapsedSinceStart < _syncOptions.StartupGracePeriodMicroseconds)
         {
             SetTargetPlaybackRate(1.0);
             _dropEveryNFrames = 0;
@@ -677,45 +651,56 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         // Tier 1: Deadband with hysteresis - prevents oscillation between correcting and not correcting
         // Entry threshold (2ms): start correcting when error exceeds this
         // Exit threshold (0.5ms): stop correcting when error drops below this
-        if (_inCorrectionMode)
+        // Can be bypassed via SyncCorrectionOptions.BypassDeadband for continuous correction
+        if (!_syncOptions.BypassDeadband)
         {
-            // Already correcting - only exit when error is very small
-            if (absError <= CorrectionExitDeadbandMicroseconds)
+            if (_inCorrectionMode)
             {
-                _inCorrectionMode = false;
-                SetTargetPlaybackRate(1.0);
-                _dropEveryNFrames = 0;
-                _insertEveryNFrames = 0;
-                return;
+                // Already correcting - only exit when error is very small
+                if (absError <= _syncOptions.ExitDeadbandMicroseconds)
+                {
+                    _inCorrectionMode = false;
+                    SetTargetPlaybackRate(1.0);
+                    _dropEveryNFrames = 0;
+                    _insertEveryNFrames = 0;
+                    return;
+                }
+            }
+            else
+            {
+                // Not correcting - only enter correction when error exceeds entry threshold
+                if (absError <= _syncOptions.EntryDeadbandMicroseconds)
+                {
+                    SetTargetPlaybackRate(1.0);
+                    _dropEveryNFrames = 0;
+                    _insertEveryNFrames = 0;
+                    return;
+                }
+
+                // Error exceeded entry threshold - enter correction mode
+                _inCorrectionMode = true;
             }
         }
         else
         {
-            // Not correcting - only enter correction when error exceeds entry threshold
-            if (absError <= CorrectionEntryDeadbandMicroseconds)
-            {
-                SetTargetPlaybackRate(1.0);
-                _dropEveryNFrames = 0;
-                _insertEveryNFrames = 0;
-                return;
-            }
-
-            // Error exceeded entry threshold - enter correction mode
+            // BypassDeadband: always in correction mode
             _inCorrectionMode = true;
         }
 
         // Tier 2: Small errors (0.5-15ms when in correction mode) - use smooth playback rate adjustment
         // This is imperceptible to human ears and avoids click artifacts
-        if (absError <= ResamplingThresholdMicroseconds)
+        if (absError <= _syncOptions.ResamplingThresholdMicroseconds)
         {
-            // Map error to rate: exit threshold → ~1.0005x, 15ms → 1.04x (or inverse for ahead)
+            // Map error to rate: exit threshold → ~1.0005x, 15ms → max rate (or inverse for ahead)
             // Linear interpolation from exit deadband to threshold
-            var errorAboveDeadband = absError - CorrectionExitDeadbandMicroseconds;
-            var rangeSize = ResamplingThresholdMicroseconds - CorrectionExitDeadbandMicroseconds;
-            var correctionPercent = (errorAboveDeadband / (double)rangeSize) * MaxSpeedCorrection;
+            var errorAboveDeadband = absError - _syncOptions.ExitDeadbandMicroseconds;
+            var rangeSize = _syncOptions.ResamplingThresholdMicroseconds - _syncOptions.ExitDeadbandMicroseconds;
+            var correctionPercent = rangeSize > 0
+                ? (errorAboveDeadband / (double)rangeSize) * _syncOptions.MaxSpeedCorrection
+                : _syncOptions.MaxSpeedCorrection;
 
-            // Clamp to max 4% (0.96 to 1.04) but typically only use 2% (0.98 to 1.02)
-            correctionPercent = Math.Min(correctionPercent, MaxSpeedCorrection);
+            // Clamp to configured max (typically 2-4%)
+            correctionPercent = Math.Min(correctionPercent, _syncOptions.MaxSpeedCorrection);
 
             var newRate = _currentSyncErrorMicroseconds > 0
                 ? 1.0 + correctionPercent   // Behind: speed up (consume input faster)
@@ -734,13 +719,13 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         // Calculate desired corrections per second to fix error within target time
         // Error in frames = error_us * (sample_rate * channels) / 1,000,000
         var framesError = absError * _sampleRate / 1_000_000.0;
-        var desiredCorrectionsPerSec = framesError / CorrectionTargetSeconds;
+        var desiredCorrectionsPerSec = framesError / _syncOptions.CorrectionTargetSeconds;
 
         // Calculate frames per second
         var framesPerSecond = (double)_sampleRate; // One frame = one sample per channel
 
         // Limit correction rate to max speed adjustment
-        var maxCorrectionsPerSec = framesPerSecond * MaxSpeedCorrection;
+        var maxCorrectionsPerSec = framesPerSecond * _syncOptions.MaxSpeedCorrection;
         var actualCorrectionsPerSec = Math.Min(desiredCorrectionsPerSec, maxCorrectionsPerSec);
 
         // Calculate how often to apply a correction (every N frames)

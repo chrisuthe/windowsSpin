@@ -103,6 +103,40 @@ The SDK uses a tiered sync correction strategy for imperceptible multi-room sync
 
 The hysteresis prevents oscillation between correcting and not correcting.
 
+### Customizing Sync Behavior (v3.3.0+)
+
+All sync correction parameters are configurable via `SyncCorrectionOptions`:
+
+```csharp
+using Sendspin.SDK.Audio;
+
+// Use default settings
+var buffer = new TimedAudioBuffer(format, clockSync, capacityMs,
+    SyncCorrectionOptions.Default, logger);
+
+// Use CLI-compatible aggressive settings (4% max, 2s target)
+var buffer = new TimedAudioBuffer(format, clockSync, capacityMs,
+    SyncCorrectionOptions.CliDefaults, logger);
+
+// Custom options for your platform
+var options = new SyncCorrectionOptions
+{
+    MaxSpeedCorrection = 0.04,                    // 4% max rate adjustment
+    CorrectionTargetSeconds = 2.0,                // Faster convergence
+    EntryDeadbandMicroseconds = 2_000,            // Start correcting at 2ms error
+    ExitDeadbandMicroseconds = 500,               // Stop at 0.5ms (hysteresis)
+    ResamplingThresholdMicroseconds = 15_000,     // Resampling vs drop/insert boundary
+    ReanchorThresholdMicroseconds = 500_000,      // Clear buffer threshold
+    StartupGracePeriodMicroseconds = 500_000,     // No correction during startup
+    BypassDeadband = false,                       // Set true for continuous correction
+};
+var buffer = new TimedAudioBuffer(format, clockSync, capacityMs, options, logger);
+```
+
+**Presets:**
+- `SyncCorrectionOptions.Default` - Conservative (2% max, 3s target) - good for Windows
+- `SyncCorrectionOptions.CliDefaults` - Aggressive (4% max, 2s target) - matches Python CLI
+
 ## Platform-Specific Audio
 
 The SDK handles decoding, buffering, and sync correction. You implement `IAudioPlayer` for audio output:

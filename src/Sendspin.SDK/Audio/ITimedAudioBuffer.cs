@@ -18,6 +18,14 @@ public interface ITimedAudioBuffer : IDisposable
     AudioFormat Format { get; }
 
     /// <summary>
+    /// Gets the sync correction options used by this buffer.
+    /// </summary>
+    /// <remarks>
+    /// Returns a clone of the options to prevent modification after construction.
+    /// </remarks>
+    SyncCorrectionOptions SyncOptions { get; }
+
+    /// <summary>
     /// Gets the current buffer fill level in milliseconds.
     /// </summary>
     double BufferedMilliseconds { get; }

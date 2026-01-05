@@ -224,7 +224,7 @@ public partial class App : Application
                 clockSync,
                 bufferFactory: (format, sync) =>
                 {
-                    var buffer = new TimedAudioBuffer(format, sync, bufferCapacityMs, bufferLogger);
+                    var buffer = new TimedAudioBuffer(format, sync, bufferCapacityMs, syncOptions: null, bufferLogger);
                     buffer.TargetBufferMilliseconds = bufferTargetMs;
                     return buffer;
                 },
