@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>3.2.0</Version>
+    <Version>3.3.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,25 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v3.3.0:
+New Features:
+- SyncCorrectionOptions: All sync correction parameters are now configurable via TimedAudioBuffer constructor
+  - EntryDeadbandMicroseconds: Error threshold to start correcting (default: 2ms)
+  - ExitDeadbandMicroseconds: Error threshold to stop correcting with hysteresis (default: 0.5ms)
+  - MaxSpeedCorrection: Maximum playback rate adjustment (default: 2%, CLI uses 4%)
+  - CorrectionTargetSeconds: Target time to eliminate drift (default: 3s, CLI uses 2s)
+  - ResamplingThresholdMicroseconds: Boundary between resampling and drop/insert (default: 15ms)
+  - ReanchorThresholdMicroseconds: Error threshold for buffer clear/restart (default: 500ms)
+  - StartupGracePeriodMicroseconds: No correction during startup (default: 500ms)
+  - ScheduledStartGraceWindowMicroseconds: Start timing tolerance (default: 10ms)
+  - BypassDeadband: Disable deadband for continuous correction (default: false)
+- Static presets: SyncCorrectionOptions.Default and SyncCorrectionOptions.CliDefaults
+- ITimedAudioBuffer.SyncOptions property for runtime inspection
+- Validation via SyncCorrectionOptions.Validate() to catch invalid configurations
+
+This enables SDK consumers to tune sync behavior for different platforms (ALSA, PulseAudio, CoreAudio, embedded)
+without code changes, addressing platform-specific timing characteristics.
+
 v3.2.0:
 Sync Correction Tuning:
 - Reduced MaxSpeedCorrection from 4% to 2% to prevent oscillation on platforms with higher timing variability (e.g., PulseAudio)

@@ -193,14 +193,38 @@ syncError = elapsedTime - samplesReadTime - outputLatency
 // Negative = ahead (need INSERT or slow down)
 ```
 
-**Critical Constants** (matching CLI):
+**Sync Correction Constants** (default values):
 ```csharp
-CorrectionDeadbandMicroseconds = 2_000;       // 2ms - ignore smaller errors
+EntryDeadbandMicroseconds = 2_000;            // 2ms - start correcting when error exceeds this
+ExitDeadbandMicroseconds = 500;               // 0.5ms - stop correcting when below (hysteresis)
 ResamplingThresholdMicroseconds = 15_000;     // 15ms - resampling vs drop/insert boundary
 ReanchorThresholdMicroseconds = 500_000;      // 500ms - clear buffer and restart
-MaxSpeedCorrection = 0.04;                    // 4% max correction rate
-CorrectionTargetSeconds = 2.0;                // Time to correct error
+MaxSpeedCorrection = 0.02;                    // 2% max correction rate (Windows default)
+CorrectionTargetSeconds = 3.0;                // Time to correct error
 ```
+
+**Configurable Sync Correction** (v3.3.0+):
+
+These constants are now configurable via `SyncCorrectionOptions`. Pass custom options to `TimedAudioBuffer`:
+
+```csharp
+// Use CLI-compatible aggressive settings
+var buffer = new TimedAudioBuffer(format, clockSync, capacityMs,
+    SyncCorrectionOptions.CliDefaults, logger);
+
+// Or customize individual parameters
+var options = new SyncCorrectionOptions
+{
+    MaxSpeedCorrection = 0.04,        // 4% like CLI
+    CorrectionTargetSeconds = 2.0,    // Faster convergence
+    BypassDeadband = true,            // Continuous correction
+};
+var buffer = new TimedAudioBuffer(format, clockSync, capacityMs, options, logger);
+```
+
+**Static Presets**:
+- `SyncCorrectionOptions.Default` - Windows defaults (conservative: 2% max, 3s target)
+- `SyncCorrectionOptions.CliDefaults` - Python CLI defaults (aggressive: 4% max, 2s target)
 
 ### Clock Sync Gating
 
@@ -662,6 +686,7 @@ Follow [SemVer](https://semver.org/):
 | `src/SendspinClient.Services/Audio/WasapiAudioPlayer.cs` | Windows audio output |
 | `src/SendspinClient.Services/Audio/DynamicResamplerSampleProvider.cs` | Playback rate resampling for sync |
 | `src/Sendspin.SDK/Protocol/Messages/MessageTypes.cs` | Protocol message definitions |
+| `src/Sendspin.SDK/Audio/SyncCorrectionOptions.cs` | Configurable sync correction parameters |
 
 ---
 
