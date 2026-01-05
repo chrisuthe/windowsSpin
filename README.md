@@ -56,7 +56,12 @@ That's it!
 <p align="center">
   <img src="docs/ScreenShots/mainwindow.png" alt="Main Window" width="400">
 </p>
-
+<p align="center">
+  <img src="docs/ScreenShots/settingsmenu.png" alt="Settings" width="400">
+</p>
+<p align="center">
+  <img src="docs/ScreenShots/statsfornerds.png" alt="Connection Stats" width="400">
+</p>
 <p align="center">
   <img src="docs/ScreenShots/TrayMenu.png" alt="System Tray Menu" width="350">
 </p>
