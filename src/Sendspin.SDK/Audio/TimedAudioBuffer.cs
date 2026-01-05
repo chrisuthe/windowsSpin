@@ -63,11 +63,13 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     private const long CorrectionExitDeadbandMicroseconds = 500; // 0.5ms
 
     // Maximum speed adjustment: limits how aggressively we correct (prevents audible artifacts)
-    // 0.04 = 4% max speed change (matches Python CLI's _MAX_SPEED_CORRECTION)
-    private const double MaxSpeedCorrection = 0.04;
+    // 0.02 = 2% max speed change (reduced from CLI's 4% to prevent oscillation on platforms
+    // with higher timing variability like PulseAudio)
+    private const double MaxSpeedCorrection = 0.02;
 
     // Target time to fix the error (seconds) - how quickly we want to eliminate drift
-    private const double CorrectionTargetSeconds = 2.0;
+    // 3.0 seconds provides gentler convergence, reducing overshoot on jittery audio backends
+    private const double CorrectionTargetSeconds = 3.0;
 
     // Re-anchor threshold: if error exceeds this, clear buffer and restart sync
     // 500ms matches Python CLI's _REANCHOR_THRESHOLD_US (more lenient than before)
