@@ -86,71 +86,12 @@
 
                     <!-- Title and subtitle -->
                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                        <!-- Show server name when connected, "Sendspin" when disconnected -->
-                        <TextBlock>
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock" BasedOn="{StaticResource HeaderText}">
-                                    <Setter Property="Text" Value="Sendspin"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                                            <Setter Property="Text" Value="{Binding ConnectedServerName}"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
-                        <!-- Show "Connected" when connected, "Windows Client" when disconnected -->
-                        <TextBlock Margin="0,4,0,0">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionText}">
-                                    <Setter Property="Text" Value="Windows Client"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                                            <Setter Property="Text" Value="Connected"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
+                        <TextBlock Text="Sendspin" Style="{StaticResource HeaderText}"/>
+                        <TextBlock Text="Windows Client" Style="{StaticResource CaptionText}" Margin="0,4,0,0"/>
                     </StackPanel>
 
                     <!-- Right side buttons -->
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <!-- Disconnect button (visible when connected) -->
-                        <Button Content="Disconnect"
-                                Command="{Binding DisconnectFromServerCommand}"
-                                Padding="12,6"
-                                Margin="0,0,8,0"
-                                Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}"
-                                Background="Transparent"
-                                Foreground="{StaticResource TextSecondaryBrush}"
-                                BorderThickness="1"
-                                BorderBrush="{StaticResource SurfaceLightBrush}"
-                                Cursor="Hand">
-                            <Button.Style>
-                                <Style TargetType="Button">
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="Button">
-                                                <Border Background="{TemplateBinding Background}"
-                                                        BorderBrush="{TemplateBinding BorderBrush}"
-                                                        BorderThickness="{TemplateBinding BorderThickness}"
-                                                        CornerRadius="4"
-                                                        Padding="{TemplateBinding Padding}">
-                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                </Border>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                    <Style.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
-                                        </Trigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Button.Style>
-                        </Button>
-
                         <!-- Settings gear icon (always visible) -->
                         <Button Command="{Binding ToggleSettingsCommand}"
                                 ToolTip="Settings"
@@ -661,6 +602,65 @@
                                          BorderBrush="{StaticResource SurfaceLightBrush}"
                                          BorderThickness="1"
                                          VerticalContentAlignment="Center"/>
+                            </StackPanel>
+
+                            <!-- Connection Section -->
+                            <TextBlock Text="CONNECTION" Style="{StaticResource CaptionText}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,8,0,12"/>
+
+                            <!-- Disconnect Button and Status -->
+                            <StackPanel Margin="0,0,0,16">
+                                <Button Content="Disconnect"
+                                        Command="{Binding DisconnectFromServerCommand}"
+                                        IsEnabled="{Binding IsConnected}"
+                                        Padding="12,8"
+                                        HorizontalAlignment="Left"
+                                        Background="{StaticResource SurfaceLightBrush}"
+                                        Foreground="{StaticResource TextPrimaryBrush}"
+                                        BorderThickness="0"
+                                        Cursor="Hand">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border Background="{TemplateBinding Background}"
+                                                                CornerRadius="4"
+                                                                Padding="{TemplateBinding Padding}">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                            <Style.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Background" Value="{StaticResource ErrorBrush}"/>
+                                                    <Setter Property="Foreground" Value="White"/>
+                                                </Trigger>
+                                                <Trigger Property="IsEnabled" Value="False">
+                                                    <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <!-- Connection Status -->
+                                <TextBlock Margin="0,8,0,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionText}">
+                                            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                                            <Setter Property="Text" Value="Disconnected"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                                    <Setter Property="Text" Value="{Binding ConnectedServerName, StringFormat='Connected to {0}'}"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                             </StackPanel>
 
                             <!-- Audio Section -->
