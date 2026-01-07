@@ -56,15 +56,24 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     /// <summary>
     /// Smoothing factor for rate changes (0.0 to 1.0).
     /// Lower values = smoother/slower transitions, higher = faster response.
-    /// At 0.05, we move 5% toward target each update (~10ms), reaching 90% in ~450ms.
+    /// At 0.15, we move 15% toward target each update (~10ms), reaching 90% in ~150ms.
     /// </summary>
-    private const double RateSmoothingFactor = 0.05;
+    /// <remarks>
+    /// Must be high enough that smoothed changes exceed <see cref="RateChangeThreshold"/>.
+    /// For 0.5% target rate change: smoothed = 0.005 * 0.15 = 0.00075 > 0.0001 threshold.
+    /// </remarks>
+    private const double RateSmoothingFactor = 0.15;
 
     /// <summary>
-    /// Minimum rate change threshold before updating resampler (0.05% = 0.0005).
+    /// Minimum rate change threshold before updating resampler (0.01% = 0.0001).
     /// Prevents excessive SetRates() calls that can disturb filter state.
     /// </summary>
-    private const double RateChangeThreshold = 0.0005;
+    /// <remarks>
+    /// Must be small enough to allow proportional sync correction to work.
+    /// At 1ms error, proportional correction is ~0.03%, smoothed to 0.0045%.
+    /// Threshold of 0.01% allows these small corrections through.
+    /// </remarks>
+    private const double RateChangeThreshold = 0.0001;
 
     /// <inheritdoc/>
     public WaveFormat WaveFormat { get; }
