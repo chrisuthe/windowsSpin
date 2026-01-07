@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>3.5.0</Version>
+    <Version>3.5.1</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,15 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v3.5.1:
+Improved Push-Model Backend Support:
+- Refactored calibrated startup latency handling for cleaner architecture
+- Instead of adding latency to every sync error calculation, now backdates
+  _playbackStartLocalTime when playback starts
+- This handles static buffer pre-fill time once at initialization
+- Sync error formula remains clean: elapsed - samplesReadTime
+- Drift/fluctuation correction logic unchanged
+
 v3.5.0:
 New Features:
 - CalibratedStartupLatencyMicroseconds: New property on ITimedAudioBuffer for push-model audio backend support
