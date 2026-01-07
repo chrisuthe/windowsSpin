@@ -34,10 +34,12 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     private WasapiOut? _wasapiOut;
     private AudioSampleProviderAdapter? _sampleProvider;
     private DynamicResamplerSampleProvider? _resampler;
+    private ITimedAudioBuffer? _buffer;
     private AudioFormat? _format;
     private float _volume = 1.0f;
     private bool _isMuted;
     private int _outputLatencyMs;
+    private int _deviceNativeSampleRate = 48000;
 
     /// <summary>
     /// Gets the detected output latency in milliseconds.
@@ -45,8 +47,30 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// </summary>
     public int OutputLatencyMs => _outputLatencyMs;
 
+    /// <summary>
+    /// Gets the native sample rate of the audio output device.
+    /// This is the rate the Windows audio mixer operates at.
+    /// </summary>
+    /// <remarks>
+    /// Audio is resampled to this rate to avoid double-resampling by Windows Audio Engine.
+    /// If the device rate cannot be queried, defaults to 48000 Hz.
+    /// </remarks>
+    public int DeviceNativeSampleRate => _deviceNativeSampleRate;
+
     /// <inheritdoc/>
-    public AudioFormat? OutputFormat => _format;
+    /// <remarks>
+    /// Returns the format being sent to the audio device. When resampling is active,
+    /// this reflects the device's native sample rate to avoid double-resampling by Windows Audio Engine.
+    /// </remarks>
+    public AudioFormat? OutputFormat =>
+        _format == null ? null : new AudioFormat
+        {
+            Codec = _format.Codec,
+            SampleRate = _useResampling ? _deviceNativeSampleRate : _format.SampleRate,
+            Channels = _format.Channels,
+            BitDepth = _format.BitDepth,
+            Bitrate = _format.Bitrate,
+        };
 
     /// <inheritdoc/>
     public AudioPlayerState State { get; private set; } = AudioPlayerState.Uninitialized;
@@ -136,6 +160,11 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                         }
                     }
 
+                    // Query the device's native sample rate to avoid double-resampling
+                    // WASAPI Shared mode resamples to the system mixer rate, so we'll
+                    // resample once in our pipeline to match
+                    _deviceNativeSampleRate = QueryDeviceMixFormat(device);
+
                     // Create WASAPI output in shared mode with 100ms latency
                     // Shared mode adds Windows Audio Engine overhead (~10-20ms) on top of
                     // the requested buffer latency, so we use 100ms for stability
@@ -195,18 +224,23 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         _sampleProvider.IsMuted = _isMuted;
 
         // Try to get buffer from source for resampler (if source is BufferedAudioSampleSource)
-        ITimedAudioBuffer? buffer = null;
+        // Store it for potential use during device switching
+        _buffer = null;
         if (source is BufferedAudioSampleSource bufferedSource)
         {
-            buffer = bufferedSource.Buffer;
+            _buffer = bufferedSource.Buffer;
         }
 
         // Optionally wrap with resampler for smooth sync correction
-        if (_useResampling && buffer != null)
+        // Pass device native sample rate for compound resampling (rate conversion + sync correction)
+        if (_useResampling && _buffer != null)
         {
-            _resampler = new DynamicResamplerSampleProvider(_sampleProvider, buffer, _logger);
+            _resampler = new DynamicResamplerSampleProvider(_sampleProvider, _buffer, _deviceNativeSampleRate, _logger);
             _wasapiOut.Init(_resampler);
-            _logger.LogDebug("Sample source configured with dynamic resampling for sync correction");
+            _logger.LogDebug(
+                "Sample source configured with dynamic resampling: {SourceRate}Hz → {DeviceRate}Hz",
+                _format?.SampleRate,
+                _deviceNativeSampleRate);
         }
         else
         {
@@ -291,6 +325,9 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                         }
                     }
 
+                    // Query the new device's native sample rate
+                    _deviceNativeSampleRate = QueryDeviceMixFormat(device);
+
                     // Create new WASAPI output with 100ms latency
                     const int RequestedLatencyMs = 100;
 
@@ -307,11 +344,21 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                     _outputLatencyMs = GetActualOutputLatency(_wasapiOut, RequestedLatencyMs);
 
                     // Re-attach sample provider if we had one
-                    // Use resampler if it was configured, otherwise just the sample provider
-                    if (_resampler != null)
+                    // If we're using resampling, recreate the resampler with new device native rate
+                    if (_resampler != null && currentSampleProvider != null)
                     {
+                        // Recreate resampler with new device native rate
+                        _resampler.Dispose();
+                        _resampler = new DynamicResamplerSampleProvider(
+                            currentSampleProvider,
+                            _buffer,
+                            _deviceNativeSampleRate,
+                            _logger);
+
                         _wasapiOut.Init(_resampler);
-                        _logger.LogDebug("Sample source re-attached to new device (with resampling)");
+                        _logger.LogDebug(
+                            "Sample source re-attached to new device (with resampling at {DeviceRate}Hz)",
+                            _deviceNativeSampleRate);
                     }
                     else if (currentSampleProvider != null)
                     {
@@ -376,6 +423,44 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         {
             // Unexpected stop while playing
             SetState(AudioPlayerState.Stopped);
+        }
+    }
+
+    /// <summary>
+    /// Queries the native sample rate of the audio device's mixer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// In WASAPI shared mode, Windows Audio Engine resamples all audio to the device's
+    /// native mixer rate. By querying this rate and resampling ourselves with high-quality
+    /// filtering, we avoid double-resampling artifacts.
+    /// </para>
+    /// </remarks>
+    /// <param name="device">The audio device to query, or null for system default.</param>
+    /// <returns>The device's native sample rate in Hz, or 48000 if query fails.</returns>
+    private int QueryDeviceMixFormat(MMDevice? device)
+    {
+        const int DefaultSampleRate = 48000;
+        try
+        {
+            if (device == null)
+            {
+                using var enumerator = new MMDeviceEnumerator();
+                device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+            }
+
+            var mixFormat = device.AudioClient.MixFormat;
+            _logger.LogInformation(
+                "Device native format: {SampleRate}Hz {Channels}ch {BitsPerSample}bit",
+                mixFormat.SampleRate,
+                mixFormat.Channels,
+                mixFormat.BitsPerSample);
+            return mixFormat.SampleRate;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not query device mix format, defaulting to {DefaultRate}Hz", DefaultSampleRate);
+            return DefaultSampleRate;
         }
     }
 
