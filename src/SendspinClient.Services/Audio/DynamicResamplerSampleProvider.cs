@@ -154,10 +154,18 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
         _resampler.SetFeedMode(true); // We're in output-driven mode (request N output samples)
         UpdateResamplerRates();
 
-        // Allocate source buffer (enough for typical reads with margin for rate adjustment)
-        // At 1.04x rate, we need 4% more input samples
-        // Also account for potential sample rate conversion (e.g., 44.1k → 48k = 1.09x more)
-        _sourceBuffer = new float[8192 * 2];
+        // Pre-allocate source buffer sized for worst-case to avoid audio thread allocations.
+        // Must account for:
+        // - Max WASAPI buffer request (~16384 samples for 100ms+ latency at 48kHz stereo)
+        // - Max playback rate (1.04x)
+        // - Sample rate conversion ratio (e.g., 96kHz→48kHz = 2.0x)
+        //
+        // Formula: maxOutputRequest * MaxRate * sampleRateRatio * safetyMargin
+        const int MaxExpectedOutputRequest = 16384;
+        const double SafetyMargin = 1.2; // 20% extra headroom
+        var sampleRateRatio = (double)source.WaveFormat.SampleRate / _targetSampleRate;
+        var bufferSize = (int)(MaxExpectedOutputRequest * MaxRate * sampleRateRatio * SafetyMargin);
+        _sourceBuffer = new float[bufferSize];
 
         // Subscribe to buffer rate changes if available
         if (_buffer != null)
@@ -203,9 +211,15 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
         var sampleRateRatio = (double)_source.WaveFormat.SampleRate / _targetSampleRate;
         var inputSamplesNeeded = (int)Math.Ceiling(count * currentRate * sampleRateRatio);
 
-        // Ensure source buffer is large enough
+        // Ensure source buffer is large enough.
+        // This should rarely happen with proper pre-allocation, but handle it as a safety net.
         if (_sourceBuffer.Length < inputSamplesNeeded)
         {
+            _logger?.LogWarning(
+                "Audio thread buffer reallocation triggered: needed {Needed}, had {Had}. " +
+                "Consider increasing MaxExpectedOutputRequest.",
+                inputSamplesNeeded,
+                _sourceBuffer.Length);
             _sourceBuffer = new float[inputSamplesNeeded * 2];
         }
 
