@@ -86,9 +86,16 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     private long _playbackStartLocalTime;       // Local time when playback actually started (μs)
     private long _lastElapsedMicroseconds;      // Last calculated elapsed time (for stats)
     private long _currentSyncErrorMicroseconds; // Positive = behind (need DROP), Negative = ahead (need INSERT)
+    private double _smoothedSyncErrorMicroseconds; // EMA-filtered sync error for stable correction decisions
     private long _samplesReadSinceStart;        // Total samples READ (consumed) since playback started
     private long _samplesOutputSinceStart;      // Total samples OUTPUT since playback started (for stats)
     private double _microsecondsPerSample;      // Duration of one sample in microseconds
+
+    // Sync error smoothing (matches JS library approach)
+    // EMA filter prevents jittery correction decisions from measurement noise.
+    // Alpha of 0.1 means ~10 updates to reach 63% of a step change.
+    // At ~10ms audio callbacks, this is ~100ms to stabilize after a change.
+    private const double SyncErrorSmoothingAlpha = 0.1;
 
     private bool _disposed;
 
@@ -381,6 +388,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             _samplesReadSinceStart = 0;
             _samplesOutputSinceStart = 0;
             _currentSyncErrorMicroseconds = 0;
+            _smoothedSyncErrorMicroseconds = 0;
 
             // Reset sync correction state
             _dropEveryNFrames = 0;
@@ -422,6 +430,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             _samplesReadSinceStart = 0;
             _samplesOutputSinceStart = 0;
             _currentSyncErrorMicroseconds = 0;
+            _smoothedSyncErrorMicroseconds = 0;
 
             // Reset sync correction state
             _dropEveryNFrames = 0;
@@ -617,6 +626,12 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         // output latency here would create a constant negative offset, making us
         // appear permanently "ahead" and causing continuous slowdown with buffer growth.
         _currentSyncErrorMicroseconds = elapsedTimeMicroseconds - samplesReadTimeMicroseconds;
+
+        // Apply EMA smoothing to filter measurement jitter (matches JS library approach).
+        // This prevents rapid correction changes from noisy measurements while still
+        // tracking the underlying trend. The smoothed value is used for correction decisions.
+        _smoothedSyncErrorMicroseconds = SyncErrorSmoothingAlpha * _currentSyncErrorMicroseconds
+            + (1 - SyncErrorSmoothingAlpha) * _smoothedSyncErrorMicroseconds;
     }
 
     /// <summary>
@@ -625,13 +640,19 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Implements a tiered correction strategy matching the JS client:
+    /// Implements a tiered correction strategy matching the JS client with discrete rate steps:
     /// </para>
     /// <list type="bullet">
-    /// <item>Error &lt; 2ms (deadband): No correction, playback rate = 1.0</item>
-    /// <item>Error 2-15ms: Smooth playback rate adjustment (0.98-1.02x) via resampling</item>
+    /// <item>Error &lt; 1ms (deadband): No correction, playback rate = 1.0</item>
+    /// <item>Error 1-8ms: Small correction using 1% rate adjustment (0.99x or 1.01x)</item>
+    /// <item>Error 8-15ms: Medium correction using 2% rate adjustment (0.98x or 1.02x)</item>
     /// <item>Error &gt; 15ms: Frame drop/insert for faster correction</item>
     /// </list>
+    /// <para>
+    /// Uses EMA-smoothed sync error to prevent jittery corrections from measurement noise.
+    /// Discrete rate steps (rather than continuous mapping) provide more stable audio output
+    /// by avoiding constant micro-adjustments to the resampler.
+    /// </para>
     /// </remarks>
     private void UpdateCorrectionRate()
     {
@@ -646,83 +667,55 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             return;
         }
 
-        var absError = Math.Abs(_currentSyncErrorMicroseconds);
+        // Use smoothed error for correction decisions (filters measurement jitter)
+        var absError = Math.Abs(_smoothedSyncErrorMicroseconds);
 
-        // Tier 1: Deadband with hysteresis - prevents oscillation between correcting and not correcting
-        // Entry threshold (2ms): start correcting when error exceeds this
-        // Exit threshold (0.5ms): stop correcting when error drops below this
-        // Can be bypassed via SyncCorrectionOptions.BypassDeadband for continuous correction
-        if (!_syncOptions.BypassDeadband)
-        {
-            if (_inCorrectionMode)
-            {
-                // Already correcting - only exit when error is very small
-                if (absError <= _syncOptions.ExitDeadbandMicroseconds)
-                {
-                    _inCorrectionMode = false;
-                    SetTargetPlaybackRate(1.0);
-                    _dropEveryNFrames = 0;
-                    _insertEveryNFrames = 0;
-                    return;
-                }
-            }
-            else
-            {
-                // Not correcting - only enter correction when error exceeds entry threshold
-                if (absError <= _syncOptions.EntryDeadbandMicroseconds)
-                {
-                    SetTargetPlaybackRate(1.0);
-                    _dropEveryNFrames = 0;
-                    _insertEveryNFrames = 0;
-                    return;
-                }
+        // Discrete rate step thresholds (matching JS library approach)
+        // Using fixed thresholds rather than configurable to match proven JS implementation
+        const long DeadbandThreshold = 1_000;      // 1ms - no correction below this
+        const long SmallErrorThreshold = 8_000;    // 8ms - use 1% correction
+        const long MediumErrorThreshold = 15_000;  // 15ms - use 2% correction (above this: drop/insert)
 
-                // Error exceeded entry threshold - enter correction mode
-                _inCorrectionMode = true;
-            }
-        }
-        else
+        // Tier 1: Deadband - error is small enough to ignore
+        if (absError < DeadbandThreshold)
         {
-            // BypassDeadband: always in correction mode
-            _inCorrectionMode = true;
+            SetTargetPlaybackRate(1.0);
+            _dropEveryNFrames = 0;
+            _insertEveryNFrames = 0;
+            return;
         }
 
-        // Tier 2: Small errors (0.5-15ms when in correction mode) - use smooth playback rate adjustment
-        // This is imperceptible to human ears and avoids click artifacts
-        if (absError <= _syncOptions.ResamplingThresholdMicroseconds)
+        // Tier 2: Small error (1-8ms) - use 1% rate adjustment
+        if (absError < SmallErrorThreshold)
         {
-            // Map error to rate: exit threshold → ~1.0005x, 15ms → max rate (or inverse for ahead)
-            // Linear interpolation from exit deadband to threshold
-            var errorAboveDeadband = absError - _syncOptions.ExitDeadbandMicroseconds;
-            var rangeSize = _syncOptions.ResamplingThresholdMicroseconds - _syncOptions.ExitDeadbandMicroseconds;
-            var correctionPercent = rangeSize > 0
-                ? (errorAboveDeadband / (double)rangeSize) * _syncOptions.MaxSpeedCorrection
-                : _syncOptions.MaxSpeedCorrection;
-
-            // Clamp to configured max (typically 2-4%)
-            correctionPercent = Math.Min(correctionPercent, _syncOptions.MaxSpeedCorrection);
-
-            var newRate = _currentSyncErrorMicroseconds > 0
-                ? 1.0 + correctionPercent   // Behind: speed up (consume input faster)
-                : 1.0 - correctionPercent;  // Ahead: slow down (consume input slower)
-
+            var newRate = _smoothedSyncErrorMicroseconds > 0 ? 1.01 : 0.99;
             SetTargetPlaybackRate(newRate);
             _dropEveryNFrames = 0;
             _insertEveryNFrames = 0;
             return;
         }
 
-        // Tier 3: Larger errors (>15ms) - use frame drop/insert for faster correction
-        // Reset playback rate to 1.0 since we're using discrete correction
+        // Tier 3: Medium error (8-15ms) - use 2% rate adjustment
+        if (absError < MediumErrorThreshold)
+        {
+            var newRate = _smoothedSyncErrorMicroseconds > 0 ? 1.02 : 0.98;
+            SetTargetPlaybackRate(newRate);
+            _dropEveryNFrames = 0;
+            _insertEveryNFrames = 0;
+            return;
+        }
+
+        // Tier 4: Large errors (>15ms) - use frame drop/insert for faster correction
+        // Reset playback rate to 1.0 since we're using discrete sample correction
         SetTargetPlaybackRate(1.0);
 
         // Calculate desired corrections per second to fix error within target time
-        // Error in frames = error_us * (sample_rate * channels) / 1,000,000
+        // Error in frames = error_us * sample_rate / 1,000,000
         var framesError = absError * _sampleRate / 1_000_000.0;
         var desiredCorrectionsPerSec = framesError / _syncOptions.CorrectionTargetSeconds;
 
         // Calculate frames per second
-        var framesPerSecond = (double)_sampleRate; // One frame = one sample per channel
+        var framesPerSecond = (double)_sampleRate;
 
         // Limit correction rate to max speed adjustment
         var maxCorrectionsPerSec = framesPerSecond * _syncOptions.MaxSpeedCorrection;
@@ -736,7 +729,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         // Minimum interval to prevent too-aggressive correction
         correctionInterval = Math.Max(correctionInterval, _channels * 10);
 
-        if (_currentSyncErrorMicroseconds > 0)
+        if (_smoothedSyncErrorMicroseconds > 0)
         {
             // Playing too slow - need to drop frames to catch up
             _dropEveryNFrames = correctionInterval;
