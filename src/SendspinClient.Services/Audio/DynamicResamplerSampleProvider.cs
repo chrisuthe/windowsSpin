@@ -37,6 +37,12 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     private float[] _sourceBuffer;
     private bool _disposed;
 
+    // Underrun tracking for diagnostics
+    private long _sourceEmptyCount;
+    private long _resamplerShortCount;
+    private long _lastUnderrunLogTicks;
+    private const long UnderrunLogIntervalTicks = TimeSpan.TicksPerSecond * 5; // Log at most every 5 seconds
+
     /// <summary>
     /// Minimum playback rate (4% slower).
     /// </summary>
@@ -62,6 +68,24 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
 
     /// <inheritdoc/>
     public WaveFormat WaveFormat { get; }
+
+    /// <summary>
+    /// Gets the count of times the source returned no samples (buffer empty).
+    /// </summary>
+    /// <remarks>
+    /// High counts indicate the upstream buffer is frequently empty, suggesting
+    /// network issues or insufficient buffering.
+    /// </remarks>
+    public long SourceEmptyCount => Interlocked.Read(ref _sourceEmptyCount);
+
+    /// <summary>
+    /// Gets the count of times the resampler produced fewer samples than requested.
+    /// </summary>
+    /// <remarks>
+    /// Non-zero counts after startup indicate the resampler input calculation may
+    /// be incorrect or the source is providing fewer samples than expected.
+    /// </remarks>
+    public long ResamplerShortCount => Interlocked.Read(ref _resamplerShortCount);
 
     /// <summary>
     /// Gets or sets the current playback rate.
@@ -228,7 +252,9 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
 
         if (inputRead == 0)
         {
-            // Source is empty - fill with silence
+            // Source is empty - fill with silence and track underrun
+            Interlocked.Increment(ref _sourceEmptyCount);
+            LogUnderrunIfNeeded("source empty");
             Array.Fill(buffer, 0f, offset, count);
             return count;
         }
@@ -236,9 +262,11 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
         // Resample
         var outputGenerated = Resample(_sourceBuffer, inputRead, buffer, offset, count);
 
-        // If we didn't generate enough output (shouldn't happen often), pad with silence
+        // If we didn't generate enough output, pad with silence and track underrun
         if (outputGenerated < count)
         {
+            Interlocked.Increment(ref _resamplerShortCount);
+            LogUnderrunIfNeeded($"resampler short: got {outputGenerated}, needed {count}");
             Array.Fill(buffer, 0f, offset + outputGenerated, count - outputGenerated);
         }
 
@@ -305,6 +333,30 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     private void OnTargetPlaybackRateChanged(double newRate)
     {
         PlaybackRate = newRate;
+    }
+
+    /// <summary>
+    /// Logs an underrun event with rate limiting to avoid flooding logs.
+    /// </summary>
+    /// <param name="reason">Description of the underrun cause.</param>
+    private void LogUnderrunIfNeeded(string reason)
+    {
+        var now = DateTime.UtcNow.Ticks;
+        var lastLog = Interlocked.Read(ref _lastUnderrunLogTicks);
+
+        // Only log if enough time has passed since last log
+        if (now - lastLog > UnderrunLogIntervalTicks)
+        {
+            // Try to update the last log time (may fail if another thread beat us)
+            if (Interlocked.CompareExchange(ref _lastUnderrunLogTicks, now, lastLog) == lastLog)
+            {
+                _logger?.LogWarning(
+                    "Audio underrun detected ({Reason}). Total: sourceEmpty={SourceEmpty}, resamplerShort={ResamplerShort}",
+                    reason,
+                    Interlocked.Read(ref _sourceEmptyCount),
+                    Interlocked.Read(ref _resamplerShortCount));
+            }
+        }
     }
 
     /// <summary>
