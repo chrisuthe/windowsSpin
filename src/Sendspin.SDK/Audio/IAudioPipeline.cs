@@ -23,9 +23,28 @@ public interface IAudioPipeline : IAsyncDisposable
     AudioBufferStats? BufferStats { get; }
 
     /// <summary>
-    /// Gets the current audio format being decoded, or null if not streaming.
+    /// Gets the current audio format being decoded (incoming format), or null if not streaming.
     /// </summary>
+    /// <remarks>
+    /// This represents the format of the audio stream as received from the server,
+    /// before any processing or conversion by the audio pipeline.
+    /// </remarks>
     AudioFormat? CurrentFormat { get; }
+
+    /// <summary>
+    /// Gets the audio format being sent to the output device, or null if not playing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This represents the format of audio data being written to the audio output device.
+    /// In most cases, this matches <see cref="CurrentFormat"/> but with PCM encoding,
+    /// as all codecs are decoded to PCM before output.
+    /// </para>
+    /// <para>
+    /// This value is available after the pipeline has started playing.
+    /// </para>
+    /// </remarks>
+    AudioFormat? OutputFormat { get; }
 
     /// <summary>
     /// Gets the detected audio output latency in milliseconds.

@@ -207,6 +207,76 @@ public partial class StatsViewModel : ViewModelBase
 
     #endregion
 
+    #region Audio Format Properties
+
+    /// <summary>
+    /// Gets the incoming audio format display string (e.g., "OPUS 48000Hz 2ch @ 128kbps").
+    /// </summary>
+    /// <remarks>
+    /// This represents the format of audio received from the server, before decoding.
+    /// </remarks>
+    [ObservableProperty]
+    private string _inputFormatDisplay = "--";
+
+    /// <summary>
+    /// Gets the output audio format display string (e.g., "PCM 48000Hz 2ch 32bit").
+    /// </summary>
+    /// <remarks>
+    /// This represents the format of audio being sent to the output device after decoding.
+    /// </remarks>
+    [ObservableProperty]
+    private string _outputFormatDisplay = "--";
+
+    /// <summary>
+    /// Gets the input audio codec (e.g., "OPUS", "FLAC", "PCM").
+    /// </summary>
+    [ObservableProperty]
+    private string _inputCodec = "--";
+
+    /// <summary>
+    /// Gets the output audio codec (e.g., "PCM" after decoding).
+    /// </summary>
+    [ObservableProperty]
+    private string _outputCodec = "--";
+
+    /// <summary>
+    /// Gets the input sample rate display (e.g., "48000 Hz").
+    /// </summary>
+    [ObservableProperty]
+    private string _inputSampleRateDisplay = "--";
+
+    /// <summary>
+    /// Gets the output sample rate display (e.g., "48000 Hz").
+    /// </summary>
+    [ObservableProperty]
+    private string _outputSampleRateDisplay = "--";
+
+    /// <summary>
+    /// Gets the input channels display (e.g., "Stereo" or "2ch").
+    /// </summary>
+    [ObservableProperty]
+    private string _inputChannelsDisplay = "--";
+
+    /// <summary>
+    /// Gets the output channels display (e.g., "Stereo" or "2ch").
+    /// </summary>
+    [ObservableProperty]
+    private string _outputChannelsDisplay = "--";
+
+    /// <summary>
+    /// Gets the input bit depth or bitrate display (e.g., "128 kbps" for lossy or "24-bit" for PCM).
+    /// </summary>
+    [ObservableProperty]
+    private string _inputBitrateDisplay = "--";
+
+    /// <summary>
+    /// Gets the output bit depth display (e.g., "32-bit float").
+    /// </summary>
+    [ObservableProperty]
+    private string _outputBitDepthDisplay = "--";
+
+    #endregion
+
     /// <summary>
     /// Gets the update rate display string.
     /// </summary>
@@ -256,6 +326,7 @@ public partial class StatsViewModel : ViewModelBase
     {
         UpdateBufferStats();
         UpdateClockSyncStats();
+        UpdateAudioFormatStats();
     }
 
     private void UpdateBufferStats()
@@ -412,5 +483,100 @@ public partial class StatsViewModel : ViewModelBase
         }
 
         return samples.ToString();
+    }
+
+    private void UpdateAudioFormatStats()
+    {
+        var inputFormat = _audioPipeline.CurrentFormat;
+        var outputFormat = _audioPipeline.OutputFormat;
+
+        // Update input format properties
+        if (inputFormat != null)
+        {
+            InputFormatDisplay = inputFormat.ToString();
+            InputCodec = inputFormat.Codec.ToUpperInvariant();
+            InputSampleRateDisplay = $"{inputFormat.SampleRate} Hz";
+            InputChannelsDisplay = FormatChannels(inputFormat.Channels);
+            InputBitrateDisplay = FormatBitrateOrBitDepth(inputFormat);
+        }
+        else
+        {
+            InputFormatDisplay = "--";
+            InputCodec = "--";
+            InputSampleRateDisplay = "--";
+            InputChannelsDisplay = "--";
+            InputBitrateDisplay = "--";
+        }
+
+        // Update output format properties
+        if (outputFormat != null)
+        {
+            OutputFormatDisplay = FormatOutputFormat(outputFormat);
+            OutputCodec = "PCM"; // After decoding, all audio is PCM
+            OutputSampleRateDisplay = $"{outputFormat.SampleRate} Hz";
+            OutputChannelsDisplay = FormatChannels(outputFormat.Channels);
+            OutputBitDepthDisplay = "32-bit float"; // NAudio uses 32-bit float internally
+        }
+        else
+        {
+            OutputFormatDisplay = "--";
+            OutputCodec = "--";
+            OutputSampleRateDisplay = "--";
+            OutputChannelsDisplay = "--";
+            OutputBitDepthDisplay = "--";
+        }
+    }
+
+    /// <summary>
+    /// Formats the number of channels as a human-readable string.
+    /// </summary>
+    /// <param name="channels">Number of audio channels.</param>
+    /// <returns>Human-readable channel description (e.g., "Mono", "Stereo", "5.1").</returns>
+    private static string FormatChannels(int channels)
+    {
+        return channels switch
+        {
+            1 => "Mono",
+            2 => "Stereo",
+            6 => "5.1",
+            8 => "7.1",
+            _ => $"{channels}ch",
+        };
+    }
+
+    /// <summary>
+    /// Formats bitrate (for lossy codecs) or bit depth (for lossless/PCM).
+    /// </summary>
+    /// <param name="format">The audio format.</param>
+    /// <returns>Formatted bitrate or bit depth string.</returns>
+    private static string FormatBitrateOrBitDepth(Sendspin.SDK.Models.AudioFormat format)
+    {
+        if (format.Bitrate.HasValue)
+        {
+            return $"{format.Bitrate} kbps";
+        }
+        else if (format.BitDepth.HasValue)
+        {
+            return $"{format.BitDepth}-bit";
+        }
+
+        // For Opus without bitrate info, show as variable
+        if (format.Codec.Equals("opus", StringComparison.OrdinalIgnoreCase))
+        {
+            return "VBR";
+        }
+
+        return "--";
+    }
+
+    /// <summary>
+    /// Formats the output format for display, emphasizing that it's decoded PCM.
+    /// </summary>
+    /// <param name="format">The output audio format.</param>
+    /// <returns>Formatted output format string.</returns>
+    private static string FormatOutputFormat(Sendspin.SDK.Models.AudioFormat format)
+    {
+        // Output is always decoded to 32-bit float PCM for NAudio
+        return $"PCM {format.SampleRate}Hz {format.Channels}ch 32-bit float";
     }
 }

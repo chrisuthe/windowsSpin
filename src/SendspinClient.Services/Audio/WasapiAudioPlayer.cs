@@ -46,6 +46,9 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     public int OutputLatencyMs => _outputLatencyMs;
 
     /// <inheritdoc/>
+    public AudioFormat? OutputFormat => _format;
+
+    /// <inheritdoc/>
     public AudioPlayerState State { get; private set; } = AudioPlayerState.Uninitialized;
 
     /// <inheritdoc/>

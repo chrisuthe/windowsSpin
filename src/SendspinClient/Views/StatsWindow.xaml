@@ -5,8 +5,8 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="Stats for Nerds"
-        Height="550" Width="420"
-        MinHeight="400" MinWidth="350"
+        Height="650" Width="420"
+        MinHeight="500" MinWidth="350"
         Background="#1a1a2e"
         WindowStartupLocation="CenterOwner">
 
@@ -55,6 +55,59 @@
         <!-- Stats Content -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,16,0,0">
             <StackPanel>
+                <!-- Audio Format -->
+                <TextBlock Text="AUDIO FORMAT" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                <Border Background="#2d2d44" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Input (Incoming) Section Header -->
+                        <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="Incoming Stream"
+                                   Foreground="#60a5fa" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,6"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Format" Style="{StaticResource StatLabel}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding InputFormatDisplay}"
+                                   Style="{StaticResource StatValue}" Foreground="#4ade80"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Sample Rate" Style="{StaticResource StatLabel}" Margin="0,6,0,0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding InputSampleRateDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,6,0,0"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Channels" Style="{StaticResource StatLabel}" Margin="0,6,0,0"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding InputChannelsDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,6,0,0"/>
+
+                        <!-- Output Section Header -->
+                        <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Text="Output to Device"
+                                   Foreground="#60a5fa" FontSize="10" FontWeight="SemiBold" Margin="0,14,0,6"/>
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Format" Style="{StaticResource StatLabel}"/>
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding OutputFormatDisplay}"
+                                   Style="{StaticResource StatValue}" Foreground="#a78bfa"/>
+
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Sample Rate" Style="{StaticResource StatLabel}" Margin="0,6,0,0"/>
+                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding OutputSampleRateDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,6,0,0"/>
+
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Bit Depth" Style="{StaticResource StatLabel}" Margin="0,6,0,0"/>
+                        <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding OutputBitDepthDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,6,0,0"/>
+                    </Grid>
+                </Border>
+
                 <!-- Sync Status -->
                 <TextBlock Text="SYNC STATUS" Style="{StaticResource SectionHeader}"/>
                 <Border Background="#2d2d44" CornerRadius="8" Padding="12" Margin="0,0,0,8">
