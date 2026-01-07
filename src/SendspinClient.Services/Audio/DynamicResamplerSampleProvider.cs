@@ -56,13 +56,13 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     /// <summary>
     /// Smoothing factor for rate changes (0.0 to 1.0).
     /// Lower values = smoother/slower transitions, higher = faster response.
-    /// At 0.15, we move 15% toward target each update (~10ms), reaching 90% in ~150ms.
+    /// At 0.10, we move 10% toward target each update (~10ms), reaching 90% in ~230ms.
     /// </summary>
     /// <remarks>
     /// Must be high enough that smoothed changes exceed <see cref="RateChangeThreshold"/>.
-    /// For 0.5% target rate change: smoothed = 0.005 * 0.15 = 0.00075 > 0.0001 threshold.
+    /// For 0.5% target rate change: smoothed = 0.005 * 0.10 = 0.0005 > 0.0001 threshold.
     /// </remarks>
-    private const double RateSmoothingFactor = 0.15;
+    private const double RateSmoothingFactor = 0.10;
 
     /// <summary>
     /// Minimum rate change threshold before updating resampler (0.01% = 0.0001).
@@ -180,10 +180,10 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
             _logger?.LogDebug("Resampler configured for sync correction only (no sample rate conversion)");
         }
 
-        // Initialize WDL resampler
+        // Initialize WDL resampler with high-quality settings
         _resampler = new WdlResampler();
-        _resampler.SetMode(true, 16, true); // Interpolating, 16-tap sinc filter for high quality
-        _resampler.SetFilterParms();
+        _resampler.SetMode(true, 32, true); // Interpolating, 32-tap sinc filter (higher quality than 16)
+        _resampler.SetFilterParms(0.85f, 0.80f); // Gentler filter: 85% Nyquist cutoff, softer transition
         _resampler.SetFeedMode(true); // We're in output-driven mode (request N output samples)
         UpdateResamplerRates();
 
