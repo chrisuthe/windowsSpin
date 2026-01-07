@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>3.3.1</Version>
+    <Version>3.4.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,23 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v3.4.0:
+Improved Sync Correction:
+- Replaced fixed rate steps (1-2%) with proportional correction
+  - Rate = 1.0 + (error / CorrectionTargetSeconds / 1,000,000)
+  - Prevents overshoot by adjusting rate based on error magnitude
+  - Example: 10ms error with 3s target = 0.33% rate adjustment (vs fixed 1-2%)
+- Added EMA smoothing for sync error measurements (alpha=0.1)
+  - Filters measurement jitter before making correction decisions
+  - Prevents rapid oscillation between correction modes
+- Tiered correction now: deadband (1ms) -> proportional (1-15ms) -> drop/insert (15ms+)
+
+Deprecations:
+- EntryDeadbandMicroseconds: No longer used, marked [Obsolete]
+- ExitDeadbandMicroseconds: No longer used, marked [Obsolete]
+- BypassDeadband: No longer used, marked [Obsolete]
+These properties are retained for backward compatibility but have no effect.
+
 v3.3.1:
 New Features:
 - IAudioPlayer.OutputFormat: Optional property exposing the audio format sent to output device
