@@ -30,6 +30,7 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     private readonly WdlResampler _resampler;
     private readonly ILogger? _logger;
     private readonly object _rateLock = new();
+    private readonly int _targetSampleRate;
 
     private double _playbackRate = 1.0;
     private double _targetRate = 1.0;
@@ -109,15 +110,42 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     /// </summary>
     /// <param name="source">The upstream sample provider to read from.</param>
     /// <param name="buffer">Optional buffer to subscribe to for rate change events.</param>
+    /// <param name="targetSampleRate">
+    /// Target output sample rate (device native rate). When non-zero and different from source rate,
+    /// the resampler performs compound conversion: sample rate conversion + sync correction in one pass.
+    /// This avoids double-resampling when Windows Audio Engine would otherwise resample to the mixer rate.
+    /// Pass 0 or the source sample rate to perform only sync correction.
+    /// </param>
     /// <param name="logger">Optional logger for debugging.</param>
-    public DynamicResamplerSampleProvider(ISampleProvider source, ITimedAudioBuffer? buffer = null, ILogger? logger = null)
+    public DynamicResamplerSampleProvider(
+        ISampleProvider source,
+        ITimedAudioBuffer? buffer = null,
+        int targetSampleRate = 0,
+        ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(source);
 
         _source = source;
         _buffer = buffer;
         _logger = logger;
-        WaveFormat = source.WaveFormat;
+
+        // Determine target sample rate - use source rate if not specified
+        _targetSampleRate = targetSampleRate > 0 ? targetSampleRate : source.WaveFormat.SampleRate;
+
+        // Output WaveFormat uses target sample rate (may differ from source for rate conversion)
+        if (_targetSampleRate != source.WaveFormat.SampleRate)
+        {
+            WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(_targetSampleRate, source.WaveFormat.Channels);
+            _logger?.LogInformation(
+                "Resampler configured for {SourceRate}Hz → {TargetRate}Hz (+ sync correction)",
+                source.WaveFormat.SampleRate,
+                _targetSampleRate);
+        }
+        else
+        {
+            WaveFormat = source.WaveFormat;
+            _logger?.LogDebug("Resampler configured for sync correction only (no sample rate conversion)");
+        }
 
         // Initialize WDL resampler
         _resampler = new WdlResampler();
@@ -128,7 +156,8 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
 
         // Allocate source buffer (enough for typical reads with margin for rate adjustment)
         // At 1.04x rate, we need 4% more input samples
-        _sourceBuffer = new float[8192];
+        // Also account for potential sample rate conversion (e.g., 44.1k → 48k = 1.09x more)
+        _sourceBuffer = new float[8192 * 2];
 
         // Subscribe to buffer rate changes if available
         if (_buffer != null)
@@ -161,10 +190,18 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
         // because the WDL resampler has internal filter state that gets disrupted.
         // At rate 1.0, the resampler acts as a passthrough but maintains consistent state.
 
-        // Calculate how many source samples we need for the requested output samples
-        // At rate > 1.0 (speeding up), we need MORE input samples
-        // At rate < 1.0 (slowing down), we need FEWER input samples
-        var inputSamplesNeeded = (int)Math.Ceiling(count * currentRate);
+        // Calculate how many source samples we need for the requested output samples.
+        // Must account for BOTH sample rate conversion AND sync correction:
+        // - Sample rate ratio: sourceRate / targetRate (e.g., 48k/44.1k = 1.088)
+        // - Playback rate: currentRate (e.g., 1.02 for 2% speedup)
+        //
+        // Example: 48kHz source, 44.1kHz target, 1.02x playback, 2048 output samples:
+        // inputNeeded = 2048 * 1.02 * (48000/44100) = 2048 * 1.02 * 1.088 = 2274
+        //
+        // Without this, downsampling (source > target) would starve the resampler,
+        // causing it to produce fewer output samples and resulting in silence gaps.
+        var sampleRateRatio = (double)_source.WaveFormat.SampleRate / _targetSampleRate;
+        var inputSamplesNeeded = (int)Math.Ceiling(count * currentRate * sampleRateRatio);
 
         // Ensure source buffer is large enough
         if (_sourceBuffer.Length < inputSamplesNeeded)
@@ -221,16 +258,31 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     }
 
     /// <summary>
-    /// Updates the resampler's rate settings.
+    /// Updates the resampler's rate settings for compound conversion.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The resampler combines sample rate conversion and sync correction in a single pass:
+    /// - Sample rate conversion: source rate → target rate (e.g., 48kHz → 44.1kHz)
+    /// - Sync correction: adjust output rate by playback rate factor
+    /// </para>
+    /// <para>
+    /// Example: Source 48kHz, target 44.1kHz, playback rate 1.02x (speed up 2%)
+    /// - Without sync correction: SetRates(48000, 44100)
+    /// - With sync correction: SetRates(48000, 44100/1.02) = SetRates(48000, 43235)
+    /// </para>
+    /// </remarks>
     private void UpdateResamplerRates()
     {
-        // SetRates(inRate, outRate): to speed up playback, output rate < input rate
-        // e.g., at 1.02x rate, we consume input faster: SetRates(48000, 48000/1.02)
-        // Use double precision to avoid truncation artifacts from integer rounding
-        var inRate = (double)WaveFormat.SampleRate;
-        var outRate = WaveFormat.SampleRate / _playbackRate;
-        _resampler.SetRates(inRate, outRate);
+        // Input rate is the source sample rate (server stream format)
+        var sourceRate = (double)_source.WaveFormat.SampleRate;
+
+        // Output rate combines: target device rate / playback rate
+        // To speed up (playbackRate > 1): divide makes outRate smaller → resampler produces samples faster
+        // To slow down (playbackRate < 1): divide makes outRate larger → resampler produces samples slower
+        var outRate = _targetSampleRate / _playbackRate;
+
+        _resampler.SetRates(sourceRate, outRate);
     }
 
     /// <summary>
