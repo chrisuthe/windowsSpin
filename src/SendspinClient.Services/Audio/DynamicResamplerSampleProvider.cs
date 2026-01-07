@@ -340,7 +340,10 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     /// </remarks>
     private static void ApplySoftClipping(float[] buffer, int offset, int count)
     {
-        const float threshold = 0.95f;
+        // Threshold raised from 0.95 to 0.99 - the lower threshold was engaging too often
+        // on normal music peaks, causing audible artifacts. 0.99 only engages on truly
+        // clipping content while still preventing hard clipping at the DAC.
+        const float threshold = 0.99f;
         const float ceiling = 1.0f;
 
         for (var i = 0; i < count; i++)
