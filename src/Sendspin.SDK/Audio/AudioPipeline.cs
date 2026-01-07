@@ -166,11 +166,15 @@ public sealed class AudioPipeline : IAudioPipeline
             _player = _playerFactory();
             await _player.InitializeAsync(format, cancellationToken);
 
-            // Set output latency for sync error calculation (not for scheduling)
+            // Set output latency for diagnostic/logging purposes
             _buffer.OutputLatencyMicroseconds = _player.OutputLatencyMs * 1000L;
+
+            // Set calibrated startup latency for sync error compensation (push-model backends only)
+            _buffer.CalibratedStartupLatencyMicroseconds = _player.CalibratedStartupLatencyMs * 1000L;
             _logger.LogDebug(
-                "Output latency for sync tracking: {LatencyMs}ms",
-                _player.OutputLatencyMs);
+                "Output latency: {LatencyMs}ms, Calibrated startup latency: {CalibratedMs}ms",
+                _player.OutputLatencyMs,
+                _player.CalibratedStartupLatencyMs);
 
             // Create sample source bridging buffer to player
             _sampleSource = _sourceFactory(_buffer, GetCurrentLocalTimeMicroseconds);
@@ -320,15 +324,16 @@ public sealed class AudioPipeline : IAudioPipeline
             // Switch the audio device - this stops/restarts playback internally
             await _player.SwitchDeviceAsync(deviceId, cancellationToken);
 
-            // Update the buffer's output latency compensation for sync error calculation
+            // Update the buffer's latency values for the new device
             // The new device may have different latency characteristics
             if (_buffer != null)
             {
-                var newLatencyUs = _player.OutputLatencyMs * 1000L;
-                _buffer.OutputLatencyMicroseconds = newLatencyUs;
+                _buffer.OutputLatencyMicroseconds = _player.OutputLatencyMs * 1000L;
+                _buffer.CalibratedStartupLatencyMicroseconds = _player.CalibratedStartupLatencyMs * 1000L;
                 _logger.LogDebug(
-                    "Updated output latency for sync tracking: {LatencyMs}ms",
-                    _player.OutputLatencyMs);
+                    "Updated latencies after device switch: output={LatencyMs}ms, calibrated={CalibratedMs}ms",
+                    _player.OutputLatencyMs,
+                    _player.CalibratedStartupLatencyMs);
 
                 // Trigger a soft re-anchor to reset sync error tracking
                 // This prevents the timing discontinuity from causing false sync corrections

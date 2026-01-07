@@ -43,14 +43,33 @@ public interface ITimedAudioBuffer : IDisposable
     /// <summary>
     /// Gets or sets the output latency in microseconds (informational).
     /// This is the delay between when samples are read from the buffer
-    /// and when they actually play through the speakers (WASAPI buffer latency).
+    /// and when they actually play through the speakers (audio output buffer latency).
     /// </summary>
     /// <remarks>
-    /// This value is stored for diagnostic/logging purposes but is NOT used in sync
-    /// error calculation. The sync error tracks the rate at which we consume samples
-    /// relative to wall clock time, which is independent of the constant output latency offset.
+    /// This value is stored for diagnostic/logging purposes. For sync error compensation,
+    /// use <see cref="CalibratedStartupLatencyMicroseconds"/> which is specifically for
+    /// push-model backends that pre-fill their output buffer.
     /// </remarks>
     long OutputLatencyMicroseconds { get; set; }
+
+    /// <summary>
+    /// Gets or sets the calibrated startup latency in microseconds for push-model audio backends.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This value compensates for audio pre-filled in the output buffer on push-model
+    /// backends (like ALSA) where the application must fill the buffer before playback starts.
+    /// Without compensation, this prefill causes a constant negative sync error.
+    /// </para>
+    /// <para>
+    /// Set this value only when the audio player has measured/calibrated the actual startup
+    /// latency. Pull-model backends (like WASAPI) should leave this at 0.
+    /// </para>
+    /// <para>
+    /// Formula: syncError = elapsed - samplesReadTime + CalibratedStartupLatencyMicroseconds
+    /// </para>
+    /// </remarks>
+    long CalibratedStartupLatencyMicroseconds { get; set; }
 
     /// <summary>
     /// Gets the target playback rate for smooth sync correction via resampling.
