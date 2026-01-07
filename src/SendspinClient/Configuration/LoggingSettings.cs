@@ -55,9 +55,10 @@ public class LoggingSettings
     /// <summary>
     /// Gets or sets the output template for log messages.
     /// Uses Serilog template syntax.
+    /// Default uses microsecond precision (.ffffff) for diagnostic correlation with audio recordings.
     /// </summary>
     public string OutputTemplate { get; set; } =
-        "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}";
+        "{Timestamp:yyyy-MM-dd HH:mm:ss.ffffff} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}";
 
     /// <summary>
     /// Gets the effective log directory, using the default if none specified.

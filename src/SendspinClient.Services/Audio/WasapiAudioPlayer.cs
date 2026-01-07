@@ -7,6 +7,7 @@ using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using Sendspin.SDK.Audio;
 using Sendspin.SDK.Models;
+using SendspinClient.Services.Diagnostics;
 
 namespace SendspinClient.Services.Audio;
 
@@ -30,6 +31,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 {
     private readonly ILogger<WasapiAudioPlayer> _logger;
     private readonly bool _useResampling;
+    private readonly IDiagnosticAudioRecorder? _diagnosticRecorder;
     private string? _deviceId;
     private WasapiOut? _wasapiOut;
     private AudioSampleProviderAdapter? _sampleProvider;
@@ -126,11 +128,17 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// Whether to use dynamic resampling for smooth sync correction.
     /// When enabled, playback rate is adjusted based on the buffer's TargetPlaybackRate.
     /// </param>
-    public WasapiAudioPlayer(ILogger<WasapiAudioPlayer> logger, string? deviceId = null, bool useResampling = true)
+    /// <param name="diagnosticRecorder">Optional diagnostic recorder for audio capture.</param>
+    public WasapiAudioPlayer(
+        ILogger<WasapiAudioPlayer> logger,
+        string? deviceId = null,
+        bool useResampling = true,
+        IDiagnosticAudioRecorder? diagnosticRecorder = null)
     {
         _logger = logger;
         _deviceId = deviceId;
         _useResampling = useResampling;
+        _diagnosticRecorder = diagnosticRecorder;
     }
 
     /// <inheritdoc/>
@@ -235,7 +243,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         // Pass device native sample rate for compound resampling (rate conversion + sync correction)
         if (_useResampling && _buffer != null)
         {
-            _resampler = new DynamicResamplerSampleProvider(_sampleProvider, _buffer, _deviceNativeSampleRate, _logger);
+            _resampler = new DynamicResamplerSampleProvider(_sampleProvider, _buffer, _deviceNativeSampleRate, _logger, _diagnosticRecorder);
             _wasapiOut.Init(_resampler);
             _logger.LogDebug(
                 "Sample source configured with dynamic resampling: {SourceRate}Hz → {DeviceRate}Hz",
@@ -353,7 +361,8 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                             currentSampleProvider,
                             _buffer,
                             _deviceNativeSampleRate,
-                            _logger);
+                            _logger,
+                            _diagnosticRecorder);
 
                         _wasapiOut.Init(_resampler);
                         _logger.LogDebug(
