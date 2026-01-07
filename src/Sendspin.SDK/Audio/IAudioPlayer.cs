@@ -32,10 +32,27 @@ public interface IAudioPlayer : IAsyncDisposable
     /// </summary>
     /// <remarks>
     /// This value is available after <see cref="InitializeAsync"/> completes.
-    /// It can be used to automatically compensate for audio output delay
-    /// in synchronized multi-room playback scenarios.
+    /// It can be used for informational/diagnostic purposes.
     /// </remarks>
     int OutputLatencyMs { get; }
+
+    /// <summary>
+    /// Gets the calibrated startup latency in milliseconds for push-model audio backends.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This represents the measured time from first audio write to actual playback start
+    /// on push-model backends (like ALSA) that must pre-fill their output buffer.
+    /// </para>
+    /// <para>
+    /// Pull-model backends (like WASAPI) should return 0 since they don't pre-fill.
+    /// </para>
+    /// <para>
+    /// This value is used by <see cref="ITimedAudioBuffer"/> to compensate for the
+    /// constant negative sync error caused by buffer prefill.
+    /// </para>
+    /// </remarks>
+    int CalibratedStartupLatencyMs => 0;
 
     /// <summary>
     /// Gets the current output audio format, or null if not initialized.

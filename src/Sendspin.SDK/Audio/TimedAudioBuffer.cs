@@ -147,6 +147,9 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     /// <inheritdoc/>
     public long OutputLatencyMicroseconds { get; set; }
 
+    /// <inheritdoc/>
+    public long CalibratedStartupLatencyMicroseconds { get; set; }
+
     /// <summary>
     /// Initializes a new instance of the <see cref="TimedAudioBuffer"/> class.
     /// </summary>
@@ -612,17 +615,20 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         // How much server time have we actually READ (consumed) from the buffer?
         var samplesReadTimeMicroseconds = (long)(_samplesReadSinceStart * _microsecondsPerSample);
 
-        // Sync error = elapsed - samples_read_time
-        // Positive = we haven't read enough (behind) = need to DROP (read faster)
-        // Negative = we've read too much (ahead) = need to INSERT (slow down reading)
+        // Sync error = elapsed - samples_read_time + calibrated_startup_latency
         //
-        // NOTE: Output latency (WASAPI buffer delay) is NOT included here. The output
-        // latency is a constant offset that affects WHEN audio reaches the speaker,
-        // but not the RATE at which we should consume samples. At steady state with
-        // rate=1.0, sync error should be ~0 regardless of output latency. Including
-        // output latency here would create a constant negative offset, making us
-        // appear permanently "ahead" and causing continuous slowdown with buffer growth.
-        _currentSyncErrorMicroseconds = elapsedTimeMicroseconds - samplesReadTimeMicroseconds;
+        // The calibrated startup latency compensates for push-model backends (ALSA) that
+        // pre-fill their output buffer before playback starts. This prefill causes
+        // samplesRead to exceed elapsed time by the prefill amount, resulting in a constant
+        // negative sync error without compensation.
+        //
+        // Pull-model backends (WASAPI) leave CalibratedStartupLatencyMicroseconds = 0,
+        // so this formula reduces to the original: elapsed - samplesReadTime.
+        //
+        // Positive = we haven't read enough (behind) = need to DROP (read faster)
+        // Negative = we've read too much (ahead) = need to INSERT (slow down)
+        _currentSyncErrorMicroseconds = elapsedTimeMicroseconds - samplesReadTimeMicroseconds
+            + CalibratedStartupLatencyMicroseconds;
 
         // Apply EMA smoothing to filter measurement jitter.
         // This prevents rapid correction changes from noisy measurements while still

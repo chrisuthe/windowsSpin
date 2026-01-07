@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>3.4.0</Version>
+    <Version>3.5.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,20 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v3.5.0:
+New Features:
+- CalibratedStartupLatencyMicroseconds: New property on ITimedAudioBuffer for push-model audio backend support
+  - Compensates for ALSA-style backends that pre-fill output buffers before playback starts
+  - Without compensation, buffer prefill causes constant negative sync error (~-200ms)
+  - Pull-model backends (WASAPI) leave this at 0 (default) - no behavior change
+- IAudioPlayer.CalibratedStartupLatencyMs: New property with default implementation returning 0
+  - ALSA players can override to report their measured startup latency
+  - Value is automatically passed to TimedAudioBuffer by AudioPipeline
+
+Sync Error Formula Update:
+- syncError = elapsed - samplesReadTime + CalibratedStartupLatencyMicroseconds
+- When CalibratedStartupLatencyMicroseconds = 0, behavior is unchanged from previous versions
+
 v3.4.0:
 Improved Sync Correction:
 - Replaced fixed rate steps (1-2%) with proportional correction
