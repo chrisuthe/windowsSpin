@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>3.3.0</Version>
+    <Version>4.0.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,20 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v4.0.0 - Breaking Changes:
+- BREAKING: IAudioPlayer interface now requires OutputFormat property
+  - Returns the audio format being sent to the output device
+  - Available after InitializeAsync() completes
+  - Existing implementations must add: AudioFormat? OutputFormat { get; }
+- BREAKING: IAudioPipeline interface now requires OutputFormat property
+  - Returns the format being written to the audio output device
+  - Complements CurrentFormat (incoming) with output format info
+
+Migration Guide:
+- Add to your IAudioPlayer implementation:
+  public AudioFormat? OutputFormat => _format; // or your format field
+- If you only use WasapiAudioPlayer (most users), no changes needed
+
 v3.3.0:
 New Features:
 - SyncCorrectionOptions: All sync correction parameters are now configurable via TimedAudioBuffer constructor
