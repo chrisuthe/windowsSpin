@@ -64,7 +64,6 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     private bool _needsReanchor;          // Flag to trigger re-anchoring
     private int _reanchorEventPending;    // 0 = not pending, 1 = pending (for thread-safe event coalescing)
     private float[]? _lastOutputFrame;    // Last output frame for smooth drop/insert (Python CLI approach)
-    private bool _inCorrectionMode;       // Hysteresis state: true when actively correcting
 
     // Statistics
     private long _underrunCount;
@@ -398,7 +397,6 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             Interlocked.Exchange(ref _reanchorEventPending, 0);
             _lastOutputFrame = null;
             TargetPlaybackRate = 1.0;
-            _inCorrectionMode = false;
             // Note: Don't reset _samplesDroppedForSync/_samplesInsertedForSync - these are cumulative stats
         }
     }
@@ -440,7 +438,6 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             Interlocked.Exchange(ref _reanchorEventPending, 0);
             _lastOutputFrame = null;
             TargetPlaybackRate = 1.0;
-            _inCorrectionMode = false;
         }
     }
 
@@ -640,18 +637,17 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Implements a tiered correction strategy matching the JS client with discrete rate steps:
+    /// Implements a tiered correction strategy:
     /// </para>
     /// <list type="bullet">
     /// <item>Error &lt; 1ms (deadband): No correction, playback rate = 1.0</item>
-    /// <item>Error 1-8ms: Small correction using 1% rate adjustment (0.99x or 1.01x)</item>
-    /// <item>Error 8-15ms: Medium correction using 2% rate adjustment (0.98x or 1.02x)</item>
+    /// <item>Error 1-15ms: Proportional rate adjustment (error / targetSeconds), clamped to max</item>
     /// <item>Error &gt; 15ms: Frame drop/insert for faster correction</item>
     /// </list>
     /// <para>
     /// Uses EMA-smoothed sync error to prevent jittery corrections from measurement noise.
-    /// Discrete rate steps (rather than continuous mapping) provide more stable audio output
-    /// by avoiding constant micro-adjustments to the resampler.
+    /// Proportional correction (matching Python CLI) prevents overshoot by adjusting rate
+    /// based on error magnitude rather than using fixed rate steps.
     /// </para>
     /// </remarks>
     private void UpdateCorrectionRate()
@@ -670,11 +666,9 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         // Use smoothed error for correction decisions (filters measurement jitter)
         var absError = Math.Abs(_smoothedSyncErrorMicroseconds);
 
-        // Discrete rate step thresholds (matching JS library approach)
-        // Using fixed thresholds rather than configurable to match proven JS implementation
+        // Thresholds for correction tiers
         const long DeadbandThreshold = 1_000;      // 1ms - no correction below this
-        const long SmallErrorThreshold = 8_000;    // 8ms - use 1% correction
-        const long MediumErrorThreshold = 15_000;  // 15ms - use 2% correction (above this: drop/insert)
+        const long ResamplingThreshold = 15_000;   // 15ms - above this use drop/insert
 
         // Tier 1: Deadband - error is small enough to ignore
         if (absError < DeadbandThreshold)
@@ -685,27 +679,30 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             return;
         }
 
-        // Tier 2: Small error (1-8ms) - use 1% rate adjustment
-        if (absError < SmallErrorThreshold)
+        // Tier 2: Proportional rate correction (1-15ms errors)
+        // Rate = 1.0 + (error_µs / target_seconds / 1,000,000)
+        // This calculates the rate needed to eliminate the error over the target time.
+        // Example: 10ms error with 3s target → rate = 1.00333 (0.33% faster)
+        if (absError < ResamplingThreshold)
         {
-            var newRate = _smoothedSyncErrorMicroseconds > 0 ? 1.01 : 0.99;
+            // Calculate proportional correction (matching Python CLI approach)
+            var correctionFactor = _smoothedSyncErrorMicroseconds
+                / _syncOptions.CorrectionTargetSeconds
+                / 1_000_000.0;
+
+            // Clamp to configured maximum speed adjustment
+            correctionFactor = Math.Clamp(correctionFactor,
+                -_syncOptions.MaxSpeedCorrection,
+                _syncOptions.MaxSpeedCorrection);
+
+            var newRate = 1.0 + correctionFactor;
             SetTargetPlaybackRate(newRate);
             _dropEveryNFrames = 0;
             _insertEveryNFrames = 0;
             return;
         }
 
-        // Tier 3: Medium error (8-15ms) - use 2% rate adjustment
-        if (absError < MediumErrorThreshold)
-        {
-            var newRate = _smoothedSyncErrorMicroseconds > 0 ? 1.02 : 0.98;
-            SetTargetPlaybackRate(newRate);
-            _dropEveryNFrames = 0;
-            _insertEveryNFrames = 0;
-            return;
-        }
-
-        // Tier 4: Large errors (>15ms) - use frame drop/insert for faster correction
+        // Tier 3: Large errors (>15ms) - use frame drop/insert for faster correction
         // Reset playback rate to 1.0 since we're using discrete sample correction
         SetTargetPlaybackRate(1.0);
 
