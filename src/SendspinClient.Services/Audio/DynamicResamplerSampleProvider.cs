@@ -121,7 +121,7 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
 
         // Initialize WDL resampler
         _resampler = new WdlResampler();
-        _resampler.SetMode(true, 2, false); // Interpolating, 2-tap sinc filter, linear phase
+        _resampler.SetMode(true, 16, true); // Interpolating, 16-tap sinc filter for high quality
         _resampler.SetFilterParms();
         _resampler.SetFeedMode(true); // We're in output-driven mode (request N output samples)
         UpdateResamplerRates();
@@ -227,8 +227,9 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     {
         // SetRates(inRate, outRate): to speed up playback, output rate < input rate
         // e.g., at 1.02x rate, we consume input faster: SetRates(48000, 48000/1.02)
-        var inRate = WaveFormat.SampleRate;
-        var outRate = (int)(WaveFormat.SampleRate / _playbackRate);
+        // Use double precision to avoid truncation artifacts from integer rounding
+        var inRate = (double)WaveFormat.SampleRate;
+        var outRate = WaveFormat.SampleRate / _playbackRate;
         _resampler.SetRates(inRate, outRate);
     }
 
