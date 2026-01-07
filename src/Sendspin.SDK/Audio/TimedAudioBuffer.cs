@@ -281,15 +281,18 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 _waitingForScheduledStart = false;
 
                 // Initialize sync error tracking (CLI-style: track samples READ)
-                // Use the ACTUAL start time (now), not the scheduled time.
-                // This establishes a clean baseline for sync error calculation.
+                //
+                // For push-model backends (ALSA), we've already consumed samples to pre-fill
+                // the output buffer before playback starts. By backdating the anchor by the
+                // startup latency, elapsed time matches the samples we've already read.
                 //
                 // sync_error = elapsedWallClock - samplesReadTime
                 //   Positive = wall clock ahead = playing too slow = DROP to catch up
                 //   Negative = wall clock behind = playing too fast = INSERT to slow down
                 //
-                // When dropping: samplesReadTime increases faster → error shrinks ✓
-                _playbackStartLocalTime = currentLocalTime;
+                // This handles static buffer fill time architecturally, so sync correction
+                // only needs to handle drift and fluctuations.
+                _playbackStartLocalTime = currentLocalTime - CalibratedStartupLatencyMicroseconds;
                 _samplesReadSinceStart = 0;
                 _samplesOutputSinceStart = 0;
             }
@@ -615,20 +618,15 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         // How much server time have we actually READ (consumed) from the buffer?
         var samplesReadTimeMicroseconds = (long)(_samplesReadSinceStart * _microsecondsPerSample);
 
-        // Sync error = elapsed - samples_read_time + calibrated_startup_latency
-        //
-        // The calibrated startup latency compensates for push-model backends (ALSA) that
-        // pre-fill their output buffer before playback starts. This prefill causes
-        // samplesRead to exceed elapsed time by the prefill amount, resulting in a constant
-        // negative sync error without compensation.
-        //
-        // Pull-model backends (WASAPI) leave CalibratedStartupLatencyMicroseconds = 0,
-        // so this formula reduces to the original: elapsed - samplesReadTime.
+        // Sync error = elapsed - samples_read_time
         //
         // Positive = we haven't read enough (behind) = need to DROP (read faster)
         // Negative = we've read too much (ahead) = need to INSERT (slow down)
-        _currentSyncErrorMicroseconds = elapsedTimeMicroseconds - samplesReadTimeMicroseconds
-            + CalibratedStartupLatencyMicroseconds;
+        //
+        // Note: For push-model backends (ALSA), the static buffer pre-fill time is handled
+        // by backdating _playbackStartLocalTime when playback starts. This keeps the sync
+        // error formula clean and focused on drift/fluctuations only.
+        _currentSyncErrorMicroseconds = elapsedTimeMicroseconds - samplesReadTimeMicroseconds;
 
         // Apply EMA smoothing to filter measurement jitter.
         // This prevents rapid correction changes from noisy measurements while still
