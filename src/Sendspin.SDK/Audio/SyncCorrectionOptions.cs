@@ -14,24 +14,25 @@ namespace Sendspin.SDK.Audio;
 /// need adjustment for other platforms (Linux ALSA/PulseAudio, macOS CoreAudio, etc.).
 /// </para>
 /// <para>
-/// The sync correction uses a tiered approach with discrete rate steps (matching JS library):
+/// The sync correction uses a tiered approach with proportional rate adjustment:
 /// <list type="bullet">
 /// <item>Tier 1 (Deadband): Errors below 1ms are ignored</item>
-/// <item>Tier 2 (Small): Errors 1-8ms use 1% rate adjustment (0.99x or 1.01x)</item>
-/// <item>Tier 3 (Medium): Errors 8-15ms use 2% rate adjustment (0.98x or 1.02x)</item>
-/// <item>Tier 4 (Drop/Insert): Errors 15ms+ use frame manipulation for faster correction</item>
-/// <item>Tier 5 (Re-anchor): Errors exceeding <see cref="ReanchorThresholdMicroseconds"/> trigger buffer clear</item>
+/// <item>Tier 2 (Proportional): Errors 1-15ms use proportional rate adjustment
+/// calculated as: rate = 1.0 + (error / <see cref="CorrectionTargetSeconds"/> / 1,000,000),
+/// clamped to <see cref="MaxSpeedCorrection"/>. This matches the Python CLI approach.</item>
+/// <item>Tier 3 (Drop/Insert): Errors 15ms+ use frame manipulation for faster correction</item>
+/// <item>Tier 4 (Re-anchor): Errors exceeding <see cref="ReanchorThresholdMicroseconds"/> trigger buffer clear</item>
 /// </list>
 /// </para>
 /// <para>
 /// Sync error measurements are smoothed using an exponential moving average (EMA) to
-/// filter jitter and prevent oscillation. This approach matches the proven JS library
-/// implementation.
+/// filter jitter and prevent oscillation. Proportional correction prevents overshoot
+/// by adjusting rate based on error magnitude rather than using fixed rate steps.
 /// </para>
 /// <para>
 /// <b>Note:</b> The <see cref="EntryDeadbandMicroseconds"/>, <see cref="ExitDeadbandMicroseconds"/>,
 /// and <see cref="BypassDeadband"/> properties are retained for backward compatibility but are no
-/// longer used. The discrete rate step thresholds are fixed to match the JS library.
+/// longer used.
 /// </para>
 /// </remarks>
 /// <example>
@@ -39,7 +40,8 @@ namespace Sendspin.SDK.Audio;
 /// // Typical usage - most options use defaults
 /// var options = new SyncCorrectionOptions
 /// {
-///     CorrectionTargetSeconds = 2.0,    // Faster convergence for drop/insert tier
+///     CorrectionTargetSeconds = 2.0,    // Faster convergence
+///     MaxSpeedCorrection = 0.04,        // Allow up to 4% rate adjustment
 /// };
 /// </code>
 /// </example>
