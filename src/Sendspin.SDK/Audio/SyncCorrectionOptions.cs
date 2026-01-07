@@ -14,31 +14,32 @@ namespace Sendspin.SDK.Audio;
 /// need adjustment for other platforms (Linux ALSA/PulseAudio, macOS CoreAudio, etc.).
 /// </para>
 /// <para>
-/// The sync correction uses a tiered approach:
+/// The sync correction uses a tiered approach with discrete rate steps (matching JS library):
 /// <list type="bullet">
-/// <item>Tier 1 (Deadband): Errors below <see cref="EntryDeadbandMicroseconds"/> are ignored</item>
-/// <item>Tier 2 (Resampling): Errors up to <see cref="ResamplingThresholdMicroseconds"/> use smooth rate adjustment</item>
-/// <item>Tier 3 (Drop/Insert): Larger errors use frame manipulation for faster correction</item>
-/// <item>Tier 4 (Re-anchor): Errors exceeding <see cref="ReanchorThresholdMicroseconds"/> trigger buffer clear</item>
+/// <item>Tier 1 (Deadband): Errors below 1ms are ignored</item>
+/// <item>Tier 2 (Small): Errors 1-8ms use 1% rate adjustment (0.99x or 1.01x)</item>
+/// <item>Tier 3 (Medium): Errors 8-15ms use 2% rate adjustment (0.98x or 1.02x)</item>
+/// <item>Tier 4 (Drop/Insert): Errors 15ms+ use frame manipulation for faster correction</item>
+/// <item>Tier 5 (Re-anchor): Errors exceeding <see cref="ReanchorThresholdMicroseconds"/> trigger buffer clear</item>
 /// </list>
+/// </para>
+/// <para>
+/// Sync error measurements are smoothed using an exponential moving average (EMA) to
+/// filter jitter and prevent oscillation. This approach matches the proven JS library
+/// implementation.
+/// </para>
+/// <para>
+/// <b>Note:</b> The <see cref="EntryDeadbandMicroseconds"/>, <see cref="ExitDeadbandMicroseconds"/>,
+/// and <see cref="BypassDeadband"/> properties are retained for backward compatibility but are no
+/// longer used. The discrete rate step thresholds are fixed to match the JS library.
 /// </para>
 /// </remarks>
 /// <example>
 /// <code>
-/// // For a low-jitter embedded platform
+/// // Typical usage - most options use defaults
 /// var options = new SyncCorrectionOptions
 /// {
-///     MaxSpeedCorrection = 0.04,        // More aggressive (matches CLI)
-///     CorrectionTargetSeconds = 2.0,    // Faster convergence
-///     EntryDeadbandMicroseconds = 1_000 // Tighter tolerance
-/// };
-///
-/// // For PulseAudio with high timing jitter
-/// var options = new SyncCorrectionOptions
-/// {
-///     MaxSpeedCorrection = 0.015,       // Gentler to prevent oscillation
-///     CorrectionTargetSeconds = 4.0,    // Slower convergence
-///     EntryDeadbandMicroseconds = 3_000 // More tolerance for jitter
+///     CorrectionTargetSeconds = 2.0,    // Faster convergence for drop/insert tier
 /// };
 /// </code>
 /// </example>
@@ -48,21 +49,32 @@ public sealed class SyncCorrectionOptions
     /// Gets or sets the error threshold to START correcting (microseconds).
     /// </summary>
     /// <remarks>
-    /// When sync error exceeds this threshold, correction begins.
-    /// Must be greater than <see cref="ExitDeadbandMicroseconds"/> to create hysteresis.
-    /// Default: 2000 (2ms).
+    /// <para>
+    /// <b>Deprecated:</b> This property is no longer used. The sync correction now uses
+    /// fixed discrete thresholds matching the JS library: 1ms deadband, 8ms for 1% correction,
+    /// 15ms for 2% correction.
+    /// </para>
+    /// <para>
+    /// Retained for backward compatibility. Default: 2000 (2ms).
+    /// </para>
     /// </remarks>
+    [Obsolete("No longer used. Discrete thresholds are now fixed to match JS library.")]
     public long EntryDeadbandMicroseconds { get; set; } = 2_000;
 
     /// <summary>
     /// Gets or sets the error threshold to STOP correcting (microseconds).
     /// </summary>
     /// <remarks>
-    /// When sync error drops below this threshold while correcting, correction stops.
-    /// Must be less than <see cref="EntryDeadbandMicroseconds"/> to create hysteresis,
-    /// which prevents oscillation between correcting and not correcting states.
-    /// Default: 500 (0.5ms).
+    /// <para>
+    /// <b>Deprecated:</b> This property is no longer used. The hysteresis deadband has been
+    /// removed in favor of EMA smoothing and discrete rate steps, which provide more stable
+    /// correction without oscillation.
+    /// </para>
+    /// <para>
+    /// Retained for backward compatibility. Default: 500 (0.5ms).
+    /// </para>
     /// </remarks>
+    [Obsolete("No longer used. Hysteresis replaced by EMA smoothing.")]
     public long ExitDeadbandMicroseconds { get; set; } = 500;
 
     /// <summary>
@@ -146,10 +158,17 @@ public sealed class SyncCorrectionOptions
     /// Gets or sets whether to bypass the deadband entirely.
     /// </summary>
     /// <remarks>
-    /// When true, sync correction is always active regardless of error magnitude.
-    /// Useful for testing, debugging, or platforms requiring continuous micro-adjustments.
-    /// Default: false.
+    /// <para>
+    /// <b>Deprecated:</b> This property is no longer used. The sync correction now uses
+    /// EMA-smoothed error values with discrete rate steps, which eliminates the need for
+    /// deadband bypass. The EMA filter provides natural smoothing that handles small
+    /// errors without requiring continuous micro-adjustments.
+    /// </para>
+    /// <para>
+    /// Retained for backward compatibility. Default: false.
+    /// </para>
     /// </remarks>
+    [Obsolete("No longer used. EMA smoothing replaces the need for deadband bypass.")]
     public bool BypassDeadband { get; set; }
 
     /// <summary>
