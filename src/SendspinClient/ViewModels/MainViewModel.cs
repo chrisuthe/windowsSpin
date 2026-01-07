@@ -284,10 +284,7 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>
     /// Gets the path where log files are stored.
     /// </summary>
-    public string LogFilePath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Sendspin",
-        "logs");
+    public string LogFilePath => AppPaths.LogDirectory;
 
     /// <summary>
     /// Gets the available log levels for the settings dropdown.
