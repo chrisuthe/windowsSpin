@@ -305,7 +305,55 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
         // Process through resampler directly into output buffer
         var framesGenerated = _resampler.ResampleOut(output, outputOffset, framesToCopy, outputFrames, channels);
 
-        return framesGenerated * channels;
+        // Apply soft clipping to prevent interpolation overshoots from causing hard clipping.
+        // Sinc filter resampling can produce values slightly outside ±1.0 (ringing/overshoots),
+        // especially during dynamic rate changes. Soft clipping gently limits these values
+        // to prevent audible distortion from hard clipping at the DAC.
+        var samplesGenerated = framesGenerated * channels;
+        ApplySoftClipping(output, outputOffset, samplesGenerated);
+
+        return samplesGenerated;
+    }
+
+    /// <summary>
+    /// Applies soft clipping to audio samples to prevent hard clipping distortion.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Uses a cubic soft clipper that only engages above the threshold (0.95).
+    /// Below threshold, audio passes through unchanged. Above threshold, samples
+    /// are smoothly compressed toward ±1.0 using a cubic polynomial curve.
+    /// </para>
+    /// <para>
+    /// This approach preserves audio quality in the normal range while preventing
+    /// the harsh distortion that occurs when samples exceed ±1.0 at the DAC.
+    /// </para>
+    /// </remarks>
+    private static void ApplySoftClipping(float[] buffer, int offset, int count)
+    {
+        const float threshold = 0.95f;
+        const float ceiling = 1.0f;
+
+        for (var i = 0; i < count; i++)
+        {
+            var sample = buffer[offset + i];
+            var absSample = Math.Abs(sample);
+
+            if (absSample > threshold)
+            {
+                // Cubic soft clip: smoothly compress samples between threshold and ceiling
+                // Maps [threshold, infinity) to [threshold, ceiling)
+                var excess = absSample - threshold;
+                var range = ceiling - threshold;
+
+                // Soft knee using cubic curve: y = threshold + range * (1 - 1/(1 + x/range)^2)
+                // This provides smooth compression that asymptotically approaches ceiling
+                var normalized = excess / range;
+                var compressed = threshold + range * (1.0f - 1.0f / ((1.0f + normalized) * (1.0f + normalized)));
+
+                buffer[offset + i] = sample > 0 ? compressed : -compressed;
+            }
+        }
     }
 
     /// <summary>
