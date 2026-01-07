@@ -624,11 +624,21 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         // appear permanently "ahead" and causing continuous slowdown with buffer growth.
         _currentSyncErrorMicroseconds = elapsedTimeMicroseconds - samplesReadTimeMicroseconds;
 
-        // Apply EMA smoothing to filter measurement jitter (matches JS library approach).
+        // Apply EMA smoothing to filter measurement jitter.
         // This prevents rapid correction changes from noisy measurements while still
         // tracking the underlying trend. The smoothed value is used for correction decisions.
-        _smoothedSyncErrorMicroseconds = SyncErrorSmoothingAlpha * _currentSyncErrorMicroseconds
-            + (1 - SyncErrorSmoothingAlpha) * _smoothedSyncErrorMicroseconds;
+        //
+        // Special case: if smoothed error is 0 (just started or after reset), initialize
+        // it to the current raw error to avoid slow ramp-up that causes rate oscillation.
+        if (_smoothedSyncErrorMicroseconds == 0 && _currentSyncErrorMicroseconds != 0)
+        {
+            _smoothedSyncErrorMicroseconds = _currentSyncErrorMicroseconds;
+        }
+        else
+        {
+            _smoothedSyncErrorMicroseconds = SyncErrorSmoothingAlpha * _currentSyncErrorMicroseconds
+                + (1 - SyncErrorSmoothingAlpha) * _smoothedSyncErrorMicroseconds;
+        }
     }
 
     /// <summary>
