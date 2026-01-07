@@ -38,6 +38,21 @@ public interface IAudioPlayer : IAsyncDisposable
     int OutputLatencyMs { get; }
 
     /// <summary>
+    /// Gets the current output audio format, or null if not initialized.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This represents the audio format being sent to the audio output device.
+    /// It is available after <see cref="InitializeAsync"/> completes.
+    /// </para>
+    /// <para>
+    /// The output format may differ from the input format if resampling or
+    /// format conversion is applied by the audio subsystem.
+    /// </para>
+    /// </remarks>
+    AudioFormat? OutputFormat { get; }
+
+    /// <summary>
     /// Initializes the audio output with the specified format.
     /// </summary>
     /// <param name="format">Audio format to use.</param>

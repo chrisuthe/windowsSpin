@@ -72,6 +72,9 @@ public sealed class AudioPipeline : IAudioPipeline
     public AudioFormat? CurrentFormat => _currentFormat;
 
     /// <inheritdoc/>
+    public AudioFormat? OutputFormat => _player?.OutputFormat;
+
+    /// <inheritdoc/>
     public int DetectedOutputLatencyMs => _player?.OutputLatencyMs ?? 0;
 
     /// <inheritdoc/>
