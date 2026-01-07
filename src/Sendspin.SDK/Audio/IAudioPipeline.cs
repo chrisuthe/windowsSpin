@@ -44,7 +44,7 @@ public interface IAudioPipeline : IAsyncDisposable
     /// This value is available after the pipeline has started playing.
     /// </para>
     /// </remarks>
-    AudioFormat? OutputFormat { get; }
+    AudioFormat? OutputFormat => null;
 
     /// <summary>
     /// Gets the detected audio output latency in milliseconds.

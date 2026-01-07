@@ -50,7 +50,7 @@ public interface IAudioPlayer : IAsyncDisposable
     /// format conversion is applied by the audio subsystem.
     /// </para>
     /// </remarks>
-    AudioFormat? OutputFormat { get; }
+    AudioFormat? OutputFormat => null;
 
     /// <summary>
     /// Initializes the audio output with the specified format.
