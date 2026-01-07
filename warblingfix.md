@@ -247,3 +247,9 @@ Key difference: CLI may be using a different, higher-quality resampler.
 - Noted WdlResampler uses only 2-tap filter (minimal quality)
 - Rate smoothing takes ~450ms to reach target
 - Integer truncation in rate calculation
+
+**Changes Made:**
+1. Upgraded filter from 2-tap to 16-tap sinc: `SetMode(true, 16, true)`
+2. Fixed integer truncation - now using double precision for SetRates()
+
+**Next test**: Run and listen for warbling improvement
