@@ -330,6 +330,23 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// <summary>
     /// Disposes the current sync-corrected sample source.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The <see cref="_correctionProvider"/> (<see cref="SyncCorrectionCalculator"/>) is set to null
+    /// but not disposed because it does not implement <see cref="IDisposable"/>. This is intentional:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>It holds no unmanaged resources (just primitive state and a lock object)</item>
+    /// <item>It does not subscribe to any external events (it only provides the
+    /// <see cref="ISyncCorrectionProvider.CorrectionChanged"/> event)</item>
+    /// <item>All subscribers (e.g., <see cref="DynamicResamplerSampleProvider"/>) unsubscribe in their
+    /// own Dispose methods, which are called via <see cref="DisposeResampler"/> BEFORE this method</item>
+    /// </list>
+    /// <para>
+    /// The disposal order is critical: <see cref="DisposeResampler"/> must be called first to ensure
+    /// event handlers are unsubscribed before the provider reference is cleared.
+    /// </para>
+    /// </remarks>
     private void DisposeCorrectionSource()
     {
         _correctedSource?.Dispose();
