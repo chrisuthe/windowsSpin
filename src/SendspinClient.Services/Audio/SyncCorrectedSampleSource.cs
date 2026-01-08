@@ -252,7 +252,7 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
 
             _framesSinceLastCorrection++;
 
-            // Check if we should DROP a frame (read two, output one)
+            // Check if we should DROP a frame (read two, output one interpolated)
             // This catches up when we're behind - consume 2 frames, output 1
             if (dropEveryN > 0 && _framesSinceLastCorrection >= dropEveryN)
             {
@@ -260,16 +260,22 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
 
                 if (remainingInput >= frameSamples * 2)
                 {
-                    // Skip the first frame (consume but don't output - this is the "dropped" frame)
-                    inputPos += frameSamples;
+                    // Read both frames, output interpolated blend to reduce crackle
+                    var frameAStart = inputPos;
+                    var frameBStart = inputPos + frameSamples;
+                    var outputSpan = output.Slice(outputPos, frameSamples);
 
-                    // Read and output the second frame
-                    var droppedFrameOutput = output.Slice(outputPos, frameSamples);
-                    input.AsSpan(inputPos, frameSamples).CopyTo(droppedFrameOutput);
-                    inputPos += frameSamples;
+                    // Linear interpolation: (A + B) / 2 for each channel sample
+                    for (int i = 0; i < frameSamples; i++)
+                    {
+                        outputSpan[i] = (input[frameAStart + i] + input[frameBStart + i]) * 0.5f;
+                    }
+
+                    // Consume both input frames
+                    inputPos += frameSamples * 2;
 
                     // Save as last output frame for potential future inserts
-                    droppedFrameOutput.CopyTo(_lastOutputFrame);
+                    outputSpan.CopyTo(_lastOutputFrame);
 
                     outputPos += frameSamples;
                     samplesDropped += frameSamples;
@@ -277,7 +283,7 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
                 }
             }
 
-            // Check if we should INSERT a frame (output without reading)
+            // Check if we should INSERT a frame (output interpolated without consuming)
             if (insertEveryN > 0 && _framesSinceLastCorrection >= insertEveryN)
             {
                 _framesSinceLastCorrection = 0;
@@ -285,8 +291,29 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
                 // Check we have space in output
                 if (output.Length - outputPos >= frameSamples)
                 {
-                    // Output last frame WITHOUT consuming input
-                    _lastOutputFrame.AsSpan().CopyTo(output.Slice(outputPos, frameSamples));
+                    var outputSpan = output.Slice(outputPos, frameSamples);
+
+                    // Interpolate with next input frame if available (reduces crackle)
+                    if (remainingInput >= frameSamples)
+                    {
+                        // Peek at next input frame (don't consume yet)
+                        var nextFrameStart = inputPos;
+
+                        // Linear interpolation: (last + next) / 2
+                        for (int i = 0; i < frameSamples; i++)
+                        {
+                            outputSpan[i] = (_lastOutputFrame[i] + input[nextFrameStart + i]) * 0.5f;
+                        }
+
+                        // Save interpolated frame as last output for continuity
+                        outputSpan.CopyTo(_lastOutputFrame);
+                    }
+                    else
+                    {
+                        // Fallback: duplicate if no input available (edge case)
+                        _lastOutputFrame.AsSpan().CopyTo(outputSpan);
+                    }
+
                     outputPos += frameSamples;
                     samplesInserted += frameSamples;
                     continue;
