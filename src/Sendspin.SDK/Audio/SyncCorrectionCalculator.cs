@@ -20,6 +20,13 @@ namespace Sendspin.SDK.Audio;
 /// The calculator is stateless per-update and can be used across threads if synchronized externally.
 /// It maintains correction state internally and raises <see cref="CorrectionChanged"/> when parameters change.
 /// </para>
+/// <para>
+/// <strong>Note on IDisposable:</strong> This class intentionally does not implement <see cref="IDisposable"/>.
+/// It holds no unmanaged resources and does not subscribe to external events. While it provides the
+/// <see cref="CorrectionChanged"/> event, subscribers are responsible for unsubscribing in their own
+/// disposal. The owner of this calculator should ensure all subscribers have unsubscribed before
+/// discarding the reference.
+/// </para>
 /// </remarks>
 public sealed class SyncCorrectionCalculator : ISyncCorrectionProvider
 {
@@ -69,10 +76,25 @@ public sealed class SyncCorrectionCalculator : ISyncCorrectionProvider
     /// Initializes a new instance of the <see cref="SyncCorrectionCalculator"/> class.
     /// </summary>
     /// <param name="options">Sync correction options. Uses <see cref="SyncCorrectionOptions.Default"/> if null.</param>
-    /// <param name="sampleRate">Audio sample rate in Hz (e.g., 48000).</param>
-    /// <param name="channels">Number of audio channels (e.g., 2 for stereo).</param>
+    /// <param name="sampleRate">Audio sample rate in Hz (e.g., 48000). Must be greater than zero.</param>
+    /// <param name="channels">Number of audio channels (e.g., 2 for stereo). Must be greater than zero.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// Thrown when <paramref name="sampleRate"/> or <paramref name="channels"/> is less than or equal to zero.
+    /// </exception>
     public SyncCorrectionCalculator(SyncCorrectionOptions? options, int sampleRate, int channels)
     {
+        if (sampleRate <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate,
+                "Sample rate must be greater than zero.");
+        }
+
+        if (channels <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(channels), channels,
+                "Channel count must be greater than zero.");
+        }
+
         _options = options?.Clone() ?? SyncCorrectionOptions.Default;
         _options.Validate();
         _sampleRate = sampleRate;
