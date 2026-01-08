@@ -332,17 +332,27 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 // preventing duplicate events from queuing up if Read() is called rapidly.
                 if (Interlocked.CompareExchange(ref _reanchorEventPending, 1, 0) == 0)
                 {
-                    Task.Run(() =>
+                    try
                     {
-                        try
+                        Task.Run(() =>
                         {
-                            ReanchorRequired?.Invoke(this, EventArgs.Empty);
-                        }
-                        finally
-                        {
-                            Interlocked.Exchange(ref _reanchorEventPending, 0);
-                        }
-                    });
+                            try
+                            {
+                                ReanchorRequired?.Invoke(this, EventArgs.Empty);
+                            }
+                            finally
+                            {
+                                Interlocked.Exchange(ref _reanchorEventPending, 0);
+                            }
+                        });
+                    }
+                    catch
+                    {
+                        // Task.Run can throw (e.g., ThreadPool exhaustion, OutOfMemoryException).
+                        // Reset the pending flag so future re-anchor events are not blocked.
+                        Interlocked.Exchange(ref _reanchorEventPending, 0);
+                        throw;
+                    }
                 }
 
                 return 0;
@@ -449,17 +459,27 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
 
                 if (Interlocked.CompareExchange(ref _reanchorEventPending, 1, 0) == 0)
                 {
-                    Task.Run(() =>
+                    try
                     {
-                        try
+                        Task.Run(() =>
                         {
-                            ReanchorRequired?.Invoke(this, EventArgs.Empty);
-                        }
-                        finally
-                        {
-                            Interlocked.Exchange(ref _reanchorEventPending, 0);
-                        }
-                    });
+                            try
+                            {
+                                ReanchorRequired?.Invoke(this, EventArgs.Empty);
+                            }
+                            finally
+                            {
+                                Interlocked.Exchange(ref _reanchorEventPending, 0);
+                            }
+                        });
+                    }
+                    catch
+                    {
+                        // Task.Run can throw (e.g., ThreadPool exhaustion, OutOfMemoryException).
+                        // Reset the pending flag so future re-anchor events are not blocked.
+                        Interlocked.Exchange(ref _reanchorEventPending, 0);
+                        throw;
+                    }
                 }
 
                 return 0;
@@ -503,14 +523,40 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>Contract:</b> Either <paramref name="samplesDropped"/> OR <paramref name="samplesInserted"/>
+    /// should be non-zero, but not both simultaneously. Dropping and inserting in the same correction
+    /// cycle is logically invalid - you either need to speed up (drop) or slow down (insert), not both.
+    /// </para>
+    /// <para>
+    /// The <see cref="SyncCorrectionCalculator"/> enforces this by design - it only sets either
+    /// <see cref="ISyncCorrectionProvider.DropEveryNFrames"/> or <see cref="ISyncCorrectionProvider.InsertEveryNFrames"/>
+    /// to a non-zero value, never both. However, if using a custom correction provider, ensure this
+    /// invariant is maintained.
+    /// </para>
+    /// </remarks>
     public void NotifyExternalCorrection(int samplesDropped, int samplesInserted)
     {
-        if (samplesDropped < 0 || samplesInserted < 0)
+        if (samplesDropped < 0)
         {
-            throw new ArgumentOutOfRangeException(
-                samplesDropped < 0 ? nameof(samplesDropped) : nameof(samplesInserted),
-                "Sample counts must be non-negative.");
+            throw new ArgumentOutOfRangeException(nameof(samplesDropped), samplesDropped,
+                "Sample count must be non-negative.");
         }
+
+        if (samplesInserted < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(samplesInserted), samplesInserted,
+                "Sample count must be non-negative.");
+        }
+
+        // Debug assertion: dropping and inserting simultaneously is logically invalid.
+        // At runtime, we don't throw because SyncCorrectionCalculator already ensures
+        // mutual exclusivity, and the tracking math still works (just unusual).
+        System.Diagnostics.Debug.Assert(
+            samplesDropped == 0 || samplesInserted == 0,
+            $"NotifyExternalCorrection called with both dropped ({samplesDropped}) and inserted ({samplesInserted}) > 0. " +
+            "This is logically invalid - correction should be either drop OR insert, not both.");
 
         lock (_lock)
         {
@@ -917,14 +963,32 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     /// Sets the target playback rate and raises the change event if different.
     /// Must be called under lock.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Thread Safety Note:</b> This event is intentionally fired while holding the buffer lock.
+    /// </para>
+    /// <para>
+    /// Deadlock analysis (why this is safe):
+    /// <list type="bullet">
+    /// <item>This event is marked [Obsolete] - new code uses ISyncCorrectionProvider.CorrectionChanged instead</item>
+    /// <item>No active subscribers exist in the current codebase</item>
+    /// <item>Even when subscribers existed, they only stored the value (no callback into buffer)</item>
+    /// <item>Firing outside the lock would require Task.Run allocation on every rate change (~100Hz)</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// If you add a subscriber, ensure it does NOT call any TimedAudioBuffer methods or you will deadlock.
+    /// </para>
+    /// </remarks>
     private void SetTargetPlaybackRate(double rate)
     {
         if (Math.Abs(TargetPlaybackRate - rate) > 0.0001)
         {
             TargetPlaybackRate = rate;
-            // Fire event outside of lock would be safer, but since this is called frequently
-            // during audio callbacks, we fire inline to avoid allocation/queuing overhead.
-            // Subscribers should be lightweight (just store the value).
+            // Fire event inline while holding lock. This is safe because:
+            // 1. The event is [Obsolete] with no active subscribers
+            // 2. Any future subscriber must be lightweight (just store value, no callbacks)
+            // 3. Firing via Task.Run would add allocation overhead on every rate change
             TargetPlaybackRateChanged?.Invoke(rate);
         }
     }

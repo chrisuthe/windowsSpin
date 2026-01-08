@@ -162,8 +162,8 @@ public interface ITimedAudioBuffer : IDisposable
     /// Notifies the buffer that external sync correction was applied.
     /// Call this after applying drop/insert correction externally.
     /// </summary>
-    /// <param name="samplesDropped">Number of samples dropped (consumed but not output).</param>
-    /// <param name="samplesInserted">Number of samples inserted (output without consuming).</param>
+    /// <param name="samplesDropped">Number of samples dropped (consumed but not output). Must be non-negative.</param>
+    /// <param name="samplesInserted">Number of samples inserted (output without consuming). Must be non-negative.</param>
     /// <remarks>
     /// <para>
     /// This updates internal tracking so <see cref="SyncErrorMicroseconds"/> remains accurate.
@@ -173,7 +173,15 @@ public interface ITimedAudioBuffer : IDisposable
     /// When inserting: samplesRead cursor is reduced by insertedCount because <see cref="ReadRaw"/>
     /// already counted the full read, but inserted samples were duplicated output, not new consumption.
     /// </para>
+    /// <para>
+    /// <b>Contract:</b> Either <paramref name="samplesDropped"/> OR <paramref name="samplesInserted"/>
+    /// should be non-zero, but not both simultaneously. Dropping and inserting in the same correction
+    /// cycle is logically invalid. The <see cref="SyncCorrectionCalculator"/> enforces this by design.
+    /// </para>
     /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// Thrown when <paramref name="samplesDropped"/> or <paramref name="samplesInserted"/> is negative.
+    /// </exception>
     void NotifyExternalCorrection(int samplesDropped, int samplesInserted);
 
     /// <summary>
