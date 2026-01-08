@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>5.0.0</Version>
+    <Version>5.0.2</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,27 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v5.0.2:
+Documentation:
+- Completely rewritten README for v5.0.0 external sync correction architecture
+- Added comprehensive usage examples for SyncCorrectionCalculator
+- Updated architecture diagram showing app-layer correction
+- Added v5.0.0 migration guide with before/after code examples
+- Documented tiered correction strategy and configuration options
+
+v5.0.1:
+Bug Fixes:
+- Fixed Task.Run exception handling in TimedAudioBuffer re-anchor event firing
+  - If Task.Run throws (ThreadPool exhaustion, OOM), the pending flag is now reset
+  - Prevents permanently blocking future re-anchor events in rare edge cases
+
+Improvements:
+- SyncCorrectionCalculator constructor now validates sampleRate and channels > 0
+  - Throws ArgumentOutOfRangeException with clear message for invalid inputs
+- NotifyExternalCorrection now throws separate exceptions for each invalid parameter
+- Added Debug.Assert to catch logically invalid state (both drop and insert > 0)
+- Enhanced documentation for thread safety, contracts, and IDisposable lifecycle
+
 v5.0.0 - Major Architecture Change: External Sync Correction
 
 BREAKING CHANGES:
