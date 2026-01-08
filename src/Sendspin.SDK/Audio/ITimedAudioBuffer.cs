@@ -72,6 +72,26 @@ public interface ITimedAudioBuffer : IDisposable
     long CalibratedStartupLatencyMicroseconds { get; set; }
 
     /// <summary>
+    /// Gets the current raw sync error in microseconds.
+    /// Positive = behind (need to speed up/drop), Negative = ahead (need to slow down/insert).
+    /// </summary>
+    /// <remarks>
+    /// This is the unsmoothed sync error, updated on every Read/ReadRaw call.
+    /// For correction decisions, consider using <see cref="SmoothedSyncErrorMicroseconds"/>.
+    /// </remarks>
+    long SyncErrorMicroseconds { get; }
+
+    /// <summary>
+    /// Gets the smoothed sync error in microseconds (EMA-filtered).
+    /// Positive = behind (need to speed up/drop), Negative = ahead (need to slow down/insert).
+    /// </summary>
+    /// <remarks>
+    /// This is filtered with an exponential moving average to reduce jitter.
+    /// Use this value for correction decisions to avoid reacting to transient noise.
+    /// </remarks>
+    double SmoothedSyncErrorMicroseconds { get; }
+
+    /// <summary>
     /// Gets the target playback rate for smooth sync correction via resampling.
     /// </summary>
     /// <remarks>
@@ -83,12 +103,14 @@ public interface ITimedAudioBuffer : IDisposable
     /// This is imperceptible to human ears unlike discrete sample dropping.
     /// </para>
     /// </remarks>
+    [Obsolete("Use SyncErrorMicroseconds with external ISyncCorrectionProvider instead. SDK no longer calculates correction rate.")]
     double TargetPlaybackRate { get; }
 
     /// <summary>
     /// Event raised when target playback rate changes.
     /// Subscribers should update their resampler ratio accordingly.
     /// </summary>
+    [Obsolete("Use SyncErrorMicroseconds with external ISyncCorrectionProvider instead. SDK no longer calculates correction rate.")]
     event Action<double>? TargetPlaybackRateChanged;
 
     /// <summary>
@@ -101,12 +123,58 @@ public interface ITimedAudioBuffer : IDisposable
 
     /// <summary>
     /// Reads samples that are ready for playback at the current time.
-    /// Called from audio output thread.
+    /// Called from audio output thread. Applies internal sync correction (drop/insert).
     /// </summary>
     /// <param name="buffer">Buffer to fill with samples.</param>
     /// <param name="currentLocalTime">Current local time in microseconds.</param>
     /// <returns>Number of samples written.</returns>
+    /// <remarks>
+    /// This method applies internal sync correction. For external correction control,
+    /// use <see cref="ReadRaw"/> instead and apply correction in the caller.
+    /// </remarks>
+    [Obsolete("Use ReadRaw() with external ISyncCorrectionProvider for correction control. This method applies internal correction.")]
     int Read(Span<float> buffer, long currentLocalTime);
+
+    /// <summary>
+    /// Reads samples without applying internal sync correction.
+    /// Use this with an external <see cref="ISyncCorrectionProvider"/> for correction control.
+    /// </summary>
+    /// <param name="buffer">Buffer to fill with samples.</param>
+    /// <param name="currentLocalTime">Current local time in microseconds.</param>
+    /// <returns>Number of samples written (always matches samples read from buffer).</returns>
+    /// <remarks>
+    /// <para>
+    /// Unlike <see cref="Read"/>, this method does NOT apply drop/insert correction.
+    /// It still calculates and updates <see cref="SyncErrorMicroseconds"/> and
+    /// <see cref="SmoothedSyncErrorMicroseconds"/>.
+    /// </para>
+    /// <para>
+    /// The caller is responsible for:
+    /// 1. Reading sync error from this buffer
+    /// 2. Calculating correction strategy (via ISyncCorrectionProvider)
+    /// 3. Applying correction (drop/insert/resampling) externally
+    /// 4. Calling <see cref="NotifyExternalCorrection"/> to update tracking
+    /// </para>
+    /// </remarks>
+    int ReadRaw(Span<float> buffer, long currentLocalTime);
+
+    /// <summary>
+    /// Notifies the buffer that external sync correction was applied.
+    /// Call this after applying drop/insert correction externally.
+    /// </summary>
+    /// <param name="samplesDropped">Number of samples dropped (consumed but not output).</param>
+    /// <param name="samplesInserted">Number of samples inserted (output without consuming).</param>
+    /// <remarks>
+    /// <para>
+    /// This updates internal tracking so <see cref="SyncErrorMicroseconds"/> remains accurate.
+    /// </para>
+    /// <para>
+    /// When dropping: samplesRead cursor advances by droppedCount (we consumed more than output).
+    /// When inserting: samplesRead cursor is reduced by insertedCount because <see cref="ReadRaw"/>
+    /// already counted the full read, but inserted samples were duplicated output, not new consumption.
+    /// </para>
+    /// </remarks>
+    void NotifyExternalCorrection(int samplesDropped, int samplesInserted);
 
     /// <summary>
     /// Clears all buffered audio (for seek/stream clear).
@@ -161,7 +229,7 @@ public record AudioBufferStats
     public long TotalSamplesRead { get; init; }
 
     /// <summary>
-    /// Gets the current sync error in microseconds.
+    /// Gets the current raw sync error in microseconds.
     /// Positive = playing late (behind schedule), Negative = playing early (ahead of schedule).
     /// </summary>
     /// <remarks>
@@ -172,9 +240,22 @@ public record AudioBufferStats
     public long SyncErrorMicroseconds { get; init; }
 
     /// <summary>
-    /// Gets the sync error in milliseconds (convenience property).
+    /// Gets the smoothed sync error in microseconds (EMA-filtered).
+    /// </summary>
+    /// <remarks>
+    /// This is the value used for correction decisions, filtered to reduce jitter.
+    /// </remarks>
+    public double SmoothedSyncErrorMicroseconds { get; init; }
+
+    /// <summary>
+    /// Gets the raw sync error in milliseconds (convenience property).
     /// </summary>
     public double SyncErrorMs => SyncErrorMicroseconds / 1000.0;
+
+    /// <summary>
+    /// Gets the smoothed sync error in milliseconds (convenience property).
+    /// </summary>
+    public double SmoothedSyncErrorMs => SmoothedSyncErrorMicroseconds / 1000.0;
 
     /// <summary>
     /// Gets whether playback is currently active.

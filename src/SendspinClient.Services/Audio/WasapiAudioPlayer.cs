@@ -7,9 +7,28 @@ using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using Sendspin.SDK.Audio;
 using Sendspin.SDK.Models;
+using Sendspin.SDK.Synchronization;
 using SendspinClient.Services.Diagnostics;
 
 namespace SendspinClient.Services.Audio;
+
+/// <summary>
+/// Specifies which resampler implementation to use for sync correction.
+/// </summary>
+public enum ResamplerType
+{
+    /// <summary>
+    /// Use WDL (Cockos) resampler. Uses sinc interpolation.
+    /// May cause artifacts during dynamic rate changes on some systems.
+    /// </summary>
+    Wdl,
+
+    /// <summary>
+    /// Use SoundTouch library. Uses WSOLA (time-stretch) algorithm.
+    /// May produce smoother results for dynamic rate changes.
+    /// </summary>
+    SoundTouch,
+}
 
 /// <summary>
 /// Windows WASAPI audio player using NAudio.
@@ -30,13 +49,17 @@ namespace SendspinClient.Services.Audio;
 public sealed class WasapiAudioPlayer : IAudioPlayer
 {
     private readonly ILogger<WasapiAudioPlayer> _logger;
-    private readonly bool _useResampling;
+    private readonly SyncCorrectionStrategy _syncStrategy;
+    private readonly ResamplerType _resamplerType;
     private readonly IDiagnosticAudioRecorder? _diagnosticRecorder;
     private string? _deviceId;
     private WasapiOut? _wasapiOut;
     private AudioSampleProviderAdapter? _sampleProvider;
-    private DynamicResamplerSampleProvider? _resampler;
+    private ISampleProvider? _resamplerProvider; // Either WDL or SoundTouch
+    private IDisposable? _resamplerDisposable; // For cleanup
     private ITimedAudioBuffer? _buffer;
+    private ISyncCorrectionProvider? _correctionProvider;
+    private SyncCorrectedSampleSource? _correctedSource;
     private AudioFormat? _format;
     private float _volume = 1.0f;
     private bool _isMuted;
@@ -68,20 +91,29 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         _format == null ? null : new AudioFormat
         {
             Codec = _format.Codec,
-            SampleRate = _useResampling ? _deviceNativeSampleRate : _format.SampleRate,
+            SampleRate = _syncStrategy == SyncCorrectionStrategy.Combined ? _deviceNativeSampleRate : _format.SampleRate,
             Channels = _format.Channels,
             BitDepth = _format.BitDepth,
             Bitrate = _format.Bitrate,
         };
+
+    /// <summary>
+    /// Gets the current sync correction mode from the external correction provider.
+    /// </summary>
+    /// <remarks>
+    /// This exposes the correction mode from <see cref="SyncCorrectionCalculator"/> when using
+    /// external sync correction (SDK 5.0+ architecture). Use this instead of
+    /// <see cref="AudioBufferStats.CurrentCorrectionMode"/> which only reflects internal SDK correction.
+    /// </remarks>
+    public SyncCorrectionMode? ExternalCorrectionMode => _correctionProvider?.CurrentMode;
 
     /// <inheritdoc/>
     public AudioPlayerState State { get; private set; } = AudioPlayerState.Uninitialized;
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Volume is applied in software via the sample provider rather than through
-    /// WASAPI endpoint volume. This avoids COM threading issues and provides
-    /// consistent behavior across different audio hardware.
+    /// Volume is applied in software via the sample provider by multiplying samples.
+    /// This provides consistent behavior across different audio hardware.
     /// </remarks>
     public float Volume
     {
@@ -124,20 +156,27 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// Optional device ID for a specific audio output device.
     /// If null or empty, the system default device is used.
     /// </param>
-    /// <param name="useResampling">
-    /// Whether to use dynamic resampling for smooth sync correction.
-    /// When enabled, playback rate is adjusted based on the buffer's TargetPlaybackRate.
+    /// <param name="syncStrategy">
+    /// The sync correction strategy to use. Combined uses resampling for smooth correction,
+    /// DropInsertOnly bypasses the resampler entirely for direct audio passthrough.
+    /// </param>
+    /// <param name="resamplerType">
+    /// Which resampler implementation to use when strategy is Combined.
+    /// WDL uses sinc interpolation, SoundTouch uses WSOLA algorithm.
+    /// Ignored when strategy is DropInsertOnly.
     /// </param>
     /// <param name="diagnosticRecorder">Optional diagnostic recorder for audio capture.</param>
     public WasapiAudioPlayer(
         ILogger<WasapiAudioPlayer> logger,
         string? deviceId = null,
-        bool useResampling = true,
+        SyncCorrectionStrategy syncStrategy = SyncCorrectionStrategy.Combined,
+        ResamplerType resamplerType = ResamplerType.Wdl,
         IDiagnosticAudioRecorder? diagnosticRecorder = null)
     {
         _logger = logger;
         _deviceId = deviceId;
-        _useResampling = useResampling;
+        _syncStrategy = syncStrategy;
+        _resamplerType = resamplerType;
         _diagnosticRecorder = diagnosticRecorder;
     }
 
@@ -222,40 +261,128 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
         ArgumentNullException.ThrowIfNull(source);
 
-        // Dispose previous resampler if any
-        _resampler?.Dispose();
-        _resampler = null;
+        // Dispose previous resampler and correction source if any
+        DisposeResampler();
+        DisposeCorrectionSource();
 
-        // Create NAudio adapter with current volume/mute state
-        _sampleProvider = new AudioSampleProviderAdapter(source, _format);
-        _sampleProvider.Volume = _volume;
-        _sampleProvider.IsMuted = _isMuted;
-
-        // Try to get buffer from source for resampler (if source is BufferedAudioSampleSource)
-        // Store it for potential use during device switching
+        // Get buffer from source for sync correction (if source is BufferedAudioSampleSource)
         _buffer = null;
+        _correctionProvider = null;
+        IAudioSampleSource effectiveSource = source;
+
         if (source is BufferedAudioSampleSource bufferedSource)
         {
             _buffer = bufferedSource.Buffer;
+
+            // Create correction options for drop/insert only (no resampling tier)
+            // Set resampling threshold equal to deadband so it jumps straight to drop/insert
+            var dropInsertOptions = _buffer.SyncOptions.Clone();
+            dropInsertOptions.ResamplingThresholdMicroseconds = dropInsertOptions.EntryDeadbandMicroseconds;
+
+            // Create correction provider for external sync correction
+            var calculator = new SyncCorrectionCalculator(
+                dropInsertOptions,
+                _buffer.Format.SampleRate,
+                _buffer.Format.Channels);
+            _correctionProvider = calculator;
+
+            // Create sync-corrected source that uses ReadRaw + external correction
+            // This moves drop/insert logic out of the SDK into the app layer
+            _correctedSource = new SyncCorrectedSampleSource(
+                _buffer,
+                _correctionProvider,
+                () => HighPrecisionTimer.Shared.GetCurrentTimeMicroseconds(),
+                _logger);
+
+            effectiveSource = _correctedSource;
+
+            _logger.LogDebug(
+                "Created SyncCorrectedSampleSource with external correction (SDK reports error, app applies correction)");
         }
+
+        // Create NAudio adapter with current volume/mute state
+        _sampleProvider = new AudioSampleProviderAdapter(effectiveSource, _format);
+        _sampleProvider.Volume = _volume;
+        _sampleProvider.IsMuted = _isMuted;
 
         // Optionally wrap with resampler for smooth sync correction
         // Pass device native sample rate for compound resampling (rate conversion + sync correction)
-        if (_useResampling && _buffer != null)
+        if (_syncStrategy == SyncCorrectionStrategy.Combined && _correctionProvider != null)
         {
-            _resampler = new DynamicResamplerSampleProvider(_sampleProvider, _buffer, _deviceNativeSampleRate, _logger, _diagnosticRecorder);
-            _wasapiOut.Init(_resampler);
+            CreateResampler(_sampleProvider);
+            _wasapiOut.Init(_resamplerProvider);
             _logger.LogDebug(
-                "Sample source configured with dynamic resampling: {SourceRate}Hz → {DeviceRate}Hz",
+                "Sample source configured with {ResamplerType} resampling: {SourceRate}Hz → {DeviceRate}Hz",
+                _resamplerType,
                 _format?.SampleRate,
                 _deviceNativeSampleRate);
         }
         else
         {
+            // DropInsertOnly: bypass resampler completely for direct audio passthrough
             _wasapiOut.Init(_sampleProvider);
-            _logger.LogDebug("Sample source configured{Reason}",
-                _useResampling ? " (no buffer available for resampling)" : " (resampling disabled)");
+            _logger.LogInformation(
+                "Sample source configured with {Strategy} (no resampler in chain)",
+                _syncStrategy);
         }
+    }
+
+    /// <summary>
+    /// Disposes the current sync-corrected sample source.
+    /// </summary>
+    private void DisposeCorrectionSource()
+    {
+        _correctedSource?.Dispose();
+        _correctedSource = null;
+        _correctionProvider = null;
+    }
+
+    /// <summary>
+    /// Creates the appropriate resampler based on configuration.
+    /// </summary>
+    private void CreateResampler(ISampleProvider sourceProvider)
+    {
+        if (_correctionProvider == null)
+        {
+            throw new InvalidOperationException("Correction provider must be set before creating resampler.");
+        }
+
+        switch (_resamplerType)
+        {
+            case ResamplerType.SoundTouch:
+                // SoundTouch doesn't support sample rate conversion in the same pass,
+                // so we don't pass target sample rate (it maintains the source rate)
+                var soundTouch = new SoundTouchSampleProvider(
+                    sourceProvider,
+                    _correctionProvider,
+                    _logger,
+                    _diagnosticRecorder);
+                _resamplerProvider = soundTouch;
+                _resamplerDisposable = soundTouch;
+                break;
+
+            case ResamplerType.Wdl:
+            default:
+                var wdl = new DynamicResamplerSampleProvider(
+                    sourceProvider,
+                    _correctionProvider,
+                    _deviceNativeSampleRate,
+                    _logger,
+                    _diagnosticRecorder);
+                _resamplerProvider = wdl;
+                _resamplerDisposable = wdl;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Disposes the current resampler.
+    /// </summary>
+    private void DisposeResampler()
+    {
+        _resamplerDisposable?.Dispose();
+        _resamplerProvider = null;
+        _resamplerDisposable = null;
     }
 
     /// <inheritdoc/>
@@ -318,11 +445,11 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
                     // Get the new audio device
                     MMDevice? device = null;
+                    using var enumerator = new MMDeviceEnumerator();
                     if (!string.IsNullOrEmpty(_deviceId))
                     {
                         try
                         {
-                            using var enumerator = new MMDeviceEnumerator();
                             device = enumerator.GetDevice(_deviceId);
                             _logger.LogInformation("Using audio device: {DeviceName}", device.FriendlyName);
                         }
@@ -338,7 +465,6 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
                     // Create new WASAPI output with 100ms latency
                     const int RequestedLatencyMs = 100;
-
                     if (device != null)
                     {
                         _wasapiOut = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: false, latency: RequestedLatencyMs);
@@ -351,22 +477,26 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                     _wasapiOut.PlaybackStopped += OnPlaybackStopped;
                     _outputLatencyMs = GetActualOutputLatency(_wasapiOut, RequestedLatencyMs);
 
+                    // Reset sync tracking to prevent timing discontinuities from triggering false corrections
+                    if (_buffer is TimedAudioBuffer timedBuffer)
+                    {
+                        timedBuffer.ResetSyncTracking();
+                    }
+
+                    _correctedSource?.Reset();
+
                     // Re-attach sample provider if we had one
                     // If we're using resampling, recreate the resampler with new device native rate
-                    if (_resampler != null && currentSampleProvider != null)
+                    if (_resamplerProvider != null && currentSampleProvider != null)
                     {
                         // Recreate resampler with new device native rate
-                        _resampler.Dispose();
-                        _resampler = new DynamicResamplerSampleProvider(
-                            currentSampleProvider,
-                            _buffer,
-                            _deviceNativeSampleRate,
-                            _logger,
-                            _diagnosticRecorder);
+                        DisposeResampler();
+                        CreateResampler(currentSampleProvider);
 
-                        _wasapiOut.Init(_resampler);
+                        _wasapiOut.Init(_resamplerProvider);
                         _logger.LogDebug(
-                            "Sample source re-attached to new device (with resampling at {DeviceRate}Hz)",
+                            "Sample source re-attached to new device (with {ResamplerType} resampling at {DeviceRate}Hz)",
+                            _resamplerType,
                             _deviceNativeSampleRate);
                     }
                     else if (currentSampleProvider != null)
@@ -412,9 +542,10 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
             _wasapiOut = null;
         }
 
-        _resampler?.Dispose();
-        _resampler = null;
+        DisposeResampler();
+        DisposeCorrectionSource();
         _sampleProvider = null;
+
         SetState(AudioPlayerState.Uninitialized);
 
         await Task.CompletedTask;

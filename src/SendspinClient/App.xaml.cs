@@ -194,8 +194,15 @@ public partial class App : Application
         // Read audio device ID from configuration (null = system default)
         var audioDeviceId = _configuration!.GetValue<string?>("Audio:DeviceId");
 
-        // Read sync correction resampling configuration
-        var useResampling = _configuration!.GetValue<bool>("Audio:SyncCorrection:UseResampling", true);
+        // Read sync correction strategy configuration
+        var strategyStr = _configuration!.GetValue<string>("Audio:SyncCorrection:Strategy", "Combined");
+        var syncStrategy = strategyStr?.Equals("DropInsertOnly", StringComparison.OrdinalIgnoreCase) == true
+            ? SyncCorrectionStrategy.DropInsertOnly
+            : SyncCorrectionStrategy.Combined;
+        var resamplerTypeStr = _configuration!.GetValue<string>("Audio:SyncCorrection:ResamplerType", "Wdl");
+        var resamplerType = resamplerTypeStr?.Equals("SoundTouch", StringComparison.OrdinalIgnoreCase) == true
+            ? ResamplerType.SoundTouch
+            : ResamplerType.Wdl;
 
         // Read diagnostics configuration
         var diagnosticsSettings = new DiagnosticsSettings();
@@ -212,7 +219,7 @@ public partial class App : Application
         {
             var logger = sp.GetRequiredService<ILogger<WasapiAudioPlayer>>();
             var diagnosticRecorder = sp.GetRequiredService<IDiagnosticAudioRecorder>();
-            return new WasapiAudioPlayer(logger, audioDeviceId, useResampling, diagnosticRecorder);
+            return new WasapiAudioPlayer(logger, audioDeviceId, syncStrategy, resamplerType, diagnosticRecorder);
         });
 
         // Audio pipeline - orchestrates decoder, buffer, and player

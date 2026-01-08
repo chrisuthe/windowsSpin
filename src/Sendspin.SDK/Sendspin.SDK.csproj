@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>3.5.1</Version>
+    <Version>5.0.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,87 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v5.0.0 - Major Architecture Change: External Sync Correction
+
+BREAKING CHANGES:
+This release moves sync correction logic OUT of the SDK into the application layer.
+The SDK now only reports sync error - your app decides HOW to correct.
+
+This enables:
+- Different platforms to use different correction strategies (browser: playbackRate, Windows: drop/insert, Linux: ALSA rate)
+- Apps to offer multiple correction profiles
+- Cleaner SDK with single responsibility (buffering + timing, not correction)
+
+New Public API:
+- ISyncCorrectionProvider: Interface for correction strategy abstraction
+  - CurrentMode: SyncCorrectionMode (None, Resampling, Dropping, Inserting)
+  - DropEveryNFrames: Interval for dropping frames (0 = disabled)
+  - InsertEveryNFrames: Interval for inserting frames (0 = disabled)
+  - TargetPlaybackRate: Rate for resampling-based correction (1.0 = normal)
+  - CorrectionChanged event: Notifies when correction parameters change
+  - UpdateFromSyncError(): Call with buffer's sync error values
+  - Reset(): Reset to initial state on buffer clear/restart
+
+- SyncCorrectionCalculator: Default ISyncCorrectionProvider implementation
+  - Implements tiered correction matching the CLI: deadband → resampling → drop/insert
+  - Uses SyncCorrectionOptions for configuration
+  - Thread-safe for use from audio callbacks
+
+- ITimedAudioBuffer new members:
+  - SyncErrorMicroseconds: Raw sync error (positive = behind, negative = ahead)
+  - SmoothedSyncErrorMicroseconds: EMA-filtered error for stable decisions
+  - ReadRaw(): Read samples WITHOUT internal correction (use with external provider)
+  - NotifyExternalCorrection(): Report drops/inserts for accurate error tracking
+
+Deprecated API (still functional for backwards compatibility):
+- ITimedAudioBuffer.TargetPlaybackRate [Obsolete]
+- ITimedAudioBuffer.TargetPlaybackRateChanged [Obsolete]
+- ITimedAudioBuffer.Read() [Obsolete] - use ReadRaw() with external correction
+
+Migration Guide:
+OLD (SDK applies correction internally):
+  var read = buffer.Read(samples, currentTime);
+  buffer.TargetPlaybackRateChanged += rate => resampler.Rate = rate;
+
+NEW (App applies correction externally):
+  // Create correction provider
+  var correctionProvider = new SyncCorrectionCalculator(
+      buffer.SyncOptions, sampleRate, channels);
+
+  // Read raw samples (no internal correction)
+  var read = buffer.ReadRaw(samples, currentTime);
+
+  // Update correction provider with current error
+  correctionProvider.UpdateFromSyncError(
+      buffer.SyncErrorMicroseconds,
+      buffer.SmoothedSyncErrorMicroseconds);
+
+  // Apply correction based on provider's decisions
+  var mode = correctionProvider.CurrentMode;
+  if (mode == SyncCorrectionMode.Dropping) {
+      // Apply drop every N frames
+      buffer.NotifyExternalCorrection(droppedCount, 0);
+  }
+
+  // Or subscribe to rate changes for resampling
+  correctionProvider.CorrectionChanged += p => resampler.Rate = p.TargetPlaybackRate;
+
+Architecture Diagram:
+  SDK (reports error only)         →    App (applies correction)
+  ─────────────────────────────────────────────────────────────
+  TimedAudioBuffer                      SyncCorrectionCalculator
+  ├─ ReadRaw() - no correction          ├─ UpdateFromSyncError()
+  ├─ SyncErrorMicroseconds              ├─ DropEveryNFrames
+  ├─ SmoothedSyncErrorMicroseconds      ├─ InsertEveryNFrames
+  └─ NotifyExternalCorrection()         └─ TargetPlaybackRate
+
+Benefits:
+- Browser apps can use native playbackRate (WSOLA time-stretching)
+- Windows apps can choose WDL resampler, SoundTouch, or drop/insert only
+- Linux apps can use ALSA hardware rate adjustment
+- Embedded systems can implement platform-specific correction
+- Testability: Correction logic isolated, easier to unit test
+
 v3.5.1:
 Improved Push-Model Backend Support:
 - Refactored calibrated startup latency handling for cleaner architecture
@@ -193,7 +274,7 @@ New Features:
 - Improved server name display from mDNS discovery (smarter hostname cleanup)
 - Sync timing improvements for better multi-room accuracy
     </PackageReleaseNotes>
-    <Copyright>Copyright © 2024-2025 Sendspin Contributors</Copyright>
+    <Copyright>Copyright © 2024-2026 Sendspin Contributors</Copyright>
 
     <!-- Enable source link for debugging -->
     <PublishRepositoryUrl>true</PublishRepositoryUrl>

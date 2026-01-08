@@ -150,6 +150,30 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     /// <inheritdoc/>
     public long CalibratedStartupLatencyMicroseconds { get; set; }
 
+    /// <inheritdoc/>
+    public long SyncErrorMicroseconds
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _currentSyncErrorMicroseconds;
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public double SmoothedSyncErrorMicroseconds
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _smoothedSyncErrorMicroseconds;
+            }
+        }
+    }
+
     /// <summary>
     /// Initializes a new instance of the <see cref="TimedAudioBuffer"/> class.
     /// </summary>
@@ -371,6 +395,140 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     }
 
     /// <inheritdoc/>
+    public int ReadRaw(Span<float> buffer, long currentLocalTime)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        lock (_lock)
+        {
+            // If buffer is empty, output silence
+            if (_count == 0)
+            {
+                if (_playbackStarted)
+                {
+                    _underrunCount++;
+                    _underrunsSinceLastLog++;
+                    LogUnderrunIfNeeded(currentLocalTime);
+                }
+
+                buffer.Fill(0f);
+                return 0;
+            }
+
+            // Scheduled start logic (same as Read)
+            if (_segments.Count > 0 && !_playbackStarted)
+            {
+                var firstSegment = _segments.Peek();
+
+                if (!_waitingForScheduledStart)
+                {
+                    _scheduledStartLocalTime = firstSegment.LocalPlaybackTime;
+                    _waitingForScheduledStart = true;
+                    _nextExpectedPlaybackTime = firstSegment.LocalPlaybackTime;
+                }
+
+                var timeUntilStart = _scheduledStartLocalTime - currentLocalTime;
+                if (timeUntilStart > _syncOptions.ScheduledStartGraceWindowMicroseconds)
+                {
+                    buffer.Fill(0f);
+                    return 0;
+                }
+
+                _playbackStarted = true;
+                _waitingForScheduledStart = false;
+                _playbackStartLocalTime = currentLocalTime - CalibratedStartupLatencyMicroseconds;
+                _samplesReadSinceStart = 0;
+                _samplesOutputSinceStart = 0;
+            }
+
+            // Check for re-anchor condition
+            if (_needsReanchor)
+            {
+                _needsReanchor = false;
+                buffer.Fill(0f);
+
+                if (Interlocked.CompareExchange(ref _reanchorEventPending, 1, 0) == 0)
+                {
+                    Task.Run(() =>
+                    {
+                        try
+                        {
+                            ReanchorRequired?.Invoke(this, EventArgs.Empty);
+                        }
+                        finally
+                        {
+                            Interlocked.Exchange(ref _reanchorEventPending, 0);
+                        }
+                    });
+                }
+
+                return 0;
+            }
+
+            // Read samples directly WITHOUT sync correction
+            var toRead = Math.Min(buffer.Length, _count);
+            ReadSamplesFromBuffer(buffer.Slice(0, toRead));
+
+            _count -= toRead;
+            _totalRead += toRead;
+            ConsumeSegments(toRead);
+
+            // Update sync error tracking (but don't apply correction - caller does that)
+            if (_playbackStarted && toRead > 0)
+            {
+                _samplesReadSinceStart += toRead;
+                _samplesOutputSinceStart += toRead;
+
+                CalculateSyncError(currentLocalTime);
+                // NOTE: We do NOT call UpdateCorrectionRate() here.
+                // The caller is responsible for correction via ISyncCorrectionProvider.
+
+                // Check re-anchor threshold
+                var elapsedSinceStart = (long)(_samplesOutputSinceStart * _microsecondsPerSample);
+                if (elapsedSinceStart >= _syncOptions.StartupGracePeriodMicroseconds
+                    && Math.Abs(_currentSyncErrorMicroseconds) > _syncOptions.ReanchorThresholdMicroseconds)
+                {
+                    _needsReanchor = true;
+                }
+            }
+
+            // Fill remainder with silence if needed
+            if (toRead < buffer.Length)
+            {
+                buffer.Slice(toRead).Fill(0f);
+            }
+
+            return toRead;
+        }
+    }
+
+    /// <inheritdoc/>
+    public void NotifyExternalCorrection(int samplesDropped, int samplesInserted)
+    {
+        if (samplesDropped < 0 || samplesInserted < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                samplesDropped < 0 ? nameof(samplesDropped) : nameof(samplesInserted),
+                "Sample counts must be non-negative.");
+        }
+
+        lock (_lock)
+        {
+            // When dropping: we read MORE samples than we output
+            // This advances the server cursor, making sync error smaller
+            _samplesReadSinceStart += samplesDropped;
+            _samplesDroppedForSync += samplesDropped;
+
+            // When inserting: we output samples WITHOUT consuming from buffer
+            // ReadRaw already added the full read count to _samplesReadSinceStart,
+            // but inserted samples came from duplicating previous output, not from new input.
+            // So we need to SUBTRACT them to reflect actual consumption from buffer.
+            _samplesReadSinceStart -= samplesInserted;
+            _samplesInsertedForSync += samplesInserted;
+        }
+    }
+
+    /// <inheritdoc/>
     public void Clear()
     {
         lock (_lock)
@@ -473,6 +631,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 TotalSamplesWritten = _totalWritten,
                 TotalSamplesRead = _totalRead,
                 SyncErrorMicroseconds = _currentSyncErrorMicroseconds,
+                SmoothedSyncErrorMicroseconds = _smoothedSyncErrorMicroseconds,
                 IsPlaybackActive = _playbackStarted,
                 SamplesDroppedForSync = _samplesDroppedForSync,
                 SamplesInsertedForSync = _samplesInsertedForSync,
