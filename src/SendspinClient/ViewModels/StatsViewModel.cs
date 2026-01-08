@@ -432,22 +432,32 @@ public partial class StatsViewModel : ViewModelBase
             SyncErrorColor = new SolidColorBrush(Color.FromRgb(0xf8, 0x71, 0x71)); // Red
         }
 
-        // Correction Mode - now with tiered strategy
-        CorrectionModeDisplay = stats.CurrentCorrectionMode switch
-        {
-            SyncCorrectionMode.Resampling => "Resampling",
-            SyncCorrectionMode.Dropping => "Dropping",
-            SyncCorrectionMode.Inserting => "Inserting",
-            _ => "None",
-        };
+        // Correction Mode - infer from smoothed error magnitude
+        // Using DropInsertOnly strategy - no resampling, just drop/insert based on error
+        // TODO: Make deadband configurable via appsettings
+        const long DeadbandMicroseconds = 2_000; // 2ms deadband
+        var absSmoothedError = Math.Abs(stats.SmoothedSyncErrorMicroseconds);
+        string correctionModeText;
+        Brush correctionColor;
 
-        CorrectionModeColor = stats.CurrentCorrectionMode switch
+        if (absSmoothedError < DeadbandMicroseconds)
         {
-            SyncCorrectionMode.Resampling => new SolidColorBrush(Color.FromRgb(0x60, 0xa5, 0xfa)), // Blue (smooth)
-            SyncCorrectionMode.Dropping => new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)), // Yellow
-            SyncCorrectionMode.Inserting => new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)), // Yellow
-            _ => new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)), // Green
-        };
+            correctionModeText = "None";
+            correctionColor = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)); // Green
+        }
+        else if (stats.SmoothedSyncErrorMicroseconds > 0)
+        {
+            correctionModeText = "Dropping";
+            correctionColor = new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
+        }
+        else
+        {
+            correctionModeText = "Inserting";
+            correctionColor = new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
+        }
+
+        CorrectionModeDisplay = correctionModeText;
+        CorrectionModeColor = correctionColor;
 
         // Playback Rate (for resampling-based sync correction)
         var rate = stats.TargetPlaybackRate;

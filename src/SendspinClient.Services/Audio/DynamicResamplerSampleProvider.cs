@@ -20,14 +20,14 @@ namespace SendspinClient.Services.Audio;
 /// instead of discrete sample dropping/insertion which can cause audible clicks.
 /// </para>
 /// <para>
-/// The rate is controlled by the <see cref="ITimedAudioBuffer.TargetPlaybackRate"/> property,
+/// The rate is controlled by the <see cref="ISyncCorrectionProvider.TargetPlaybackRate"/> property,
 /// which is calculated based on sync error magnitude.
 /// </para>
 /// </remarks>
-public sealed class DynamicResamplerSampleProvider : ISampleProvider
+public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposable
 {
     private readonly ISampleProvider _source;
-    private readonly ITimedAudioBuffer? _buffer;
+    private readonly ISyncCorrectionProvider? _correctionProvider;
     private readonly WdlResampler _resampler;
     private readonly ILogger? _logger;
     private readonly IDiagnosticAudioRecorder? _diagnosticRecorder;
@@ -35,7 +35,6 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     private readonly int _targetSampleRate;
 
     private double _playbackRate = 1.0;
-    private double _targetRate = 1.0;
     private float[] _sourceBuffer;
     private bool _disposed;
 
@@ -54,17 +53,6 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     /// Maximum playback rate (4% faster).
     /// </summary>
     public const double MaxRate = 1.04;
-
-    /// <summary>
-    /// Smoothing factor for rate changes (0.0 to 1.0).
-    /// Lower values = smoother/slower transitions, higher = faster response.
-    /// At 0.10, we move 10% toward target each update (~10ms), reaching 90% in ~230ms.
-    /// </summary>
-    /// <remarks>
-    /// Must be high enough that smoothed changes exceed <see cref="RateChangeThreshold"/>.
-    /// For 0.5% target rate change: smoothed = 0.005 * 0.10 = 0.0005 > 0.0001 threshold.
-    /// </remarks>
-    private const double RateSmoothingFactor = 0.10;
 
     /// <summary>
     /// Minimum rate change threshold before updating resampler (0.01% = 0.0001).
@@ -105,8 +93,8 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     /// <para>Values: 1.0 = normal speed, &gt;1.0 = faster, &lt;1.0 = slower.</para>
     /// <para>Clamped to range <see cref="MinRate"/> to <see cref="MaxRate"/>.</para>
     /// <para>
-    /// Rate changes are exponentially smoothed to prevent audio artifacts from rapid
-    /// resampler ratio changes. The actual rate gradually moves toward the target.
+    /// Rate changes are applied immediately to match JS/Python reference implementations.
+    /// The buffer's EMA smoothing on sync error provides sufficient jitter filtering.
     /// </para>
     /// </remarks>
     public double PlaybackRate
@@ -123,17 +111,12 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
             var clamped = Math.Clamp(value, MinRate, MaxRate);
             lock (_rateLock)
             {
-                // Store the target rate
-                _targetRate = clamped;
-
-                // Apply exponential smoothing: move partway toward target
-                // This prevents rapid rate changes from disturbing resampler filter state
-                var smoothedRate = _playbackRate + (_targetRate - _playbackRate) * RateSmoothingFactor;
-
-                // Only update resampler if change exceeds threshold (reduces SetRates calls)
-                if (Math.Abs(_playbackRate - smoothedRate) > RateChangeThreshold)
+                // Apply rate immediately without smoothing - matches JS/Python reference implementations
+                // Buffer's EMA on sync error already provides sufficient jitter filtering
+                // Rate smoothing was causing ~230ms lag that destabilized the feedback loop
+                if (Math.Abs(_playbackRate - clamped) > RateChangeThreshold)
                 {
-                    _playbackRate = smoothedRate;
+                    _playbackRate = clamped;
                     UpdateResamplerRates();
                 }
             }
@@ -144,7 +127,7 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     /// Initializes a new instance of the <see cref="DynamicResamplerSampleProvider"/> class.
     /// </summary>
     /// <param name="source">The upstream sample provider to read from.</param>
-    /// <param name="buffer">Optional buffer to subscribe to for rate change events.</param>
+    /// <param name="correctionProvider">Optional sync correction provider to subscribe to for rate change events.</param>
     /// <param name="targetSampleRate">
     /// Target output sample rate (device native rate). When non-zero and different from source rate,
     /// the resampler performs compound conversion: sample rate conversion + sync correction in one pass.
@@ -155,7 +138,7 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     /// <param name="diagnosticRecorder">Optional diagnostic recorder for audio capture.</param>
     public DynamicResamplerSampleProvider(
         ISampleProvider source,
-        ITimedAudioBuffer? buffer = null,
+        ISyncCorrectionProvider? correctionProvider = null,
         int targetSampleRate = 0,
         ILogger? logger = null,
         IDiagnosticAudioRecorder? diagnosticRecorder = null)
@@ -163,7 +146,7 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
         ArgumentNullException.ThrowIfNull(source);
 
         _source = source;
-        _buffer = buffer;
+        _correctionProvider = correctionProvider;
         _logger = logger;
         _diagnosticRecorder = diagnosticRecorder;
 
@@ -185,10 +168,13 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
             _logger?.LogDebug("Resampler configured for sync correction only (no sample rate conversion)");
         }
 
-        // Initialize WDL resampler with high-quality settings
+        // Initialize WDL resampler
+        // Reduced from 32 to 16 taps - 32-tap was causing audible artifacts during
+        // dynamic rate changes. 16-tap provides good quality with faster adaptation
+        // and less ringing on transients.
         _resampler = new WdlResampler();
-        _resampler.SetMode(true, 32, true); // Interpolating, 32-tap sinc filter (higher quality than 16)
-        _resampler.SetFilterParms(0.85f, 0.80f); // Gentler filter: 85% Nyquist cutoff, softer transition
+        _resampler.SetMode(true, 16, false); // Interpolating, 16-tap sinc, no filter on output
+        _resampler.SetFilterParms(0.90f, 0.60f); // 90% Nyquist, sharper transition (less processing)
         _resampler.SetFeedMode(true); // We're in output-driven mode (request N output samples)
         UpdateResamplerRates();
 
@@ -205,15 +191,15 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
         var bufferSize = (int)(MaxExpectedOutputRequest * MaxRate * sampleRateRatio * SafetyMargin);
         _sourceBuffer = new float[bufferSize];
 
-        // Subscribe to buffer rate changes if available
-        if (_buffer != null)
+        // Subscribe to correction provider rate changes if available
+        if (_correctionProvider != null)
         {
-            _buffer.TargetPlaybackRateChanged += OnTargetPlaybackRateChanged;
-            _logger?.LogDebug("Subscribed to TargetPlaybackRateChanged event from buffer");
+            _correctionProvider.CorrectionChanged += OnCorrectionChanged;
+            _logger?.LogDebug("Subscribed to CorrectionChanged event from correction provider");
         }
         else
         {
-            _logger?.LogWarning("No buffer provided - rate changes will not be received!");
+            _logger?.LogWarning("No correction provider - rate changes will not be received!");
         }
     }
 
@@ -314,12 +300,13 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
         // Process through resampler directly into output buffer
         var framesGenerated = _resampler.ResampleOut(output, outputOffset, framesToCopy, outputFrames, channels);
 
-        // Apply soft clipping to prevent interpolation overshoots from causing hard clipping.
-        // Sinc filter resampling can produce values slightly outside ±1.0 (ringing/overshoots),
-        // especially during dynamic rate changes. Soft clipping gently limits these values
-        // to prevent audible distortion from hard clipping at the DAC.
         var samplesGenerated = framesGenerated * channels;
-        ApplySoftClipping(output, outputOffset, samplesGenerated);
+
+        // Soft clipping disabled - was causing audible "overdrive" artifacts even on normal audio.
+        // The WDL resampler's output is typically within ±1.0 for well-mastered content.
+        // Any occasional overshoots from sinc filter ringing will be handled by the DAC's
+        // built-in clipping, which is less audible than our soft clipper engaging frequently.
+        // ApplySoftClipping(output, outputOffset, samplesGenerated);
 
         return samplesGenerated;
     }
@@ -397,11 +384,11 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
     }
 
     /// <summary>
-    /// Handles rate change events from the audio buffer.
+    /// Handles correction change events from the sync correction provider.
     /// </summary>
-    private void OnTargetPlaybackRateChanged(double newRate)
+    private void OnCorrectionChanged(ISyncCorrectionProvider provider)
     {
-        PlaybackRate = newRate;
+        PlaybackRate = provider.TargetPlaybackRate;
     }
 
     /// <summary>
@@ -440,9 +427,9 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider
 
         _disposed = true;
 
-        if (_buffer != null)
+        if (_correctionProvider != null)
         {
-            _buffer.TargetPlaybackRateChanged -= OnTargetPlaybackRateChanged;
+            _correctionProvider.CorrectionChanged -= OnCorrectionChanged;
         }
     }
 }
