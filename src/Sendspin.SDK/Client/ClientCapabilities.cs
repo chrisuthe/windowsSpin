@@ -70,4 +70,17 @@ public sealed class ClientCapabilities
     /// If null, will not be included in the device info.
     /// </summary>
     public string? SoftwareVersion { get; set; }
+
+    /// <summary>
+    /// Initial volume level (0-100) to report to the server after connection.
+    /// This is sent in the initial client/state message after handshake.
+    /// Default is 100 for backwards compatibility.
+    /// </summary>
+    public int InitialVolume { get; set; } = 100;
+
+    /// <summary>
+    /// Initial mute state to report to the server after connection.
+    /// This is sent in the initial client/state message after handshake.
+    /// </summary>
+    public bool InitialMuted { get; set; }
 }
