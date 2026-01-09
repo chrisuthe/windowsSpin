@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>5.0.2</Version>
+    <Version>5.0.3</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,16 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v5.0.3:
+Bug Fixes:
+- Fixed SDK always reporting 100% volume to server on connect
+  - Initial client/state message was hardcoded to send volume=100, muted=false
+  - Now uses InitialVolume and InitialMuted from ClientCapabilities
+
+New Features:
+- ClientCapabilities.InitialVolume: Set initial volume (0-100) reported to server (default: 100)
+- ClientCapabilities.InitialMuted: Set initial mute state reported to server (default: false)
+
 v5.0.2:
 Documentation:
 - Completely rewritten README for v5.0.0 external sync correction architecture
