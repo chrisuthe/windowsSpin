@@ -327,12 +327,14 @@ public sealed class SendspinClientService : ISendspinClient
     /// <summary>
     /// Sends the initial client/state message after handshake.
     /// Per the protocol, clients with player role must send their state immediately.
+    /// Uses InitialVolume and InitialMuted from ClientCapabilities.
     /// </summary>
     private async Task SendInitialClientStateAsync()
     {
         try
         {
-            var stateMessage = ClientStateMessage.CreateSynchronized(volume: 100, muted: false);
+            var volume = Math.Clamp(_capabilities.InitialVolume, 0, 100);
+            var stateMessage = ClientStateMessage.CreateSynchronized(volume: volume, muted: _capabilities.InitialMuted);
             var stateJson = MessageSerializer.Serialize(stateMessage);
             _logger.LogInformation("Sending initial client/state:\n{Json}", stateJson);
             await _connection.SendMessageAsync(stateMessage);
