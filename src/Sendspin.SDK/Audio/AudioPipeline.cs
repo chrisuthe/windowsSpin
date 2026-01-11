@@ -66,6 +66,9 @@ public sealed class AudioPipeline : IAudioPipeline
     public AudioPipelineState State { get; private set; } = AudioPipelineState.Idle;
 
     /// <inheritdoc/>
+    public bool IsReady => _decoder != null && _buffer != null;
+
+    /// <inheritdoc/>
     public AudioBufferStats? BufferStats => _buffer?.GetStats();
 
     /// <inheritdoc/>

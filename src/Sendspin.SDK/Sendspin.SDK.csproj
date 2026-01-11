@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>5.0.3</Version>
+    <Version>5.1.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,28 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v5.1.0 - Faster Playback Startup:
+Performance:
+- Reduced audio startup delay from ~1000ms to ~200-300ms
+  - Sync burst no longer blocks pipeline initialization
+  - Smart burst skip: skips re-sync if clock already converged
+  - Zero chunk loss during decoder/buffer initialization
+
+New Features:
+- IAudioPipeline.IsReady: Check if pipeline can accept audio chunks
+- Pre-buffer queue: Captures early chunks during initialization, drains after startup
+
+Implementation Details:
+- SendTimeSyncBurstAsync now fire-and-forget (doesn't block StartAsync)
+- Early chunks queued in ConcurrentQueue (max 100 chunks, ~2 seconds)
+- Queue drained after pipeline.StartAsync() completes
+- Queue cleared on stream/start and stream/end
+
+Scenarios improved:
+- First play after connection: No longer waits 450ms for sync burst
+- Pause/resume: Near-instant resume when clock already synced
+- Track changes: Faster transitions between tracks
+
 v5.0.3:
 Bug Fixes:
 - Fixed SDK always reporting 100% volume to server on connect
