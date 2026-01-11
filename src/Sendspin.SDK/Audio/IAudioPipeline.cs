@@ -18,6 +18,15 @@ public interface IAudioPipeline : IAsyncDisposable
     AudioPipelineState State { get; }
 
     /// <summary>
+    /// Gets whether the pipeline is ready to accept audio chunks.
+    /// </summary>
+    /// <remarks>
+    /// Returns true when the decoder and buffer have been initialized and can process chunks.
+    /// Use this to check before calling <see cref="ProcessAudioChunk"/> to avoid chunk loss.
+    /// </remarks>
+    bool IsReady { get; }
+
+    /// <summary>
     /// Gets the current buffer statistics, or null if not started.
     /// </summary>
     AudioBufferStats? BufferStats { get; }

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Sendspin.SDK.Audio;
 using Sendspin.SDK.Connection;
@@ -24,6 +25,17 @@ public sealed class SendspinClientService : ISendspinClient
     private GroupState? _currentGroup;
     private CancellationTokenSource? _timeSyncCts;
     private bool _disposed;
+
+    /// <summary>
+    /// Queue for audio chunks that arrive before pipeline is ready.
+    /// Prevents chunk loss during the ~50ms decoder/buffer initialization.
+    /// </summary>
+    private readonly ConcurrentQueue<AudioChunk> _earlyChunkQueue = new();
+
+    /// <summary>
+    /// Maximum chunks to queue before pipeline ready (~2 seconds of audio at typical rates).
+    /// </summary>
+    private const int MaxEarlyChunks = 100;
 
     #region Time Sync Configuration
 
@@ -750,16 +762,44 @@ public sealed class SendspinClientService : ISendspinClient
 
         _logger.LogInformation("Stream starting: {Format}", message.Format);
 
-        // Re-sync clock before starting playback to ensure accurate timing
-        // This is critical after pause/resume where the sync may have drifted
-        _logger.LogDebug("Triggering clock re-sync burst before stream start");
-        await SendTimeSyncBurstAsync(CancellationToken.None);
+        // Clear any stale chunks from previous streams
+        while (_earlyChunkQueue.TryDequeue(out _))
+        {
+        }
 
+        // Smart sync burst: only trigger if clock isn't already synced
+        // If we've been connected for a while, the continuous sync loop has already converged
+        if (!_clockSynchronizer.HasMinimalSync)
+        {
+            _logger.LogDebug("Clock not synced, triggering re-sync burst (fire-and-forget)");
+            _ = SendTimeSyncBurstAsync(CancellationToken.None);
+        }
+        else
+        {
+            _logger.LogDebug("Clock already synced ({MeasurementCount} measurements), skipping burst",
+                _clockSynchronizer.GetStatus()?.MeasurementCount ?? 0);
+        }
+
+        // Start pipeline immediately - don't block on sync burst
+        // The continuous sync loop + sync correction will handle any residual drift
         if (_audioPipeline != null)
         {
             try
             {
                 await _audioPipeline.StartAsync(message.Format, message.TargetTimestamp);
+
+                // Drain any chunks that arrived during initialization
+                var drainedCount = 0;
+                while (_earlyChunkQueue.TryDequeue(out var chunk))
+                {
+                    _audioPipeline.ProcessAudioChunk(chunk);
+                    drainedCount++;
+                }
+
+                if (drainedCount > 0)
+                {
+                    _logger.LogDebug("Drained {Count} early chunks into pipeline", drainedCount);
+                }
             }
             catch (Exception ex)
             {
@@ -772,6 +812,11 @@ public sealed class SendspinClientService : ISendspinClient
     {
         var message = MessageSerializer.Deserialize<StreamEndMessage>(json);
         _logger.LogInformation("Stream ended: {Reason}", message?.Reason ?? "unknown");
+
+        // Clear any queued chunks from this stream
+        while (_earlyChunkQueue.TryDequeue(out _))
+        {
+        }
 
         if (_audioPipeline != null)
         {
@@ -808,9 +853,21 @@ public sealed class SendspinClientService : ISendspinClient
         {
             case BinaryMessageCategory.PlayerAudio:
                 var audioChunk = BinaryMessageParser.ParseAudioChunk(data.Span);
-                if (audioChunk != null && _audioPipeline != null)
+                if (audioChunk != null)
                 {
-                    _audioPipeline.ProcessAudioChunk(audioChunk);
+                    if (_audioPipeline?.IsReady == true)
+                    {
+                        // Pipeline ready - process immediately
+                        _audioPipeline.ProcessAudioChunk(audioChunk);
+                    }
+                    else if (_earlyChunkQueue.Count < MaxEarlyChunks)
+                    {
+                        // Pipeline not ready yet - queue for later processing
+                        // This prevents chunk loss during decoder/buffer initialization
+                        _earlyChunkQueue.Enqueue(audioChunk);
+                        _logger.LogTrace("Queued early chunk ({QueueSize} in queue)", _earlyChunkQueue.Count);
+                    }
+                    // else: queue full, drop chunk (should rarely happen)
                 }
 
                 _logger.LogTrace("Audio chunk: {Length} bytes @ {Timestamp}", payload.Length, timestamp);
