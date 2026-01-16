@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>5.1.1</Version>
+    <Version>5.2.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,22 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v5.2.0 - Client Port Change (Spec Alignment):
+BREAKING CHANGE:
+- Default client listening port changed from 8927 to 8928
+  - Aligns with Sendspin spec update (Sendspin/spec#62)
+  - Servers: 8927 (_sendspin-server._tcp)
+  - Clients: 8928 (_sendspin._tcp)
+  - This allows servers and clients to coexist on the same machine without port conflicts
+
+Affected Classes:
+- ListenerOptions.Port: Default changed from 8927 to 8928
+- AdvertiserOptions.Port: Default changed from 8927 to 8928
+
+Migration:
+- If your server expects clients on port 8927, update to discover/connect on 8928
+- Or explicitly configure ListenerOptions/AdvertiserOptions to use 8927 for backward compatibility
+
 v5.1.1 - Volume Handling Fix:
 Bug Fixes:
 - Fixed incorrect application of group volume to audio pipeline
