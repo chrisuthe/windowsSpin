@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>5.1.0</Version>
+    <Version>5.1.1</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,21 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v5.1.1 - Volume Handling Fix:
+Bug Fixes:
+- Fixed incorrect application of group volume to audio pipeline
+  - HandleGroupUpdate and HandleServerState were applying GROUP volume (average of all players)
+    to the local audio output, overriding player-specific volume settings
+  - Per Sendspin spec: only server/command contains PLAYER volume to apply locally
+  - group/update and server/state contain GROUP volume for UI display only
+- This prevents volume sync issues in multi-player groups where each player has different
+  volume levels (e.g., 60%, 80%, 100%) - previously all players would jump to group average
+
+Impact:
+- Multi-player groups now correctly maintain individual player volumes
+- server/command remains the only message that applies volume to audio pipeline
+- UI state (_currentGroup.Volume) still updated for display purposes
+
 v5.1.0 - Faster Playback Startup:
 Performance:
 - Reduced audio startup delay from ~1000ms to ~200-300ms
