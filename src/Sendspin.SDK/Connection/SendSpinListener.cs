@@ -159,9 +159,9 @@ public sealed class ListenerOptions
 {
     /// <summary>
     /// Port to listen on.
-    /// Default: 8927 (Sendspin standard port)
+    /// Default: 8928 (Sendspin standard port for clients)
     /// </summary>
-    public int Port { get; set; } = 8927;
+    public int Port { get; set; } = 8928;
 
     /// <summary>
     /// WebSocket endpoint path.

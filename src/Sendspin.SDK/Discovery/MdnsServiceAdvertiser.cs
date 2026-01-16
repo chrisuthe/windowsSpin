@@ -231,9 +231,9 @@ public sealed class AdvertiserOptions
 
     /// <summary>
     /// Port the WebSocket server is listening on.
-    /// Default: 8927
+    /// Default: 8928
     /// </summary>
-    public int Port { get; set; } = 8927;
+    public int Port { get; set; } = 8928;
 
     /// <summary>
     /// WebSocket endpoint path (advertised in TXT record).
