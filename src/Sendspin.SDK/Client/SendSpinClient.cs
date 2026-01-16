@@ -590,17 +590,13 @@ public sealed class SendspinClientService : ISendspinClient
 
         if (message.PlaybackState.HasValue)
             _currentGroup.PlaybackState = message.PlaybackState.Value;
+        // Group volume/muted are for UI display only - do NOT apply to audio pipeline.
+        // The server sends server/command with player-specific volume when it wants to
+        // change THIS player's output. group/update contains the group average.
         if (message.Volume.HasValue)
-        {
             _currentGroup.Volume = message.Volume.Value;
-            _audioPipeline?.SetVolume(message.Volume.Value);
-        }
-
         if (message.Muted.HasValue)
-        {
             _currentGroup.Muted = message.Muted.Value;
-            _audioPipeline?.SetMuted(message.Muted.Value);
-        }
         if (message.Metadata is not null)
             _currentGroup.Metadata = message.Metadata;
         if (message.Shuffle.HasValue)
@@ -651,19 +647,16 @@ public sealed class SendspinClientService : ISendspinClient
                 _currentGroup.Repeat = meta.Repeat;
         }
 
-        // Update controller state (volume, mute) and apply to audio pipeline
+        // Update controller state (volume, mute) for UI display only.
+        // Do NOT apply to audio pipeline - server/state contains GROUP volume.
+        // The server sends server/command with player-specific volume when it wants
+        // to change THIS player's output.
         if (payload.Controller is not null)
         {
             if (payload.Controller.Volume.HasValue)
-            {
                 _currentGroup.Volume = payload.Controller.Volume.Value;
-                _audioPipeline?.SetVolume(payload.Controller.Volume.Value);
-            }
             if (payload.Controller.Muted.HasValue)
-            {
                 _currentGroup.Muted = payload.Controller.Muted.Value;
-                _audioPipeline?.SetMuted(payload.Controller.Muted.Value);
-            }
         }
 
         _logger.LogDebug("Server state update: Volume={Volume}, Muted={Muted}, Track={Track} by {Artist}",

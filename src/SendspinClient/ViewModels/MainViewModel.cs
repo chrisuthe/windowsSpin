@@ -537,17 +537,21 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private async Task ToggleMuteAsync()
     {
-        if (!IsConnected) return;
-
         try
         {
-            // Toggle the local mute state and send it to the server
+            // Toggle the mute state
             var newMutedState = !IsMuted;
             _logger.LogDebug("Toggling mute: {Muted}", newMutedState);
 
-            // Send player state to notify Music Assistant of our mute change
-            // This is what JS/Python clients do - they report state rather than sending commands
-            await SendPlayerStateToActiveClientAsync(Volume, newMutedState);
+            // Apply locally FIRST for instant feedback (even when disconnected)
+            _audioPipeline?.SetMuted(newMutedState);
+            IsMuted = newMutedState;
+
+            // Send player state to notify server of our mute change
+            if (IsConnected)
+            {
+                await SendPlayerStateToActiveClientAsync(Volume, newMutedState);
+            }
         }
         catch (Exception ex)
         {
@@ -1512,16 +1516,21 @@ public partial class MainViewModel : ViewModelBase
 
     partial void OnVolumeChanged(int value)
     {
-        // Don't send commands when updating from server state
-        if (_isUpdatingFromServer || !IsConnected)
+        // Skip if server-initiated update (SDK already applied via server/command)
+        if (_isUpdatingFromServer)
             return;
 
-        // Debounce volume changes to avoid spamming the server
-        // Cancel any pending volume change and schedule a new one
-        _volumeDebouncesCts?.Cancel();
-        _volumeDebouncesCts?.Dispose();
-        _volumeDebouncesCts = new CancellationTokenSource();
-        _ = SendVolumeChangeDebounced(value, _volumeDebouncesCts.Token);
+        // Apply locally FIRST for instant feedback (even when disconnected)
+        _audioPipeline?.SetVolume(value);
+
+        // Send to server if connected (debounced to avoid spamming)
+        if (IsConnected)
+        {
+            _volumeDebouncesCts?.Cancel();
+            _volumeDebouncesCts?.Dispose();
+            _volumeDebouncesCts = new CancellationTokenSource();
+            _ = SendVolumeChangeDebounced(value, _volumeDebouncesCts.Token);
+        }
     }
 
     private async Task SendVolumeChangeDebounced(int volume, CancellationToken cancellationToken)
