@@ -147,7 +147,9 @@ public partial class App : Application
         services.AddLogging(builder =>
         {
             builder.ClearProviders();
-            builder.AddSerilog(dispose: true);
+            // Pass logger: null so the provider dynamically accesses Log.Logger
+            // This allows runtime log level changes via ReconfigureLogging() to take effect
+            builder.AddSerilog(logger: null, dispose: true);
         });
 
         // Client capabilities configuration
@@ -157,12 +159,38 @@ public partial class App : Application
         // Get app version for device info
         var appVersion = GetAppVersion();
 
+        // Get persistent client ID (generated once per installation, survives reinstalls)
+        var clientId = ClientIdService.GetOrCreateClientId();
+
+        // Read preferred codec from configuration (default: flac for lossless quality)
+        var preferredCodec = _configuration!.GetValue<string>("Audio:PreferredCodec", "flac")?.ToLowerInvariant() ?? "flac";
+
+        // Build audio formats list with preferred codec first
+        // PCM is always last as fallback (not user-selectable)
+        var audioFormats = new List<AudioFormat>();
+
+        if (preferredCodec == "flac")
+        {
+            audioFormats.Add(new AudioFormat { Codec = "flac", SampleRate = 48000, Channels = 2 });
+            audioFormats.Add(new AudioFormat { Codec = "opus", SampleRate = 48000, Channels = 2, Bitrate = 256 });
+        }
+        else // opus
+        {
+            audioFormats.Add(new AudioFormat { Codec = "opus", SampleRate = 48000, Channels = 2, Bitrate = 256 });
+            audioFormats.Add(new AudioFormat { Codec = "flac", SampleRate = 48000, Channels = 2 });
+        }
+
+        // PCM always last as universal fallback
+        audioFormats.Add(new AudioFormat { Codec = "pcm", SampleRate = 48000, Channels = 2, BitDepth = 16 });
+
         services.AddSingleton(new ClientCapabilities
         {
+            ClientId = clientId,
             ClientName = playerName,
             ProductName = "Sendspin Windows Client",
             Manufacturer = null, // Set by SDK consumers as needed
-            SoftwareVersion = appVersion
+            SoftwareVersion = appVersion,
+            AudioFormats = audioFormats
         });
 
         // Clock synchronization for multi-room audio sync

@@ -279,6 +279,13 @@ public partial class MainViewModel : ViewModelBase
     private AudioDeviceInfo? _settingsSelectedAudioDevice;
 
     /// <summary>
+    /// Gets or sets the preferred audio stream type (codec).
+    /// Controls the order of codecs sent to the server in handshake.
+    /// </summary>
+    [ObservableProperty]
+    private string _settingsStreamType = "FLAC (lossless, more bandwidth)";
+
+    /// <summary>
     /// Gets the available audio output devices.
     /// </summary>
     public ObservableCollection<AudioDeviceInfo> AvailableAudioDevices { get; } = new();
@@ -298,6 +305,15 @@ public partial class MainViewModel : ViewModelBase
         "Information",
         "Warning",
         "Error"
+    };
+
+    /// <summary>
+    /// Gets the available audio stream type options for the settings dropdown.
+    /// </summary>
+    public string[] AvailableStreamTypes { get; } = new[]
+    {
+        "FLAC (lossless, more bandwidth)",
+        "Opus (compressed, less bandwidth)"
     };
 
     /// <summary>
@@ -1385,6 +1401,32 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Called when the audio stream type setting changes.
+    /// Saves the preference immediately. Takes effect on next connection.
+    /// </summary>
+    partial void OnSettingsStreamTypeChanged(string value)
+    {
+        var codecValue = value.StartsWith("FLAC", StringComparison.OrdinalIgnoreCase) ? "flac" : "opus";
+        _ = SaveStreamTypeAsync(codecValue);
+    }
+
+    /// <summary>
+    /// Saves the stream type preference to user appsettings.json.
+    /// </summary>
+    private async Task SaveStreamTypeAsync(string codecValue)
+    {
+        try
+        {
+            await _settingsService.UpdateSettingAsync("Audio", "PreferredCodec", codecValue);
+            _logger.LogInformation("Stream type preference saved: {Codec} (requires reconnect)", codecValue);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save stream type preference");
+        }
+    }
+
+    /// <summary>
     /// Called when the player name setting changes.
     /// Debounces and auto-saves after 1 second of no changes.
     /// </summary>
@@ -1572,6 +1614,12 @@ public partial class MainViewModel : ViewModelBase
 
         // Load audio settings
         SettingsStaticDelayMs = _configuration.GetValue<double>("Audio:StaticDelayMs", 0);
+
+        // Load audio stream type preference
+        var preferredCodec = _configuration.GetValue<string>("Audio:PreferredCodec", "flac")?.ToLowerInvariant() ?? "flac";
+        SettingsStreamType = preferredCodec == "flac"
+            ? "FLAC (lossless, more bandwidth)"
+            : "Opus (compressed, less bandwidth)";
 
         // Load notification settings
         SettingsShowNotifications = _configuration.GetValue<bool>("Notifications:Enabled", true);
@@ -1801,6 +1849,8 @@ public partial class MainViewModel : ViewModelBase
             var audioSection = root["Audio"]?.AsObject() ?? new JsonObject();
             audioSection["StaticDelayMs"] = SettingsStaticDelayMs;
             audioSection["DeviceId"] = SettingsSelectedAudioDevice?.DeviceId;
+            var preferredCodec = SettingsStreamType.StartsWith("FLAC", StringComparison.OrdinalIgnoreCase) ? "flac" : "opus";
+            audioSection["PreferredCodec"] = preferredCodec;
             root["Audio"] = audioSection;
 
             // Update notifications section
