@@ -743,6 +743,31 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     }
 
     /// <summary>
+    /// Peeks samples from the circular buffer without advancing read position.
+    /// Must be called under lock.
+    /// </summary>
+    /// <param name="destination">Buffer to copy samples into.</param>
+    /// <param name="count">Number of samples to peek.</param>
+    /// <returns>Number of samples actually peeked.</returns>
+    private int PeekSamplesFromBuffer(Span<float> destination, int count)
+    {
+        var toPeek = Math.Min(count, _count);
+        var peeked = 0;
+        var tempReadPos = _readPos;
+
+        while (peeked < toPeek && peeked < destination.Length)
+        {
+            var chunkSize = Math.Min(toPeek - peeked, _buffer.Length - tempReadPos);
+            chunkSize = Math.Min(chunkSize, destination.Length - peeked);
+            _buffer.AsSpan(tempReadPos, chunkSize).CopyTo(destination.Slice(peeked, chunkSize));
+            tempReadPos = (tempReadPos + chunkSize) % _buffer.Length;
+            peeked += chunkSize;
+        }
+
+        return peeked;
+    }
+
+    /// <summary>
     /// Drops the oldest samples to make room for new data.
     /// Must be called under lock.
     /// </summary>
@@ -1054,42 +1079,79 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
 
             _framesSinceLastCorrection++;
 
-            // Check if we should DROP a frame (Python CLI: read TWO, output last)
+            // Check if we should DROP a frame (read two, output interpolated blend)
             if (_dropEveryNFrames > 0 && _framesSinceLastCorrection >= _dropEveryNFrames)
             {
                 _framesSinceLastCorrection = 0;
 
-                // Read the frame we're replacing (consume it)
-                ReadSamplesFromBuffer(tempFrame);
-                samplesConsumed += frameSamples;
-
-                // Read the frame we're DROPPING (consume it too)
-                // Check actual remaining in internal buffer, not the pre-calculated remainingInBuffer
-                if (_count - samplesConsumed >= frameSamples)
+                // Need at least 2 frames for interpolated drop
+                if (_count - samplesConsumed >= frameSamples * 2)
                 {
+                    // Read frame A (the one before the drop point)
                     ReadSamplesFromBuffer(tempFrame);
                     samplesConsumed += frameSamples;
-                }
 
-                // Output the LAST frame instead (smoother transition)
-                _lastOutputFrame.AsSpan().CopyTo(buffer.Slice(outputPos, frameSamples));
-                outputPos += frameSamples;
-                _samplesDroppedForSync += frameSamples;
-                continue;
+                    // Read frame B (the one we're skipping over)
+                    Span<float> droppedFrame = stackalloc float[frameSamples];
+                    ReadSamplesFromBuffer(droppedFrame);
+                    samplesConsumed += frameSamples;
+
+                    // Output interpolated blend: (A + B) / 2 for smooth transition
+                    var outputSpan = buffer.Slice(outputPos, frameSamples);
+                    for (int i = 0; i < frameSamples; i++)
+                    {
+                        outputSpan[i] = (tempFrame[i] + droppedFrame[i]) * 0.5f;
+                    }
+
+                    // Save interpolated frame as last output for continuity
+                    outputSpan.CopyTo(_lastOutputFrame);
+                    outputPos += frameSamples;
+                    _samplesDroppedForSync += frameSamples;
+                    continue;
+                }
+                else if (_count - samplesConsumed >= frameSamples)
+                {
+                    // Fallback: only 1 frame available, output it directly
+                    ReadSamplesFromBuffer(tempFrame);
+                    samplesConsumed += frameSamples;
+                    tempFrame.CopyTo(buffer.Slice(outputPos, frameSamples));
+                    tempFrame.CopyTo(_lastOutputFrame);
+                    outputPos += frameSamples;
+                    continue;
+                }
             }
 
-            // Check if we should INSERT a frame (Python CLI: output last frame WITHOUT reading)
+            // Check if we should INSERT a frame (output interpolated without consuming)
             if (_insertEveryNFrames > 0 && _framesSinceLastCorrection >= _insertEveryNFrames)
             {
                 _framesSinceLastCorrection = 0;
 
-                // Output last frame WITHOUT consuming input (slows down playback)
-                _lastOutputFrame.AsSpan().CopyTo(buffer.Slice(outputPos, frameSamples));
+                var outputSpan = buffer.Slice(outputPos, frameSamples);
+
+                // Try to peek at next frame for interpolation (without consuming)
+                if (_count - samplesConsumed >= frameSamples)
+                {
+                    Span<float> nextFrame = stackalloc float[frameSamples];
+                    PeekSamplesFromBuffer(nextFrame, frameSamples);
+
+                    // Output interpolated: (lastOutput + nextInput) / 2 for smooth transition
+                    for (int i = 0; i < frameSamples; i++)
+                    {
+                        outputSpan[i] = (_lastOutputFrame[i] + nextFrame[i]) * 0.5f;
+                    }
+
+                    // Save interpolated frame for continuity
+                    outputSpan.CopyTo(_lastOutputFrame);
+                }
+                else
+                {
+                    // Fallback: no next frame available, duplicate last
+                    _lastOutputFrame.AsSpan().CopyTo(outputSpan);
+                }
+
                 outputPos += frameSamples;
                 _samplesInsertedForSync += frameSamples;
-
-                // Don't increment samplesConsumed - we didn't read anything
-                // But do decrement framesSinceLastCorrection tracking (we output a frame)
+                // Don't increment samplesConsumed - we didn't consume from buffer
                 continue;
             }
 
