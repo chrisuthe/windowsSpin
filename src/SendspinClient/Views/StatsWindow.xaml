@@ -108,6 +108,35 @@
                     </Grid>
                 </Border>
 
+                <!-- Advertised Capabilities -->
+                <TextBlock Text="ADVERTISED CAPABILITIES" Style="{StaticResource SectionHeader}"/>
+                <Border Background="#2d2d44" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Codec Priority" Style="{StaticResource StatLabel}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding AdvertisedCodecOrder}"
+                                   Style="{StaticResource StatValue}" Foreground="#a78bfa"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Supported Formats" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding AdvertisedFormatsDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,8,0,0" TextWrapping="Wrap" MaxWidth="200"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Device Native" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DeviceCapabilitiesDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,8,0,0"
+                                   Foreground="{Binding DeviceCapabilitiesColor}"/>
+                    </Grid>
+                </Border>
+
                 <!-- Sync Status -->
                 <TextBlock Text="SYNC STATUS" Style="{StaticResource SectionHeader}"/>
                 <Border Background="#2d2d44" CornerRadius="8" Padding="12" Margin="0,0,0,8">

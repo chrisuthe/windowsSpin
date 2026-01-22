@@ -8,6 +8,7 @@ using NAudio.Wave;
 using Sendspin.SDK.Audio;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Synchronization;
+using SendspinClient.Services.Models;
 using SendspinClient.Services.Diagnostics;
 
 namespace SendspinClient.Services.Audio;
@@ -618,6 +619,47 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         {
             _logger.LogWarning(ex, "Could not query device mix format, defaulting to {DefaultRate}Hz", DefaultSampleRate);
             return DefaultSampleRate;
+        }
+    }
+
+    /// <summary>
+    /// Queries audio capabilities for a device without initializing playback.
+    /// </summary>
+    /// <remarks>
+    /// This static method can be called at startup to discover device capabilities
+    /// before creating a player instance. Used to advertise supported formats to servers.
+    /// </remarks>
+    /// <param name="deviceId">Device ID, or null for system default.</param>
+    /// <param name="logger">Optional logger for diagnostics.</param>
+    /// <returns>The device capabilities, or defaults (48kHz/16-bit) if query fails.</returns>
+    public static AudioDeviceCapabilities QueryDeviceCapabilities(string? deviceId, ILogger? logger = null)
+    {
+        try
+        {
+            using var enumerator = new MMDeviceEnumerator();
+            var device = string.IsNullOrEmpty(deviceId)
+                ? enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia)
+                : enumerator.GetDevice(deviceId);
+
+            var mixFormat = device.AudioClient.MixFormat;
+
+            logger?.LogInformation(
+                "Device capabilities: {SampleRate}Hz {BitDepth}-bit {Channels}ch",
+                mixFormat.SampleRate,
+                mixFormat.BitsPerSample,
+                mixFormat.Channels);
+
+            return new AudioDeviceCapabilities
+            {
+                NativeSampleRate = mixFormat.SampleRate,
+                NativeBitDepth = mixFormat.BitsPerSample,
+                Channels = mixFormat.Channels,
+            };
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Failed to query device capabilities, using defaults (48kHz/16-bit)");
+            return new AudioDeviceCapabilities(); // 48kHz/16-bit/2ch defaults
         }
     }
 

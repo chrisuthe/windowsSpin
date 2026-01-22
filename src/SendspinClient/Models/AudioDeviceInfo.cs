@@ -1,3 +1,9 @@
+// <copyright file="AudioDeviceInfo.cs" company="Sendspin Windows Client">
+// Licensed under the MIT License. See LICENSE file in the project root.
+// </copyright>
+
+using SendspinClient.Services.Models;
+
 namespace SendspinClient.Models;
 
 /// <summary>
@@ -22,13 +28,20 @@ public class AudioDeviceInfo
     public bool IsDefault => string.IsNullOrEmpty(DeviceId);
 
     /// <summary>
+    /// Gets or sets the discovered audio capabilities for this device.
+    /// Null until capabilities have been queried.
+    /// </summary>
+    public AudioDeviceCapabilities? Capabilities { get; set; }
+
+    /// <summary>
     /// Creates the default device entry.
     /// </summary>
     public static AudioDeviceInfo Default => new()
     {
         DeviceId = null,
-        DisplayName = "System Default"
+        DisplayName = "System Default",
     };
 
+    /// <inheritdoc/>
     public override string ToString() => DisplayName;
 }

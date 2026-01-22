@@ -1959,7 +1959,7 @@ public partial class MainViewModel : ViewModelBase
     {
         try
         {
-            var statsViewModel = new StatsViewModel(_audioPipeline, _clockSynchronizer, _diagnosticRecorder);
+            var statsViewModel = new StatsViewModel(_audioPipeline, _clockSynchronizer, _diagnosticRecorder, _clientCapabilities);
             var statsWindow = new StatsWindow(statsViewModel)
             {
                 Owner = App.Current.MainWindow,
