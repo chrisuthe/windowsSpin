@@ -7,6 +7,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sendspin.SDK.Audio;
+using Sendspin.SDK.Client;
 using Sendspin.SDK.Synchronization;
 using SendspinClient.Configuration;
 using SendspinClient.Services.Diagnostics;
@@ -26,6 +27,7 @@ public partial class StatsViewModel : ViewModelBase
     private readonly IAudioPipeline _audioPipeline;
     private readonly IClockSynchronizer _clockSynchronizer;
     private readonly IDiagnosticAudioRecorder _diagnosticRecorder;
+    private readonly ClientCapabilities _clientCapabilities;
     private readonly DispatcherTimer _updateTimer;
     private const int UpdateIntervalMs = 100; // 10 updates per second
     private bool _isSaving;
@@ -282,6 +284,34 @@ public partial class StatsViewModel : ViewModelBase
 
     #endregion
 
+    #region Advertised Capabilities Properties
+
+    /// <summary>
+    /// Gets the advertised codec preference order (e.g., "FLAC → Opus → PCM").
+    /// </summary>
+    [ObservableProperty]
+    private string _advertisedCodecOrder = "--";
+
+    /// <summary>
+    /// Gets the advertised audio formats summary (e.g., "96kHz/24-bit, 48kHz/16-bit").
+    /// </summary>
+    [ObservableProperty]
+    private string _advertisedFormatsDisplay = "--";
+
+    /// <summary>
+    /// Gets the device native capabilities (e.g., "96kHz/24-bit Hi-Res").
+    /// </summary>
+    [ObservableProperty]
+    private string _deviceCapabilitiesDisplay = "--";
+
+    /// <summary>
+    /// Gets the color for the device capabilities display (green for hi-res, white otherwise).
+    /// </summary>
+    [ObservableProperty]
+    private Brush _deviceCapabilitiesColor = Brushes.White;
+
+    #endregion
+
     #region Diagnostic Recording Properties
 
     /// <summary>
@@ -341,14 +371,17 @@ public partial class StatsViewModel : ViewModelBase
     /// <param name="audioPipeline">The audio pipeline to monitor.</param>
     /// <param name="clockSynchronizer">The clock synchronizer to monitor.</param>
     /// <param name="diagnosticRecorder">The diagnostic audio recorder.</param>
+    /// <param name="clientCapabilities">The client capabilities for advertised format display.</param>
     public StatsViewModel(
         IAudioPipeline audioPipeline,
         IClockSynchronizer clockSynchronizer,
-        IDiagnosticAudioRecorder diagnosticRecorder)
+        IDiagnosticAudioRecorder diagnosticRecorder,
+        ClientCapabilities clientCapabilities)
     {
         _audioPipeline = audioPipeline;
         _clockSynchronizer = clockSynchronizer;
         _diagnosticRecorder = diagnosticRecorder;
+        _clientCapabilities = clientCapabilities;
 
         _updateTimer = new DispatcherTimer
         {
@@ -359,6 +392,9 @@ public partial class StatsViewModel : ViewModelBase
         // Initialize diagnostic recording display
         BufferDurationDisplay = $"{_diagnosticRecorder.BufferDurationSeconds}s buffer";
         UpdateRecordingStatus();
+
+        // Initialize advertised capabilities display
+        UpdateAdvertisedCapabilities();
     }
 
     /// <summary>
@@ -604,6 +640,36 @@ public partial class StatsViewModel : ViewModelBase
             OutputChannelsDisplay = "--";
             OutputBitDepthDisplay = "--";
         }
+    }
+
+    /// <summary>
+    /// Updates the advertised capabilities display from client capabilities.
+    /// </summary>
+    private void UpdateAdvertisedCapabilities()
+    {
+        var formats = _clientCapabilities.AudioFormats;
+        if (formats == null || formats.Count == 0)
+        {
+            AdvertisedCodecOrder = "--";
+            AdvertisedFormatsDisplay = "--";
+            DeviceCapabilitiesDisplay = "--";
+            return;
+        }
+
+        // Use the helper methods from AudioFormatBuilder
+        AdvertisedCodecOrder = AudioFormatBuilder.GetCodecOrderDisplay(formats);
+        AdvertisedFormatsDisplay = AudioFormatBuilder.GetFormatsDisplay(formats);
+
+        // Device native is the first format's resolution (highest priority = native)
+        var first = formats.First();
+        var isHiRes = first.SampleRate > 48000 || (first.BitDepth ?? 16) > 16;
+        var hiResLabel = isHiRes ? " Hi-Res" : "";
+        DeviceCapabilitiesDisplay = $"{first.SampleRate / 1000.0:0.#}kHz/{first.BitDepth ?? 16}-bit{hiResLabel}";
+
+        // Green for hi-res, white for standard
+        DeviceCapabilitiesColor = isHiRes
+            ? new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)) // Green
+            : Brushes.White;
     }
 
     /// <summary>

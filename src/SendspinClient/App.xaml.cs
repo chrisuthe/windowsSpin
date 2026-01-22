@@ -14,6 +14,7 @@ using Sendspin.SDK.Synchronization;
 using SendspinClient.Services.Audio;
 using SendspinClient.Services.Diagnostics;
 using SendspinClient.Services.Discord;
+using SendspinClient.Services.Models;
 using SendspinClient.Services.Notifications;
 using SendspinClient.ViewModels;
 using Serilog;
@@ -162,26 +163,24 @@ public partial class App : Application
         // Get persistent client ID (generated once per installation, survives reinstalls)
         var clientId = ClientIdService.GetOrCreateClientId();
 
+        // Read audio device ID from configuration (null = system default)
+        var audioDeviceId = _configuration!.GetValue<string?>("Audio:DeviceId");
+
+        // Query device capabilities at startup to advertise supported hi-res formats
+        var deviceCapabilities = WasapiAudioPlayer.QueryDeviceCapabilities(audioDeviceId);
+
         // Read preferred codec from configuration (default: flac for lossless quality)
         var preferredCodec = _configuration!.GetValue<string>("Audio:PreferredCodec", "flac")?.ToLowerInvariant() ?? "flac";
 
-        // Build audio formats list with preferred codec first
-        // PCM is always last as fallback (not user-selectable)
-        var audioFormats = new List<AudioFormat>();
+        // Build audio formats based on device capabilities
+        var audioFormats = AudioFormatBuilder.BuildFormats(deviceCapabilities, preferredCodec);
 
-        if (preferredCodec == "flac")
-        {
-            audioFormats.Add(new AudioFormat { Codec = "flac", SampleRate = 48000, Channels = 2 });
-            audioFormats.Add(new AudioFormat { Codec = "opus", SampleRate = 48000, Channels = 2, Bitrate = 256 });
-        }
-        else // opus
-        {
-            audioFormats.Add(new AudioFormat { Codec = "opus", SampleRate = 48000, Channels = 2, Bitrate = 256 });
-            audioFormats.Add(new AudioFormat { Codec = "flac", SampleRate = 48000, Channels = 2 });
-        }
-
-        // PCM always last as universal fallback
-        audioFormats.Add(new AudioFormat { Codec = "pcm", SampleRate = 48000, Channels = 2, BitDepth = 16 });
+        Log.Information(
+            "Audio capabilities: {SampleRate}Hz {BitDepth}-bit, advertising {FormatCount} formats (preferred: {Codec})",
+            deviceCapabilities.NativeSampleRate,
+            deviceCapabilities.NativeBitDepth,
+            audioFormats.Count,
+            preferredCodec.ToUpperInvariant());
 
         services.AddSingleton(new ClientCapabilities
         {
@@ -218,9 +217,6 @@ public partial class App : Application
 
         // Audio pipeline components
         services.AddSingleton<IAudioDecoderFactory, AudioDecoderFactory>();
-
-        // Read audio device ID from configuration (null = system default)
-        var audioDeviceId = _configuration!.GetValue<string?>("Audio:DeviceId");
 
         // Read sync correction strategy configuration
         var strategyStr = _configuration!.GetValue<string>("Audio:SyncCorrection:Strategy", "Combined");
@@ -421,8 +417,12 @@ public partial class App : Application
             // Disable logging immediately
             ReconfigureLogging("Warning", enableFileLogging: false, enableConsoleLogging: false);
 
-            // Also save the settings so they persist
-            _ = SaveLoggingSettingsAsync("Warning", enableFileLogging: false, enableConsoleLogging: false);
+            // Save the settings synchronously so they persist before MainViewModel loads
+            SaveLoggingSettingsAsync("Warning", enableFileLogging: false, enableConsoleLogging: false).GetAwaiter().GetResult();
+
+            // Reload configuration so MainViewModel sees the updated values
+            // This is necessary because the IConfiguration was built before the dialog saved
+            ((IConfigurationRoot)_configuration!).Reload();
         }
     }
 
@@ -515,7 +515,7 @@ public partial class App : Application
             System.Text.Json.Nodes.JsonNode? root;
             if (File.Exists(appSettingsPath))
             {
-                var json = await File.ReadAllTextAsync(appSettingsPath);
+                var json = await File.ReadAllTextAsync(appSettingsPath).ConfigureAwait(false);
                 root = System.Text.Json.Nodes.JsonNode.Parse(json) ?? new System.Text.Json.Nodes.JsonObject();
             }
             else
@@ -531,7 +531,7 @@ public partial class App : Application
 
             var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
             var updatedJson = root.ToJsonString(options);
-            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+            await File.WriteAllTextAsync(appSettingsPath, updatedJson).ConfigureAwait(false);
         }
         catch
         {
