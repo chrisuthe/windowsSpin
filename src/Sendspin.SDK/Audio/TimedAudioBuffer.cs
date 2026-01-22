@@ -751,9 +751,29 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     /// <returns>Number of samples actually peeked.</returns>
     private int PeekSamplesFromBuffer(Span<float> destination, int count)
     {
-        var toPeek = Math.Min(count, _count);
+        return PeekSamplesFromBufferAtOffset(destination, count, 0);
+    }
+
+    /// <summary>
+    /// Peeks samples from the circular buffer at a specified offset without advancing read position.
+    /// Must be called under lock.
+    /// </summary>
+    /// <param name="destination">Buffer to copy samples into.</param>
+    /// <param name="count">Number of samples to peek.</param>
+    /// <param name="offset">Offset from current read position (in samples).</param>
+    /// <returns>Number of samples actually peeked.</returns>
+    private int PeekSamplesFromBufferAtOffset(Span<float> destination, int count, int offset)
+    {
+        // Check if offset is within available data
+        if (offset >= _count)
+        {
+            return 0;
+        }
+
+        var availableAfterOffset = _count - offset;
+        var toPeek = Math.Min(count, availableAfterOffset);
         var peeked = 0;
-        var tempReadPos = _readPos;
+        var tempReadPos = (_readPos + offset) % _buffer.Length;
 
         while (peeked < toPeek && peeked < destination.Length)
         {
@@ -1079,7 +1099,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
 
             _framesSinceLastCorrection++;
 
-            // Check if we should DROP a frame (read two, output interpolated blend)
+            // Check if we should DROP a frame (read two, output 3-point interpolated blend)
             if (_dropEveryNFrames > 0 && _framesSinceLastCorrection >= _dropEveryNFrames)
             {
                 _framesSinceLastCorrection = 0;
@@ -1096,11 +1116,15 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                     ReadSamplesFromBuffer(droppedFrame);
                     samplesConsumed += frameSamples;
 
-                    // Output interpolated blend: (A + B) / 2 for smooth transition
+                    // 3-point weighted interpolation: lastOutput + frameA + frameB
+                    // Weights: 0.25 (continuity from previous) + 0.5 (primary) + 0.25 (dropped)
+                    // This creates smoother transitions than simple 2-point averaging
                     var outputSpan = buffer.Slice(outputPos, frameSamples);
                     for (int i = 0; i < frameSamples; i++)
                     {
-                        outputSpan[i] = (tempFrame[i] + droppedFrame[i]) * 0.5f;
+                        outputSpan[i] = (0.25f * _lastOutputFrame[i]) +
+                                        (0.5f * tempFrame[i]) +
+                                        (0.25f * droppedFrame[i]);
                     }
 
                     // Save interpolated frame as last output for continuity
@@ -1121,26 +1145,47 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 }
             }
 
-            // Check if we should INSERT a frame (output interpolated without consuming)
+            // Check if we should INSERT a frame (output 3-point interpolated without consuming)
             if (_insertEveryNFrames > 0 && _framesSinceLastCorrection >= _insertEveryNFrames)
             {
                 _framesSinceLastCorrection = 0;
 
                 var outputSpan = buffer.Slice(outputPos, frameSamples);
 
-                // Try to peek at next frame for interpolation (without consuming)
-                if (_count - samplesConsumed >= frameSamples)
+                // Try to peek at next TWO frames for 3-point interpolation (without consuming)
+                if (_count - samplesConsumed >= frameSamples * 2)
                 {
+                    // Peek at next frame (position 0 in buffer)
                     Span<float> nextFrame = stackalloc float[frameSamples];
                     PeekSamplesFromBuffer(nextFrame, frameSamples);
 
-                    // Output interpolated: (lastOutput + nextInput) / 2 for smooth transition
+                    // Peek at frame after next (position 1 in buffer) - need offset peek
+                    Span<float> frameAfterNext = stackalloc float[frameSamples];
+                    PeekSamplesFromBufferAtOffset(frameAfterNext, frameSamples, frameSamples);
+
+                    // 3-point weighted interpolation: lastOutput + nextFrame + frameAfterNext
+                    // Weights: 0.25 (previous) + 0.5 (next) + 0.25 (future) for curve smoothing
+                    for (int i = 0; i < frameSamples; i++)
+                    {
+                        outputSpan[i] = (0.25f * _lastOutputFrame[i]) +
+                                        (0.5f * nextFrame[i]) +
+                                        (0.25f * frameAfterNext[i]);
+                    }
+
+                    // Save interpolated frame for continuity
+                    outputSpan.CopyTo(_lastOutputFrame);
+                }
+                else if (_count - samplesConsumed >= frameSamples)
+                {
+                    // Fallback to 2-point: only 1 frame available
+                    Span<float> nextFrame = stackalloc float[frameSamples];
+                    PeekSamplesFromBuffer(nextFrame, frameSamples);
+
                     for (int i = 0; i < frameSamples; i++)
                     {
                         outputSpan[i] = (_lastOutputFrame[i] + nextFrame[i]) * 0.5f;
                     }
 
-                    // Save interpolated frame for continuity
                     outputSpan.CopyTo(_lastOutputFrame);
                 }
                 else

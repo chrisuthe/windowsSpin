@@ -252,7 +252,7 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
 
             _framesSinceLastCorrection++;
 
-            // Check if we should DROP a frame (read two, output one interpolated)
+            // Check if we should DROP a frame (read two, output 3-point interpolated)
             // This catches up when we're behind - consume 2 frames, output 1
             if (dropEveryN > 0 && _framesSinceLastCorrection >= dropEveryN)
             {
@@ -260,15 +260,19 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
 
                 if (remainingInput >= frameSamples * 2)
                 {
-                    // Read both frames, output interpolated blend to reduce crackle
+                    // Read both frames for 3-point interpolation
                     var frameAStart = inputPos;
                     var frameBStart = inputPos + frameSamples;
                     var outputSpan = output.Slice(outputPos, frameSamples);
 
-                    // Linear interpolation: (A + B) / 2 for each channel sample
+                    // 3-point weighted interpolation: lastOutput + frameA + frameB
+                    // Weights: 0.25 (continuity) + 0.5 (primary) + 0.25 (dropped)
+                    // This creates smoother transitions than simple 2-point averaging
                     for (int i = 0; i < frameSamples; i++)
                     {
-                        outputSpan[i] = (input[frameAStart + i] + input[frameBStart + i]) * 0.5f;
+                        outputSpan[i] = (0.25f * _lastOutputFrame[i]) +
+                                        (0.5f * input[frameAStart + i]) +
+                                        (0.25f * input[frameBStart + i]);
                     }
 
                     // Consume both input frames
@@ -283,7 +287,7 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
                 }
             }
 
-            // Check if we should INSERT a frame (output interpolated without consuming)
+            // Check if we should INSERT a frame (output 3-point interpolated without consuming)
             if (insertEveryN > 0 && _framesSinceLastCorrection >= insertEveryN)
             {
                 _framesSinceLastCorrection = 0;
@@ -293,19 +297,35 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
                 {
                     var outputSpan = output.Slice(outputPos, frameSamples);
 
-                    // Interpolate with next input frame if available (reduces crackle)
-                    if (remainingInput >= frameSamples)
+                    // Try 3-point interpolation with next TWO input frames
+                    if (remainingInput >= frameSamples * 2)
                     {
-                        // Peek at next input frame (don't consume yet)
+                        // Peek at next two input frames (don't consume yet)
+                        var nextFrameStart = inputPos;
+                        var frameAfterNextStart = inputPos + frameSamples;
+
+                        // 3-point weighted interpolation: lastOutput + nextFrame + frameAfterNext
+                        // Weights: 0.25 (previous) + 0.5 (next) + 0.25 (future) for curve smoothing
+                        for (int i = 0; i < frameSamples; i++)
+                        {
+                            outputSpan[i] = (0.25f * _lastOutputFrame[i]) +
+                                            (0.5f * input[nextFrameStart + i]) +
+                                            (0.25f * input[frameAfterNextStart + i]);
+                        }
+
+                        // Save interpolated frame as last output for continuity
+                        outputSpan.CopyTo(_lastOutputFrame);
+                    }
+                    else if (remainingInput >= frameSamples)
+                    {
+                        // Fallback to 2-point: only 1 frame available
                         var nextFrameStart = inputPos;
 
-                        // Linear interpolation: (last + next) / 2
                         for (int i = 0; i < frameSamples; i++)
                         {
                             outputSpan[i] = (_lastOutputFrame[i] + input[nextFrameStart + i]) * 0.5f;
                         }
 
-                        // Save interpolated frame as last output for continuity
                         outputSpan.CopyTo(_lastOutputFrame);
                     }
                     else
