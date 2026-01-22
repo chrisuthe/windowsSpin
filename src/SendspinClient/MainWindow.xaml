@@ -724,6 +724,22 @@
                                           ItemContainerStyle="{StaticResource DarkComboBoxItem}"/>
                             </StackPanel>
 
+                            <!-- Audio Stream Type -->
+                            <StackPanel Margin="0,0,0,16">
+                                <TextBlock Text="Preferred Stream Type" Style="{StaticResource BodyText}"/>
+                                <TextBlock Text="Server will use this codec if supported. Requires reconnect to take effect."
+                                           Style="{StaticResource CaptionText}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Margin="0,2,0,0"
+                                           TextWrapping="Wrap"/>
+                                <ComboBox Margin="0,8,0,0"
+                                          HorizontalAlignment="Stretch"
+                                          ItemsSource="{Binding AvailableStreamTypes}"
+                                          SelectedItem="{Binding SettingsStreamType}"
+                                          Style="{StaticResource DarkComboBox}"
+                                          ItemContainerStyle="{StaticResource DarkComboBoxItem}"/>
+                            </StackPanel>
+
                             <!-- Audio Sync Section -->
                             <TextBlock Text="AUDIO SYNC" Style="{StaticResource CaptionText}"
                                        Foreground="{StaticResource TextMutedBrush}"
