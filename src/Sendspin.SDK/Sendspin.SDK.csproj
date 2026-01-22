@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>5.2.0</Version>
+    <Version>5.2.1</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,19 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v5.2.1 - Sync Correction Audio Quality:
+Bug Fixes:
+- Fixed audible clicks/pops during frame drop/insert sync corrections
+  - Drop operations now blend adjacent frames: (frameA + frameB) * 0.5
+  - Insert operations now interpolate: (lastOutput + nextInput) * 0.5
+  - Previously used raw frame repetition causing waveform discontinuities
+- Added PeekSamplesFromBuffer() helper for non-consuming buffer reads
+
+Impact:
+- Sync corrections (when error exceeds 15ms) are now inaudible
+- Smoother audio during clock drift recovery
+- No API changes - drop-in replacement for 5.2.0
+
 v5.2.0 - Client Port Change (Spec Alignment):
 BREAKING CHANGE:
 - Default client listening port changed from 8927 to 8928
