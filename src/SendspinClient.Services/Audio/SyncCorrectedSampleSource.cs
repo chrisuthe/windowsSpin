@@ -37,6 +37,11 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
     private float[]? _lastOutputFrame;
     private bool _disposed;
 
+    // Crossfade state for smooth correction transitions
+    private const int CrossfadeWindow = 1; // Frames to fade on each side of correction
+    private int _fadeOutFramesRemaining;   // Countdown for post-correction fade-out
+    private float[]? _correctionFrame;     // Stored correction frame for fade-out blending
+
     // Logging rate limiter
     private long _lastLogTicks;
     private long _totalDropped;
@@ -178,6 +183,8 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
         _lastOutputFrame = null;
         _totalDropped = 0;
         _totalInserted = 0;
+        _fadeOutFramesRemaining = 0;
+        _correctionFrame = null;
         _correctionProvider.Reset();
     }
 
@@ -231,6 +238,9 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
                 input.AsSpan(0, frameSamples).CopyTo(_lastOutputFrame);
             }
         }
+
+        // Initialize correction frame buffer for crossfade blending
+        _correctionFrame ??= new float[frameSamples];
 
         // If no correction needed, copy directly
         if (dropEveryN == 0 && insertEveryN == 0)
@@ -289,6 +299,10 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
                     // Save as last output frame for potential future inserts
                     outputSpan.CopyTo(_lastOutputFrame);
 
+                    // Start crossfade fade-out: save correction frame for blending with next raw frames
+                    outputSpan.CopyTo(_correctionFrame);
+                    _fadeOutFramesRemaining = CrossfadeWindow;
+
                     outputPos += frameSamples;
                     samplesDropped += frameSamples;
                     continue;
@@ -342,6 +356,10 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
                         _lastOutputFrame.AsSpan().CopyTo(outputSpan);
                     }
 
+                    // Start crossfade fade-out: save correction frame for blending with next raw frames
+                    outputSpan.CopyTo(_correctionFrame);
+                    _fadeOutFramesRemaining = CrossfadeWindow;
+
                     outputPos += frameSamples;
                     samplesInserted += frameSamples;
                     continue;
@@ -360,7 +378,44 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
             }
 
             var frameSpan = output.Slice(outputPos, frameSamples);
-            input.AsSpan(inputPos, frameSamples).CopyTo(frameSpan);
+
+            // Check if we're in fade-out mode (just after a correction)
+            if (_fadeOutFramesRemaining > 0)
+            {
+                // Blend raw input with previous correction frame
+                // Weight decreases as we move away from correction: 0.75 raw + 0.25 correction
+                var fadeOutWeight = 0.25f * _fadeOutFramesRemaining / CrossfadeWindow;
+                var rawWeight = 1.0f - fadeOutWeight;
+
+                for (int i = 0; i < frameSamples; i++)
+                {
+                    frameSpan[i] = (rawWeight * input[inputPos + i]) +
+                                   (fadeOutWeight * _correctionFrame![i]);
+                }
+
+                _fadeOutFramesRemaining--;
+            }
+            // Check if we're approaching a correction (fade-in)
+            else if ((dropEveryN > 0 && _framesSinceLastCorrection + 1 >= dropEveryN) ||
+                     (insertEveryN > 0 && _framesSinceLastCorrection + 1 >= insertEveryN))
+            {
+                // Approaching correction - blend current raw with lastOutputFrame for smooth transition
+                // This creates continuity INTO the correction frame
+                const float fadeInWeight = 0.25f;
+                const float rawWeight = 0.75f;
+
+                for (int i = 0; i < frameSamples; i++)
+                {
+                    frameSpan[i] = (rawWeight * input[inputPos + i]) +
+                                   (fadeInWeight * _lastOutputFrame![i]);
+                }
+            }
+            else
+            {
+                // Pure raw frame - no crossfade needed
+                input.AsSpan(inputPos, frameSamples).CopyTo(frameSpan);
+            }
+
             inputPos += frameSamples;
 
             // Save as last output frame
@@ -381,5 +436,6 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
 
         _disposed = true;
         _lastOutputFrame = null;
+        _correctionFrame = null;
     }
 }
