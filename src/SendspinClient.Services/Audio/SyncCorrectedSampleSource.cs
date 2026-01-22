@@ -221,8 +221,16 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
     {
         var frameSamples = _channels;
 
-        // Initialize last output frame if needed
-        _lastOutputFrame ??= new float[frameSamples];
+        // Initialize last output frame if needed - use first input frame instead of zeros
+        // to avoid amplitude dip on the first correction operation
+        if (_lastOutputFrame == null)
+        {
+            _lastOutputFrame = new float[frameSamples];
+            if (inputCount >= frameSamples)
+            {
+                input.AsSpan(0, frameSamples).CopyTo(_lastOutputFrame);
+            }
+        }
 
         // If no correction needed, copy directly
         if (dropEveryN == 0 && insertEveryN == 0)
@@ -256,10 +264,10 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
             // This catches up when we're behind - consume 2 frames, output 1
             if (dropEveryN > 0 && _framesSinceLastCorrection >= dropEveryN)
             {
-                _framesSinceLastCorrection = 0;
-
                 if (remainingInput >= frameSamples * 2)
                 {
+                    // Reset counter only when we actually perform the correction
+                    _framesSinceLastCorrection = 0;
                     // Read both frames for 3-point interpolation
                     var frameAStart = inputPos;
                     var frameBStart = inputPos + frameSamples;
@@ -290,11 +298,11 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
             // Check if we should INSERT a frame (output 3-point interpolated without consuming)
             if (insertEveryN > 0 && _framesSinceLastCorrection >= insertEveryN)
             {
-                _framesSinceLastCorrection = 0;
-
                 // Check we have space in output
                 if (output.Length - outputPos >= frameSamples)
                 {
+                    // Reset counter only when we actually perform the correction
+                    _framesSinceLastCorrection = 0;
                     var outputSpan = output.Slice(outputPos, frameSamples);
 
                     // Try 3-point interpolation with next TWO input frames
