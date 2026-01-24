@@ -395,6 +395,12 @@ public partial class MainViewModel : ViewModelBase
     public string DisplayArtist => CurrentTrack?.Artist ?? string.Empty;
 
     /// <summary>
+    /// Gets the display album for the UI. Shows the album name if metadata is available,
+    /// or empty string otherwise.
+    /// </summary>
+    public string DisplayAlbum => CurrentTrack?.Album ?? string.Empty;
+
+    /// <summary>
     /// Gets the current position formatted as a time string (e.g., "3:45" or "1:23:45").
     /// </summary>
     public string PositionFormatted => FormatTime(Position);
@@ -1391,6 +1397,7 @@ public partial class MainViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(DisplayTitle));
         OnPropertyChanged(nameof(DisplayArtist));
+        OnPropertyChanged(nameof(DisplayAlbum));
         UpdateTrayToolTip();
 
         // Only show notification if this is actually a different track

@@ -436,6 +436,17 @@
                                Margin="0,8,0,0"
                                MaxWidth="320"/>
 
+                    <!-- Album Name -->
+                    <TextBlock Text="{Binding DisplayAlbum}"
+                               Style="{StaticResource BodyText}"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               TextAlignment="Center"
+                               TextTrimming="CharacterEllipsis"
+                               Opacity="0.7"
+                               Margin="0,4,0,0"
+                               MaxWidth="320"
+                               Visibility="{Binding DisplayAlbum, Converter={StaticResource NullToVisibilityConverter}}"/>
+
                     <!-- Progress Bar Section -->
                     <Grid Margin="0,24,0,0" Width="320"
                           Visibility="{Binding CurrentTrack, Converter={StaticResource NullToVisibilityConverter}}">
