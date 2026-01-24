@@ -65,6 +65,14 @@ public sealed class SendspinClientService : ISendspinClient
     public ConnectionState ConnectionState => _connection.State;
     public string? ServerId { get; private set; }
     public string? ServerName { get; private set; }
+
+    /// <summary>
+    /// The connection reason provided by the server in the server/hello handshake.
+    /// Typically "discovery" (server found us via mDNS) or "playback" (server needs us for active playback).
+    /// Used for multi-server arbitration in the host service.
+    /// </summary>
+    public string? ConnectionReason { get; private set; }
+
     public GroupState? CurrentGroup => _currentGroup;
     public ClockSyncStatus? ClockSyncStatus => _clockSynchronizer.GetStatus();
     public bool IsClockSynced => _clockSynchronizer.IsConverged;
@@ -174,6 +182,7 @@ public sealed class SendspinClientService : ISendspinClient
 
         ServerId = null;
         ServerName = null;
+        ConnectionReason = null;
         _currentGroup = null;
     }
 
@@ -242,6 +251,7 @@ public sealed class SendspinClientService : ISendspinClient
             StopTimeSyncLoop();
             ServerId = null;
             ServerName = null;
+            ConnectionReason = null;
         }
     }
 
@@ -313,14 +323,19 @@ public sealed class SendspinClientService : ISendspinClient
 
         ServerId = message.ServerId;
         ServerName = message.Name;
+        ConnectionReason = message.Payload.ConnectionReason;
 
-        _logger.LogInformation("Server hello received: {ServerId} ({ServerName}), roles: {Roles}",
-            message.ServerId, message.Name, string.Join(", ", message.ActiveRoles));
+        _logger.LogInformation("Server hello received: {ServerId} ({ServerName}), reason: {ConnectionReason}, roles: {Roles}",
+            message.ServerId, message.Name, ConnectionReason ?? "none", string.Join(", ", message.ActiveRoles));
 
         // Mark connection as fully connected
         if (_connection is SendspinConnection conn)
         {
             conn.MarkConnected();
+        }
+        else if (_connection is IncomingConnection incoming)
+        {
+            incoming.MarkConnected();
         }
 
         // Reset clock synchronizer for new connection
@@ -793,6 +808,11 @@ public sealed class SendspinClientService : ISendspinClient
                 {
                     _logger.LogDebug("Drained {Count} early chunks into pipeline", drainedCount);
                 }
+
+                // Infer Playing state from stream/start for servers that don't send group/update
+                _currentGroup ??= new GroupState();
+                _currentGroup.PlaybackState = PlaybackState.Playing;
+                GroupStateChanged?.Invoke(this, _currentGroup);
             }
             catch (Exception ex)
             {
@@ -821,6 +841,13 @@ public sealed class SendspinClientService : ISendspinClient
             {
                 _logger.LogError(ex, "Failed to stop audio pipeline");
             }
+        }
+
+        // Update playback state to reflect stream ended
+        if (_currentGroup != null)
+        {
+            _currentGroup.PlaybackState = PlaybackState.Idle;
+            GroupStateChanged?.Invoke(this, _currentGroup);
         }
     }
 
