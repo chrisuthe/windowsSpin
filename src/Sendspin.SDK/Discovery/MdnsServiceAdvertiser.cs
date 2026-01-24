@@ -113,6 +113,7 @@ public sealed class MdnsServiceAdvertiser : IAsyncDisposable
 
             // Add TXT records - path must start with /
             _serviceProfile.AddProperty("path", _options.Path);
+            _serviceProfile.AddProperty("name", _options.PlayerName);
 
             // Log the service profile details
             _logger.LogInformation(
@@ -247,6 +248,14 @@ public sealed class AdvertiserOptions
     /// Default: sendspin-windows-{hostname}
     /// </summary>
     public string ClientId { get; set; } = $"sendspin-windows-{Environment.MachineName.ToLowerInvariant()}";
+
+    /// <summary>
+    /// Human-readable player name (advertised in TXT record as "name").
+    /// Allows servers to display a friendly name during mDNS discovery,
+    /// before the WebSocket handshake occurs.
+    /// Default: machine name
+    /// </summary>
+    public string PlayerName { get; set; } = Environment.MachineName;
 
     /// <summary>
     /// Port the WebSocket server is listening on.

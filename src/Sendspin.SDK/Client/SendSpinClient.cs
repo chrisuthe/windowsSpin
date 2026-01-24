@@ -133,7 +133,12 @@ public sealed class SendspinClientService : ISendspinClient
                 BufferCapacity = _capabilities.BufferCapacity,
                 SupportedCommands = new List<string> { "volume", "mute" }
             },
-            artworkSupport: null, // Not requesting artwork role
+            artworkSupport: new ArtworkSupport
+            {
+                Channels = 1,
+                SupportedFormats = _capabilities.ArtworkFormats,
+                MaxSize = _capabilities.ArtworkMaxSize
+            },
             deviceInfo: new DeviceInfo
             {
                 ProductName = _capabilities.ProductName,

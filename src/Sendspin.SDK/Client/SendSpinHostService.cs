@@ -137,6 +137,7 @@ public sealed class SendspinHostService : IAsyncDisposable
         var advertiseOpts = advertiserOptions ?? new AdvertiserOptions
         {
             ClientId = _capabilities.ClientId,
+            PlayerName = _capabilities.ClientName,
             Port = listenOpts.Port,
             Path = listenOpts.Path
         };
@@ -379,7 +380,12 @@ public sealed class SendspinHostService : IAsyncDisposable
                 BufferCapacity = _capabilities.BufferCapacity,
                 SupportedCommands = new List<string> { "volume", "mute" }
             },
-            artworkSupport: null,
+            artworkSupport: new ArtworkSupport
+            {
+                Channels = 1,
+                SupportedFormats = _capabilities.ArtworkFormats,
+                MaxSize = _capabilities.ArtworkMaxSize
+            },
             deviceInfo: new DeviceInfo
             {
                 ProductName = _capabilities.ProductName,
