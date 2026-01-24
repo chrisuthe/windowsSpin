@@ -421,14 +421,14 @@
                     </Border>
 
                     <!-- Track Title -->
-                    <TextBlock Text="{Binding CurrentTrack.Title, FallbackValue='Not Playing'}"
+                    <TextBlock Text="{Binding DisplayTitle}"
                                Style="{StaticResource HeaderText}"
                                TextAlignment="Center"
                                TextTrimming="CharacterEllipsis"
                                MaxWidth="320"/>
 
                     <!-- Artist Name -->
-                    <TextBlock Text="{Binding CurrentTrack.Artist, FallbackValue=''}"
+                    <TextBlock Text="{Binding DisplayArtist}"
                                Style="{StaticResource BodyText}"
                                Foreground="{StaticResource TextSecondaryBrush}"
                                TextAlignment="Center"
@@ -736,6 +736,22 @@
                                           HorizontalAlignment="Stretch"
                                           ItemsSource="{Binding AvailableStreamTypes}"
                                           SelectedItem="{Binding SettingsStreamType}"
+                                          Style="{StaticResource DarkComboBox}"
+                                          ItemContainerStyle="{StaticResource DarkComboBoxItem}"/>
+                            </StackPanel>
+
+                            <!-- Connection Mode -->
+                            <StackPanel Margin="0,0,0,16">
+                                <TextBlock Text="Connection Mode" Style="{StaticResource BodyText}"/>
+                                <TextBlock Text="How to find servers. Restart required to apply changes."
+                                           Style="{StaticResource CaptionText}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Margin="0,2,0,0"
+                                           TextWrapping="Wrap"/>
+                                <ComboBox Margin="0,8,0,0"
+                                          HorizontalAlignment="Stretch"
+                                          ItemsSource="{Binding AvailableConnectionModes}"
+                                          SelectedItem="{Binding SettingsConnectionMode}"
                                           Style="{StaticResource DarkComboBox}"
                                           ItemContainerStyle="{StaticResource DarkComboBoxItem}"/>
                             </StackPanel>

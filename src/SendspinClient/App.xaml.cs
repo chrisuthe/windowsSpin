@@ -283,14 +283,22 @@ public partial class App : Application
         // Discovers Music Assistant servers via mDNS and auto-connects
         services.AddSingleton<MdnsServerDiscovery>();
 
-        // Host service for server-initiated mode (backup/fallback)
+        // Host service for server-initiated mode
         // The host runs a WebSocket server and advertises via mDNS
         // Music Assistant servers discover and connect to us
+        var lastPlayedServerId = _configuration!.GetValue<string>("Connection:LastPlayedServerId", string.Empty) ?? string.Empty;
         services.AddSingleton<SendspinHostService>(sp =>
         {
             var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
             var capabilities = sp.GetRequiredService<ClientCapabilities>();
-            return new SendspinHostService(loggerFactory, capabilities);
+            var audioPipeline = sp.GetRequiredService<IAudioPipeline>();
+            var clockSynchronizer = sp.GetRequiredService<IClockSynchronizer>();
+            return new SendspinHostService(
+                loggerFactory,
+                capabilities,
+                audioPipeline: audioPipeline,
+                clockSynchronizer: clockSynchronizer,
+                lastPlayedServerId: string.IsNullOrEmpty(lastPlayedServerId) ? null : lastPlayedServerId);
         });
 
         // HTTP client factory for proper HttpClient lifecycle management

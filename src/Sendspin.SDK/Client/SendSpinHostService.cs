@@ -1,7 +1,9 @@
 using Fleck;
 using Microsoft.Extensions.Logging;
+using Sendspin.SDK.Audio;
 using Sendspin.SDK.Connection;
 using Sendspin.SDK.Discovery;
+using Sendspin.SDK.Extensions;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol;
 using Sendspin.SDK.Protocol.Messages;
@@ -23,6 +25,8 @@ public sealed class SendspinHostService : IAsyncDisposable
     private readonly SendspinListener _listener;
     private readonly MdnsServiceAdvertiser _advertiser;
     private readonly ClientCapabilities _capabilities;
+    private readonly IAudioPipeline? _audioPipeline;
+    private readonly IClockSynchronizer? _clockSynchronizer;
 
     private readonly Dictionary<string, ActiveServerConnection> _connections = new();
     private readonly object _connectionsLock = new();
@@ -85,15 +89,48 @@ public sealed class SendspinHostService : IAsyncDisposable
     /// </summary>
     public event EventHandler<byte[]>? ArtworkReceived;
 
+    /// <summary>
+    /// Raised when the last-played server ID changes.
+    /// Consumers should persist this value so it survives app restarts.
+    /// </summary>
+    public event EventHandler<string>? LastPlayedServerIdChanged;
+
+    /// <summary>
+    /// Gets the server ID of the server that most recently had playback_state "playing".
+    /// Used for tie-breaking when multiple servers with the same connection_reason try to connect.
+    /// </summary>
+    public string? LastPlayedServerId { get; private set; }
+
+    /// <summary>
+    /// Updates the last-played server ID.
+    /// Call this when a server transitions to the "playing" state, regardless of connection mode.
+    /// </summary>
+    /// <param name="serverId">The server ID that is now playing.</param>
+    public void SetLastPlayedServerId(string serverId)
+    {
+        if (string.IsNullOrEmpty(serverId) || serverId == LastPlayedServerId)
+            return;
+
+        LastPlayedServerId = serverId;
+        _logger.LogInformation("Last played server updated: {ServerId}", serverId);
+        LastPlayedServerIdChanged?.Invoke(this, serverId);
+    }
+
     public SendspinHostService(
         ILoggerFactory loggerFactory,
         ClientCapabilities? capabilities = null,
         ListenerOptions? listenerOptions = null,
-        AdvertiserOptions? advertiserOptions = null)
+        AdvertiserOptions? advertiserOptions = null,
+        IAudioPipeline? audioPipeline = null,
+        IClockSynchronizer? clockSynchronizer = null,
+        string? lastPlayedServerId = null)
     {
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<SendspinHostService>();
         _capabilities = capabilities ?? new ClientCapabilities();
+        _audioPipeline = audioPipeline;
+        _clockSynchronizer = clockSynchronizer;
+        LastPlayedServerId = lastPlayedServerId;
 
         // Ensure options are consistent
         var listenOpts = listenerOptions ?? new ListenerOptions();
@@ -201,6 +238,34 @@ public sealed class SendspinHostService : IAsyncDisposable
         await _advertiser.StartAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Disconnects all currently connected servers.
+    /// Use when switching to a client-initiated connection to ensure
+    /// only one connection is using the audio pipeline at a time.
+    /// </summary>
+    public async Task DisconnectAllAsync(string reason = "switching_connection_mode")
+    {
+        List<ActiveServerConnection> connectionsToClose;
+        lock (_connectionsLock)
+        {
+            connectionsToClose = _connections.Values.ToList();
+            _connections.Clear();
+        }
+
+        foreach (var conn in connectionsToClose)
+        {
+            try
+            {
+                _logger.LogInformation("Disconnecting server {ServerId}: {Reason}", conn.ServerId, reason);
+                await conn.Client.DisconnectAsync(reason);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error disconnecting from {ServerId}", conn.ServerId);
+            }
+        }
+    }
+
     private async void OnServerConnected(object? sender, IWebSocketConnection webSocket)
     {
         // All code must be inside try-catch since async void exceptions crash the app
@@ -215,16 +280,28 @@ public sealed class SendspinHostService : IAsyncDisposable
                 webSocket);
 
             // Create client service to handle the protocol
+            // Use the shared clock synchronizer if provided, otherwise create a per-connection one
+            var clockSync = _clockSynchronizer
+                ?? new KalmanClockSynchronizer(_loggerFactory.CreateLogger<KalmanClockSynchronizer>());
             var client = new SendspinClientService(
                 _loggerFactory.CreateLogger<SendspinClientService>(),
                 connection,
-                new KalmanClockSynchronizer(_loggerFactory.CreateLogger<KalmanClockSynchronizer>()),
-                _capabilities);
+                clockSync,
+                _capabilities,
+                _audioPipeline);
 
-            // Subscribe to events
-            client.GroupStateChanged += (s, g) => GroupStateChanged?.Invoke(this, g);
+            // Subscribe to forwarded events (GroupState, Artwork)
+            client.GroupStateChanged += (s, g) =>
+            {
+                // Track which server last had playback_state "playing"
+                if (g.PlaybackState == PlaybackState.Playing && client.ServerId is not null)
+                {
+                    SetLastPlayedServerId(client.ServerId);
+                }
+
+                GroupStateChanged?.Invoke(this, g);
+            };
             client.ArtworkReceived += (s, data) => ArtworkReceived?.Invoke(this, data);
-            client.ConnectionStateChanged += (s, e) => OnClientConnectionStateChanged(connectionId, e);
 
             // Start the connection (begins receive loop)
             await connection.StartAsync();
@@ -238,8 +315,19 @@ public sealed class SendspinHostService : IAsyncDisposable
                 return;
             }
 
-            // Store the active connection
+            // Handshake complete - now arbitrate whether to accept this server
             var serverId = client.ServerId ?? connectionId;
+
+            // Perform multi-server arbitration: determine whether the new server
+            // should replace the existing one or be rejected
+            if (!await ArbitrateConnectionAsync(client, connection, serverId))
+            {
+                // New server lost arbitration - it has already been disconnected
+                return;
+            }
+
+            // Subscribe to connection state AFTER handshake so we use the correct serverId
+            client.ConnectionStateChanged += (s, e) => OnClientConnectionStateChanged(serverId, e);
             var activeConnection = new ActiveServerConnection
             {
                 ServerId = serverId,
@@ -357,6 +445,157 @@ public sealed class SendspinHostService : IAsyncDisposable
         {
             client.ConnectionStateChanged -= OnStateChanged;
         }
+    }
+
+    /// <summary>
+    /// Arbitrates whether a newly handshaked server should become the active connection.
+    /// Only one server can be active at a time. Priority rules:
+    /// 1. "playback" connection_reason beats "discovery"
+    /// 2. If tied, the last-played server wins
+    /// 3. If still tied (or LastPlayedServerId is null), the existing server wins
+    /// </summary>
+    /// <param name="newClient">The new client that just completed handshake.</param>
+    /// <param name="newConnection">The new connection to disconnect if rejected.</param>
+    /// <param name="newServerId">The server ID of the new connection.</param>
+    /// <returns>True if the new server is accepted, false if rejected.</returns>
+    private async Task<bool> ArbitrateConnectionAsync(
+        SendspinClientService newClient,
+        IncomingConnection newConnection,
+        string newServerId)
+    {
+        ActiveServerConnection? existingConnection = null;
+
+        lock (_connectionsLock)
+        {
+            // Find the current active connection (there should be at most one)
+            existingConnection = _connections.Values.FirstOrDefault();
+        }
+
+        // No existing server - accept the new one unconditionally
+        if (existingConnection is null)
+        {
+            _logger.LogInformation(
+                "Arbitration: Accepting {NewServerId} (no existing connection)",
+                newServerId);
+            return true;
+        }
+
+        var existingServerId = existingConnection.ServerId;
+
+        // If the same server is reconnecting, accept it (replace the stale entry)
+        if (string.Equals(newServerId, existingServerId, StringComparison.Ordinal))
+        {
+            _logger.LogInformation(
+                "Arbitration: Accepting {NewServerId} (same server reconnecting)",
+                newServerId);
+
+            // Disconnect the old connection cleanly
+            await DisconnectExistingAsync(existingConnection, "reconnecting");
+            return true;
+        }
+
+        // Normalize connection reasons: null is treated as "discovery"
+        var newReason = newClient.ConnectionReason ?? "discovery";
+        var existingReason = existingConnection.Client.ConnectionReason ?? "discovery";
+
+        bool newWins;
+        string decision;
+
+        if (string.Equals(newReason, "playback", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(existingReason, "playback", StringComparison.OrdinalIgnoreCase))
+        {
+            // New server has playback reason, existing does not - new wins
+            newWins = true;
+            decision = "new server has playback reason";
+        }
+        else if (string.Equals(existingReason, "playback", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(newReason, "playback", StringComparison.OrdinalIgnoreCase))
+        {
+            // Existing server has playback reason, new does not - existing wins
+            newWins = false;
+            decision = "existing server has playback reason";
+        }
+        else
+        {
+            // Tie: both have same reason - check LastPlayedServerId
+            if (LastPlayedServerId is not null
+                && string.Equals(newServerId, LastPlayedServerId, StringComparison.Ordinal))
+            {
+                newWins = true;
+                decision = "new server matches LastPlayedServerId (tie-break)";
+            }
+            else
+            {
+                // Existing wins by default (including when LastPlayedServerId is null)
+                newWins = false;
+                decision = LastPlayedServerId is not null
+                    ? "existing server wins tie-break (new server is not LastPlayedServerId)"
+                    : "existing server wins tie-break (no LastPlayedServerId set)";
+            }
+        }
+
+        _logger.LogInformation(
+            "Arbitration: {Winner} wins. New={NewServerId} (reason={NewReason}), " +
+            "Existing={ExistingServerId} (reason={ExistingReason}). Decision: {Decision}",
+            newWins ? newServerId : existingServerId,
+            newServerId, newReason,
+            existingServerId, existingReason,
+            decision);
+
+        if (newWins)
+        {
+            // Disconnect the existing server
+            await DisconnectExistingAsync(existingConnection, "another_server");
+            return true;
+        }
+        else
+        {
+            // Reject the new server
+            _logger.LogInformation(
+                "Arbitration: Rejecting {NewServerId}, sending goodbye",
+                newServerId);
+
+            try
+            {
+                await newConnection.DisconnectAsync("another_server");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error disconnecting rejected server {ServerId}", newServerId);
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Disconnects an existing active server connection during arbitration.
+    /// Removes the connection from the tracking dictionary and sends a goodbye message.
+    /// </summary>
+    /// <param name="existing">The existing connection to disconnect.</param>
+    /// <param name="reason">The goodbye reason to send.</param>
+    private async Task DisconnectExistingAsync(ActiveServerConnection existing, string reason)
+    {
+        lock (_connectionsLock)
+        {
+            _connections.Remove(existing.ServerId);
+        }
+
+        _logger.LogInformation(
+            "Arbitration: Disconnecting existing server {ServerId} with reason {Reason}",
+            existing.ServerId, reason);
+
+        try
+        {
+            await existing.Client.DisconnectAsync(reason);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error disconnecting existing server {ServerId} during arbitration",
+                existing.ServerId);
+        }
+
+        ServerDisconnected?.Invoke(this, existing.ServerId);
     }
 
     private void OnClientConnectionStateChanged(string connectionId, ConnectionStateChangedEventArgs e)

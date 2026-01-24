@@ -286,6 +286,23 @@ public partial class MainViewModel : ViewModelBase
     private string _settingsStreamType = "FLAC (lossless, more bandwidth)";
 
     /// <summary>
+    /// Gets or sets the connection mode (Auto, Advertise Only, Discover Only).
+    /// Controls how the client establishes connections with servers.
+    /// </summary>
+    [ObservableProperty]
+    private string _settingsConnectionMode = "Auto";
+
+    /// <summary>
+    /// Gets the available connection mode options for the settings dropdown.
+    /// </summary>
+    public string[] AvailableConnectionModes { get; } = new[]
+    {
+        "Auto",
+        "Advertise Only",
+        "Discover Only"
+    };
+
+    /// <summary>
     /// Gets the available audio output devices.
     /// </summary>
     public ObservableCollection<AudioDeviceInfo> AvailableAudioDevices { get; } = new();
@@ -365,6 +382,19 @@ public partial class MainViewModel : ViewModelBase
     public bool IsPlaying => PlaybackState == PlaybackState.Playing;
 
     /// <summary>
+    /// Gets the display title for the UI. Shows the track title if metadata is available,
+    /// "Playing" if audio is active but no metadata, or "Not Playing" otherwise.
+    /// </summary>
+    public string DisplayTitle => CurrentTrack?.Title
+        ?? (PlaybackState == PlaybackState.Playing ? "Playing" : "Not Playing");
+
+    /// <summary>
+    /// Gets the display artist for the UI. Shows the artist if metadata is available,
+    /// or empty string otherwise.
+    /// </summary>
+    public string DisplayArtist => CurrentTrack?.Artist ?? string.Empty;
+
+    /// <summary>
     /// Gets the current position formatted as a time string (e.g., "3:45" or "1:23:45").
     /// </summary>
     public string PositionFormatted => FormatTime(Position);
@@ -430,6 +460,7 @@ public partial class MainViewModel : ViewModelBase
         _hostService.ServerDisconnected += OnServerDisconnected;
         _hostService.GroupStateChanged += OnGroupStateChanged;
         _hostService.ArtworkReceived += OnArtworkReceived;
+        _hostService.LastPlayedServerIdChanged += OnLastPlayedServerIdChanged;
 
         // Subscribe to server discovery events (client-initiated mode - primary)
         _serverDiscovery.ServerFound += OnDiscoveredServerFound;
@@ -476,23 +507,35 @@ public partial class MainViewModel : ViewModelBase
     {
         _logger.LogInformation("Initializing MainViewModel");
 
+        var mode = ParseConnectionMode(SettingsConnectionMode);
+        _logger.LogInformation("Connection mode: {Mode}", mode);
+
         try
         {
-            // Start host service (server-initiated mode - fallback)
-            StatusMessage = "Starting host service...";
-            await _hostService.StartAsync();
-            ClientId = _hostService.ClientId;
-            IsHosting = true;
+            // Start host service (server-initiated mode) unless DiscoverOnly
+            if (mode != ConnectionMode.DiscoverOnly)
+            {
+                StatusMessage = "Starting host service...";
+                await _hostService.StartAsync();
+                ClientId = _hostService.ClientId;
+                IsHosting = true;
+                _logger.LogInformation("Host service started, advertising as {ClientId}", ClientId);
+            }
 
-            _logger.LogInformation("Host service started, advertising as {ClientId}", ClientId);
+            // Start server discovery (client-initiated mode) unless AdvertiseOnly
+            if (mode != ConnectionMode.AdvertiseOnly)
+            {
+                StatusMessage = "Discovering Sendspin servers...";
+                await _serverDiscovery.StartAsync();
+                _logger.LogInformation("Server discovery started, looking for _sendspin-server._tcp");
+            }
 
-            // Start server discovery (client-initiated mode - primary)
-            StatusMessage = "Discovering Sendspin servers...";
-            await _serverDiscovery.StartAsync();
-
-            _logger.LogInformation("Server discovery started, looking for _sendspin-server._tcp");
-
-            StatusMessage = $"Searching for servers...\nClient ID: {ClientId}";
+            StatusMessage = mode switch
+            {
+                ConnectionMode.AdvertiseOnly => $"Advertising as player...\nClient ID: {ClientId}",
+                ConnectionMode.DiscoverOnly => "Searching for servers...",
+                _ => $"Searching for servers...\nClient ID: {ClientId}"
+            };
         }
         catch (Exception ex)
         {
@@ -500,6 +543,16 @@ public partial class MainViewModel : ViewModelBase
             StatusMessage = $"Failed to start: {ex.Message}";
             SetError($"Failed to initialize: {ex.Message}");
         }
+    }
+
+    private static ConnectionMode ParseConnectionMode(string displayName)
+    {
+        return displayName switch
+        {
+            "Advertise Only" => ConnectionMode.AdvertiseOnly,
+            "Discover Only" => ConnectionMode.DiscoverOnly,
+            _ => ConnectionMode.Auto
+        };
     }
 
     [RelayCommand]
@@ -748,13 +801,23 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private async Task DisconnectFromServerAsync()
     {
-        if (_manualClient == null)
+        if (_manualClient != null)
+        {
+            _logger.LogInformation("Disconnecting from manual server");
+            StatusMessage = "Disconnecting...";
+            await CleanupManualClientAsync();
+        }
+        else if (ConnectedServers.Count > 0)
+        {
+            _logger.LogInformation("Disconnecting from server-initiated connections");
+            StatusMessage = "Disconnecting...";
+            await _hostService.DisconnectAllAsync("user_request");
+            ConnectedServers.Clear();
+        }
+        else
+        {
             return;
-
-        _logger.LogInformation("Disconnecting from manual server");
-        StatusMessage = "Disconnecting...";
-
-        await CleanupManualClientAsync();
+        }
 
         ConnectedServerName = null;
         CurrentTrack = null;
@@ -815,7 +878,9 @@ public partial class MainViewModel : ViewModelBase
                 // Show toast notification for connection
                 _notificationService.ShowConnected(ConnectedServerName);
 
-                // Stop advertising so other servers don't try to connect to us
+                // Disconnect any server-initiated connections and stop advertising
+                // to ensure only one connection uses the audio pipeline at a time
+                _hostService.DisconnectAllAsync().SafeFireAndForget(_logger);
                 _hostService.StopAdvertisingAsync().SafeFireAndForget(_logger);
             }
             else if (e.NewState == ConnectionState.Disconnected)
@@ -857,6 +922,12 @@ public partial class MainViewModel : ViewModelBase
             _isUpdatingFromServer = true;
             try
             {
+                // Track which server last had playback_state "playing" (client-initiated mode)
+                if (group.PlaybackState == PlaybackState.Playing && _manualClient?.ServerId is not null)
+                {
+                    _hostService.SetLastPlayedServerId(_manualClient.ServerId);
+                }
+
                 PlaybackState = group.PlaybackState;
                 Volume = group.Volume;
                 IsMuted = group.Muted;
@@ -882,6 +953,10 @@ public partial class MainViewModel : ViewModelBase
                 {
                     StatusMessage = $"Now Playing: {CurrentTrack.Title ?? "Unknown"}\n" +
                                    $"by {CurrentTrack.Artist ?? "Unknown Artist"}";
+                }
+                else if (group.PlaybackState == PlaybackState.Playing)
+                {
+                    StatusMessage = "Playing";
                 }
 
                 // Fetch artwork if URL changed
@@ -974,6 +1049,16 @@ public partial class MainViewModel : ViewModelBase
     {
         App.Current.Dispatcher.Invoke(() =>
         {
+            // Reject server-initiated connections if we already have a client-initiated connection
+            if (_manualClient?.ConnectionState == ConnectionState.Connected)
+            {
+                _logger.LogInformation(
+                    "Rejecting server-initiated connection from {ServerName} - already connected via client-initiated mode",
+                    server.ServerName);
+                _hostService.DisconnectAllAsync("already_connected").SafeFireAndForget(_logger);
+                return;
+            }
+
             ConnectedServers.Add(server);
             ConnectedServerName = server.ServerName;
             StatusMessage = $"Connected to {server.ServerName}";
@@ -982,7 +1067,7 @@ public partial class MainViewModel : ViewModelBase
             // Show toast notification for connection
             _notificationService.ShowConnected(server.ServerName);
 
-            _logger.LogInformation("Server connected: {ServerName} ({ServerId})",
+            _logger.LogInformation("Server connected via host service: {ServerName} ({ServerId})",
                 server.ServerName, server.ServerId);
         });
     }
@@ -1056,6 +1141,10 @@ public partial class MainViewModel : ViewModelBase
                     StatusMessage = $"Now Playing: {CurrentTrack.Title ?? "Unknown"}\n" +
                                    $"by {CurrentTrack.Artist ?? "Unknown Artist"}";
                 }
+                else if (group.PlaybackState == PlaybackState.Playing)
+                {
+                    StatusMessage = "Playing";
+                }
 
                 // Fetch artwork if URL changed
                 var artworkUrl = group.Metadata?.ArtworkUrl;
@@ -1082,6 +1171,31 @@ public partial class MainViewModel : ViewModelBase
             AlbumArtwork = imageData;
             _logger.LogDebug("Artwork received: {Length} bytes", imageData.Length);
         });
+    }
+
+    /// <summary>
+    /// Persists the last-played server ID when it changes.
+    /// This is used for tie-breaking when multiple servers try to connect.
+    /// </summary>
+    private void OnLastPlayedServerIdChanged(object? sender, string serverId)
+    {
+        SaveLastPlayedServerIdAsync(serverId).SafeFireAndForget(_logger);
+    }
+
+    /// <summary>
+    /// Saves the last-played server ID to user appsettings.json.
+    /// </summary>
+    private async Task SaveLastPlayedServerIdAsync(string serverId)
+    {
+        try
+        {
+            await _settingsService.UpdateSettingAsync("Connection", "LastPlayedServerId", serverId);
+            _logger.LogDebug("Last played server ID persisted: {ServerId}", serverId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist last played server ID");
+        }
     }
 
     private void OnAudioPipelineStateChanged(object? sender, AudioPipelineState state)
@@ -1222,6 +1336,8 @@ public partial class MainViewModel : ViewModelBase
     partial void OnPlaybackStateChanged(PlaybackState value)
     {
         OnPropertyChanged(nameof(IsPlaying));
+        OnPropertyChanged(nameof(DisplayTitle));
+        OnPropertyChanged(nameof(DisplayArtist));
         UpdateTrayToolTip();
 
         // Show playback state notification (if enabled in settings)
@@ -1273,6 +1389,8 @@ public partial class MainViewModel : ViewModelBase
     /// <param name="value">The new track metadata.</param>
     partial void OnCurrentTrackChanged(TrackMetadata? value)
     {
+        OnPropertyChanged(nameof(DisplayTitle));
+        OnPropertyChanged(nameof(DisplayArtist));
         UpdateTrayToolTip();
 
         // Only show notification if this is actually a different track
@@ -1556,6 +1674,31 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
+    partial void OnSettingsConnectionModeChanged(string value)
+    {
+        // Convert display name to config value
+        var configValue = value switch
+        {
+            "Advertise Only" => "AdvertiseOnly",
+            "Discover Only" => "DiscoverOnly",
+            _ => "Auto"
+        };
+        SaveConnectionModeAsync(configValue).SafeFireAndForget(_logger);
+    }
+
+    private async Task SaveConnectionModeAsync(string mode)
+    {
+        try
+        {
+            await _settingsService.UpdateSettingAsync("Connection", "Mode", mode);
+            _logger.LogInformation("Connection mode saved: {Mode} (restart required to apply)", mode);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save connection mode preference");
+        }
+    }
+
     partial void OnVolumeChanged(int value)
     {
         // Skip if server-initiated update (SDK already applied via server/command)
@@ -1637,6 +1780,15 @@ public partial class MainViewModel : ViewModelBase
 
         // Load auto-connect server preference
         AutoConnectServerId = _configuration.GetValue<string>("Connection:AutoConnectServerId", string.Empty) ?? string.Empty;
+
+        // Load connection mode
+        var modeStr = _configuration.GetValue<string>("Connection:Mode", "Auto") ?? "Auto";
+        SettingsConnectionMode = modeStr switch
+        {
+            "AdvertiseOnly" => "Advertise Only",
+            "DiscoverOnly" => "Discover Only",
+            _ => "Auto"
+        };
 
         // Enumerate audio devices
         EnumerateAudioDevices();

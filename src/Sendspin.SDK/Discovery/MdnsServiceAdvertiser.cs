@@ -185,10 +185,14 @@ public sealed class MdnsServiceAdvertiser : IAsyncDisposable
     }
 
     /// <summary>
-    /// Gets all local IPv4 addresses for this machine.
+    /// Gets local IPv4 addresses for this machine, preferring interfaces with a default gateway.
+    /// This filters out virtual adapters (Hyper-V, WSL, Docker) that aren't reachable from the LAN.
     /// </summary>
     private IEnumerable<IPAddress> GetLocalIPAddresses()
     {
+        var gatewayAddresses = new List<IPAddress>();
+        var allAddresses = new List<IPAddress>();
+
         foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
         {
             if (ni.OperationalStatus != OperationalStatus.Up)
@@ -198,14 +202,29 @@ public sealed class MdnsServiceAdvertiser : IAsyncDisposable
                 continue;
 
             var props = ni.GetIPProperties();
+            var hasGateway = props.GatewayAddresses
+                .Any(g => g.Address.AddressFamily == AddressFamily.InterNetwork
+                       && !g.Address.Equals(IPAddress.Any));
+
             foreach (var addr in props.UnicastAddresses)
             {
-                // Only include IPv4 addresses for now
                 if (addr.Address.AddressFamily == AddressFamily.InterNetwork)
                 {
-                    yield return addr.Address;
+                    allAddresses.Add(addr.Address);
+                    if (hasGateway)
+                    {
+                        gatewayAddresses.Add(addr.Address);
+                    }
                 }
             }
+        }
+
+        // Prefer interfaces with a gateway (connected to a real network).
+        // Fall back to all addresses only if no gateway interfaces exist.
+        var result = gatewayAddresses.Count > 0 ? gatewayAddresses : allAddresses;
+        foreach (var addr in result)
+        {
+            yield return addr;
         }
     }
 
