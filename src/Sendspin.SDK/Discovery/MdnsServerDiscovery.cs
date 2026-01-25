@@ -30,6 +30,11 @@ public sealed class MdnsServerDiscovery : IServerDiscovery
 
     public IReadOnlyCollection<DiscoveredServer> Servers => _servers.Values.ToList();
 
+    /// <summary>
+    /// Gets whether discovery is currently running.
+    /// </summary>
+    public bool IsDiscovering => _discoveryCts is not null;
+
     public event EventHandler<DiscoveredServer>? ServerFound;
     public event EventHandler<DiscoveredServer>? ServerLost;
     public event EventHandler<DiscoveredServer>? ServerUpdated;
