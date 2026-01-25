@@ -175,8 +175,9 @@
                                          VerticalContentAlignment="Center"/>
                             </Grid>
 
-                            <!-- Broadcasting indicator (pulsing green dot) -->
-                            <StackPanel Orientation="Horizontal">
+                            <!-- Broadcasting indicator (pulsing green dot) - only shown when advertising -->
+                            <StackPanel Orientation="Horizontal"
+                                        Visibility="{Binding IsHosting, Converter={StaticResource BoolToVisibilityConverter}}">
                                 <Ellipse Style="{StaticResource BroadcastingIndicator}"/>
                                 <TextBlock Text="Broadcasting - visible to servers"
                                            Style="{StaticResource BodyText}"

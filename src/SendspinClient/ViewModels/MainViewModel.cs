@@ -1698,12 +1698,85 @@ public partial class MainViewModel : ViewModelBase
         try
         {
             await _settingsService.UpdateSettingAsync("Connection", "Mode", mode);
-            _logger.LogInformation("Connection mode saved: {Mode} (restart required to apply)", mode);
+            _logger.LogInformation("Connection mode saved: {Mode}", mode);
+
+            // Apply mode change immediately
+            await ApplyConnectionModeAsync(mode);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to save connection mode preference");
         }
+    }
+
+    private async Task ApplyConnectionModeAsync(string mode)
+    {
+        var shouldAdvertise = mode != "DiscoverOnly";
+        var shouldDiscover = mode != "AdvertiseOnly";
+
+        // Start or stop host service (advertising)
+        if (shouldAdvertise && !IsHosting)
+        {
+            try
+            {
+                await _hostService.StartAsync();
+                ClientId = _hostService.ClientId;
+                IsHosting = true;
+                _logger.LogInformation("Host service started, advertising as {ClientId}", ClientId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to start host service");
+            }
+        }
+        else if (!shouldAdvertise && IsHosting)
+        {
+            try
+            {
+                await _hostService.StopAsync();
+                IsHosting = false;
+                _logger.LogInformation("Host service stopped");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to stop host service");
+            }
+        }
+
+        // Start or stop server discovery
+        if (shouldDiscover && !_serverDiscovery.IsDiscovering)
+        {
+            try
+            {
+                await _serverDiscovery.StartAsync();
+                _logger.LogInformation("Server discovery started");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to start server discovery");
+            }
+        }
+        else if (!shouldDiscover && _serverDiscovery.IsDiscovering)
+        {
+            try
+            {
+                await _serverDiscovery.StopAsync();
+                DiscoveredServers.Clear();
+                _logger.LogInformation("Server discovery stopped");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to stop server discovery");
+            }
+        }
+
+        // Update status message
+        StatusMessage = mode switch
+        {
+            "AdvertiseOnly" => $"Advertising as player...\nClient ID: {ClientId}",
+            "DiscoverOnly" => "Searching for servers...",
+            _ => $"Searching for servers...\nClient ID: {ClientId}"
+        };
     }
 
     partial void OnVolumeChanged(int value)
