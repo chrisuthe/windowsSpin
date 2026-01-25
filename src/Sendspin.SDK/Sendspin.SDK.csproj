@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>5.2.2</Version>
+    <Version>5.3.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,24 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v5.3.0 - Artwork Support Fix &amp; Discovery Improvements:
+Bug Fixes:
+- Fixed artwork@v1_support format to match Sendspin spec
+  - Property name: artwork_support → artwork@v1_support
+  - Structure: ArtworkSupport.Channels is now List&lt;ArtworkChannelSpec&gt;
+  - Previous format caused handshake failures with spec-compliant servers
+
+New Features:
+- Added ArtworkChannelSpec class for artwork channel configuration
+  - Source: "album" | "artist" | "none"
+  - Format: "jpeg" | "png" | "bmp"
+  - MediaWidth/MediaHeight: max dimensions in pixels
+- Added MdnsServerDiscovery.IsDiscovering property
+
+BREAKING (compile-time only):
+- ArtworkSupport.Channels type changed from int to List&lt;ArtworkChannelSpec&gt;
+- ArtworkSupport.SupportedFormats and MaxSize removed (use ArtworkChannelSpec)
+
 v5.2.2 - Enhanced 3-Point Interpolation:
 Improvements:
 - Upgraded sync correction from 2-point to 3-point weighted interpolation
