@@ -135,9 +135,16 @@ public sealed class SendspinClientService : ISendspinClient
             },
             artworkSupport: new ArtworkSupport
             {
-                Channels = 1,
-                SupportedFormats = _capabilities.ArtworkFormats,
-                MaxSize = _capabilities.ArtworkMaxSize
+                Channels = new List<ArtworkChannelSpec>
+                {
+                    new ArtworkChannelSpec
+                    {
+                        Source = "album",
+                        Format = _capabilities.ArtworkFormats.FirstOrDefault() ?? "jpeg",
+                        MediaWidth = _capabilities.ArtworkMaxSize,
+                        MediaHeight = _capabilities.ArtworkMaxSize
+                    }
+                }
             },
             deviceInfo: new DeviceInfo
             {
