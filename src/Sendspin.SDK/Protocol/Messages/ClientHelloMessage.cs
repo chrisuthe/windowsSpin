@@ -82,9 +82,8 @@ public sealed class ClientHelloPayload
 
     /// <summary>
     /// Artwork role support details.
-    /// Note: aiosendspin uses "artwork_support" not "artwork@v1_support"
     /// </summary>
-    [JsonPropertyName("artwork_support")]
+    [JsonPropertyName("artwork@v1_support")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ArtworkSupport? ArtworkV1Support { get; init; }
 
@@ -139,27 +138,45 @@ public sealed class AudioFormatSpec
 }
 
 /// <summary>
-/// Artwork role support details.
+/// Artwork role support details per the Sendspin spec.
 /// </summary>
 public sealed class ArtworkSupport
 {
     /// <summary>
-    /// Number of artwork channels.
+    /// Artwork channel specifications. Each element corresponds to a channel (0-3).
     /// </summary>
     [JsonPropertyName("channels")]
-    public int Channels { get; init; } = 1;
+    public List<ArtworkChannelSpec> Channels { get; init; } = new();
+}
+
+/// <summary>
+/// Specification for a single artwork channel.
+/// </summary>
+public sealed class ArtworkChannelSpec
+{
+    /// <summary>
+    /// The source type for this artwork channel.
+    /// </summary>
+    [JsonPropertyName("source")]
+    public string Source { get; init; } = "album";
 
     /// <summary>
-    /// Supported image formats.
+    /// Preferred image format for this channel.
     /// </summary>
-    [JsonPropertyName("supported_formats")]
-    public List<string> SupportedFormats { get; init; } = new() { "jpeg", "png" };
+    [JsonPropertyName("format")]
+    public string Format { get; init; } = "jpeg";
 
     /// <summary>
-    /// Maximum artwork dimension in pixels.
+    /// Maximum image width in pixels.
     /// </summary>
-    [JsonPropertyName("max_size")]
-    public int MaxSize { get; init; } = 512;
+    [JsonPropertyName("media_width")]
+    public int MediaWidth { get; init; } = 512;
+
+    /// <summary>
+    /// Maximum image height in pixels.
+    /// </summary>
+    [JsonPropertyName("media_height")]
+    public int MediaHeight { get; init; } = 512;
 }
 
 /// <summary>
