@@ -628,8 +628,12 @@ public sealed class SendspinClientService : ISendspinClient
         var message = MessageSerializer.Deserialize<GroupUpdateMessage>(json);
         if (message is null) return;
 
-        // Update or create group state
-        _currentGroup ??= new GroupState { GroupId = message.GroupId };
+        // Create group state if needed
+        _currentGroup ??= new GroupState();
+
+        // Always update GroupId - this changes when player switches groups
+        if (!string.IsNullOrEmpty(message.GroupId))
+            _currentGroup.GroupId = message.GroupId;
 
         if (message.PlaybackState.HasValue)
             _currentGroup.PlaybackState = message.PlaybackState.Value;
