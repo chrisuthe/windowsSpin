@@ -175,12 +175,19 @@ public partial class App : Application
         // Build audio formats based on device capabilities
         var audioFormats = AudioFormatBuilder.BuildFormats(deviceCapabilities, preferredCodec);
 
+        // Read persisted player volume and mute state (defaults match CLI: 100%, not muted)
+        // This is used to initialize the SDK's player state on connection
+        var playerVolume = _configuration!.GetValue<int>("Audio:PlayerVolume", 100);
+        var playerMuted = _configuration!.GetValue<bool>("Audio:PlayerMuted", false);
+
         Log.Information(
             "Audio capabilities: {SampleRate}Hz {BitDepth}-bit, advertising {FormatCount} formats (preferred: {Codec})",
             deviceCapabilities.NativeSampleRate,
             deviceCapabilities.NativeBitDepth,
             audioFormats.Count,
             preferredCodec.ToUpperInvariant());
+
+        Log.Information("Player volume: {Volume}%, Muted: {Muted}", playerVolume, playerMuted);
 
         services.AddSingleton(new ClientCapabilities
         {
@@ -189,7 +196,9 @@ public partial class App : Application
             ProductName = "Sendspin Windows Client",
             Manufacturer = null, // Set by SDK consumers as needed
             SoftwareVersion = appVersion,
-            AudioFormats = audioFormats
+            AudioFormats = audioFormats,
+            InitialVolume = playerVolume,
+            InitialMuted = playerMuted
         });
 
         // Clock synchronization for multi-room audio sync

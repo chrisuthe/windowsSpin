@@ -85,6 +85,11 @@ public sealed class SendspinHostService : IAsyncDisposable
     public event EventHandler<GroupState>? GroupStateChanged;
 
     /// <summary>
+    /// Raised when this player's volume or mute state is changed by a server command.
+    /// </summary>
+    public event EventHandler<PlayerState>? PlayerStateChanged;
+
+    /// <summary>
     /// Raised when artwork is received.
     /// </summary>
     public event EventHandler<byte[]>? ArtworkReceived;
@@ -291,7 +296,7 @@ public sealed class SendspinHostService : IAsyncDisposable
                 _capabilities,
                 _audioPipeline);
 
-            // Subscribe to forwarded events (GroupState, Artwork)
+            // Subscribe to forwarded events (GroupState, PlayerState, Artwork)
             client.GroupStateChanged += (s, g) =>
             {
                 // Track which server last had playback_state "playing"
@@ -302,6 +307,7 @@ public sealed class SendspinHostService : IAsyncDisposable
 
                 GroupStateChanged?.Invoke(this, g);
             };
+            client.PlayerStateChanged += (s, p) => PlayerStateChanged?.Invoke(this, p);
             client.ArtworkReceived += (s, data) => ArtworkReceived?.Invoke(this, data);
 
             // Start the connection (begins receive loop)

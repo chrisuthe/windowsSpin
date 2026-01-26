@@ -22,9 +22,21 @@ internal sealed class AudioSampleProviderAdapter : ISampleProvider
     public WaveFormat WaveFormat { get; }
 
     /// <summary>
-    /// Gets or sets the volume multiplier (0.0 to 1.0).
-    /// Applied in software by multiplying samples.
+    /// Gets or sets the volume level (0.0 to 1.0).
+    /// Applied in software using a power curve for perceived loudness.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Per the Sendspin spec: "Volume values (0-100) represent perceived loudness,
+    /// not linear amplitude. Players must convert these values to appropriate
+    /// amplitude for their audio hardware."
+    /// </para>
+    /// <para>
+    /// We use a power curve (amplitude = volume^1.5) matching the Python CLI
+    /// reference implementation. This provides natural-sounding volume control
+    /// that is gentler at high volumes.
+    /// </para>
+    /// </remarks>
     public float Volume { get; set; } = 1.0f;
 
     /// <summary>
@@ -70,10 +82,14 @@ internal sealed class AudioSampleProviderAdapter : ISampleProvider
         var volume = Volume;
         if (volume < 0.999f)
         {
+            // Power curve for perceived loudness (matches CLI reference implementation)
+            // amplitude = volume^1.5 provides natural-sounding volume control
+            var amplitude = (float)Math.Pow(volume, 1.5);
+
             var span = buffer.AsSpan(offset, samplesRead);
             for (var i = 0; i < span.Length; i++)
             {
-                span[i] *= volume;
+                span[i] *= amplitude;
             }
         }
 

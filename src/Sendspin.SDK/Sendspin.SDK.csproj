@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>5.3.0</Version>
+    <Version>5.4.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,32 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v5.4.0 - Player Volume Separation &amp; Server Command ACK:
+BREAKING CHANGES:
+- GroupState.Volume and GroupState.Muted now represent the GROUP AVERAGE (display only)
+  - Previously used for both group display and player audio control
+  - Player volume/mute is now tracked separately via PlayerState
+
+New Features:
+- PlayerState model: Represents this player's own volume (0-100) and mute state
+- PlayerStateChanged event: Fires when server changes player volume/mute via server/command
+- CurrentPlayerState property: Access current player volume/mute state
+- Automatic ACK: SDK sends client/state acknowledgement after applying server/command
+  - Fixes spec compliance where server didn't know player applied volume changes
+  - Enables correct group volume calculations for multi-player scenarios
+- ClientCapabilities.InitialVolume/InitialMuted: Set player's initial state on connection
+
+Migration:
+- Subscribe to PlayerStateChanged (not GroupStateChanged) for volume/mute from server
+- GroupStateChanged still used for playback state, metadata, track info
+- See MIGRATION-5.4.0.md for detailed migration guide and code examples
+
+Impact:
+- Fixes group volume issues where players at different levels (15%, 45%) incorrectly
+  applied group average (30%) to their own audio
+- Now correctly ignores group average and only responds to server/command targeting
+  this specific player
+
 v5.3.0 - Artwork Support Fix &amp; Discovery Improvements:
 Bug Fixes:
 - Fixed artwork@v1_support format to match Sendspin spec
