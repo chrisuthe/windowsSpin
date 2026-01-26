@@ -20,13 +20,15 @@ public sealed class ServerHelloMessage : IMessageWithPayload<ServerHelloPayload>
     [JsonIgnore]
     public string? Name => Payload.Name;
     [JsonIgnore]
+    public int Version => Payload.Version;
+    [JsonIgnore]
     public List<string> ActiveRoles => Payload.ActiveRoles;
     [JsonIgnore]
-    public string? GroupId => Payload.GroupId;
+    public string? ConnectionReason => Payload.ConnectionReason;
 }
 
 /// <summary>
-/// Payload for the server/hello message.
+/// Payload for the server/hello message per Sendspin spec.
 /// </summary>
 public sealed class ServerHelloPayload
 {
@@ -43,10 +45,10 @@ public sealed class ServerHelloPayload
     public string? Name { get; set; }
 
     /// <summary>
-    /// Protocol version supported by the server.
+    /// Protocol version (must be 1).
     /// </summary>
-    [JsonPropertyName("protocol_version")]
-    public string? ProtocolVersion { get; set; }
+    [JsonPropertyName("version")]
+    public int Version { get; set; } = 1;
 
     /// <summary>
     /// Roles activated by the server for this client.
@@ -56,20 +58,8 @@ public sealed class ServerHelloPayload
     public List<string> ActiveRoles { get; set; } = new();
 
     /// <summary>
-    /// Reason for this connection.
+    /// Reason for this connection (e.g., "discovery", "playback").
     /// </summary>
     [JsonPropertyName("connection_reason")]
     public string? ConnectionReason { get; set; }
-
-    /// <summary>
-    /// Group ID the client is assigned to.
-    /// </summary>
-    [JsonPropertyName("group_id")]
-    public string? GroupId { get; set; }
-
-    /// <summary>
-    /// Application-specific support data.
-    /// </summary>
-    [JsonPropertyName("support")]
-    public Dictionary<string, object>? Support { get; set; }
 }

@@ -73,10 +73,9 @@ public sealed class ClientHelloPayload
     required public List<string> SupportedRoles { get; init; }
 
     /// <summary>
-    /// Player role support details.
-    /// Note: aiosendspin uses "player_support" not "player@v1_support"
+    /// Player role support details (per Sendspin spec).
     /// </summary>
-    [JsonPropertyName("player_support")]
+    [JsonPropertyName("player@v1_support")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PlayerSupport? PlayerV1Support { get; init; }
 

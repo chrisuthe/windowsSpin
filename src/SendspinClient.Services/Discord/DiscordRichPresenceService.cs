@@ -164,8 +164,8 @@ public sealed class DiscordRichPresenceService : IDiscordRichPresenceService
             return;
         }
 
-        // Generate a unique key for this track
-        var trackKey = $"{track.Title}|{track.Artist}|{track.Uri}";
+        // Generate a unique key for this track (using Album since Uri is not in spec)
+        var trackKey = $"{track.Title}|{track.Artist}|{track.Album}";
 
         // Check if this is a duplicate update (same track, same state)
         var now = DateTime.UtcNow;
