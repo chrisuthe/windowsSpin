@@ -90,6 +90,7 @@ public partial class MainViewModel : ViewModelBase
     private bool _autoReconnectEnabled = true;
     private bool _isUpdatingFromServer;
     private CancellationTokenSource? _volumeDebouncesCts;
+    private CancellationTokenSource? _volumeSaveCts;
 
     /// <summary>
     /// Tracks the previous track identifier to detect actual track changes vs. metadata updates.
@@ -465,6 +466,7 @@ public partial class MainViewModel : ViewModelBase
         _hostService.ServerConnected += OnServerConnected;
         _hostService.ServerDisconnected += OnServerDisconnected;
         _hostService.GroupStateChanged += OnGroupStateChanged;
+        _hostService.PlayerStateChanged += OnPlayerStateChanged;
         _hostService.ArtworkReceived += OnArtworkReceived;
         _hostService.LastPlayedServerIdChanged += OnLastPlayedServerIdChanged;
 
@@ -725,6 +727,7 @@ public partial class MainViewModel : ViewModelBase
 
         _manualClient.ConnectionStateChanged += OnManualClientConnectionStateChanged;
         _manualClient.GroupStateChanged += OnManualClientGroupStateChanged;
+        _manualClient.PlayerStateChanged += OnManualClientPlayerStateChanged;
         _manualClient.ArtworkReceived += OnManualClientArtworkReceived;
     }
 
@@ -847,6 +850,7 @@ public partial class MainViewModel : ViewModelBase
 
             _manualClient.ConnectionStateChanged -= OnManualClientConnectionStateChanged;
             _manualClient.GroupStateChanged -= OnManualClientGroupStateChanged;
+            _manualClient.PlayerStateChanged -= OnManualClientPlayerStateChanged;
             _manualClient.ArtworkReceived -= OnManualClientArtworkReceived;
 
             try
@@ -935,8 +939,8 @@ public partial class MainViewModel : ViewModelBase
                 }
 
                 PlaybackState = group.PlaybackState;
-                Volume = group.Volume;
-                IsMuted = group.Muted;
+                // Note: Volume/IsMuted are NOT updated from GroupState as that contains the GROUP average.
+                // Player-specific volume/mute is updated via OnManualClientPlayerStateChanged from server/command.
                 CurrentTrack = group.Metadata;
 
                 // Capture group name for Switch Group button
@@ -1121,8 +1125,8 @@ public partial class MainViewModel : ViewModelBase
             try
             {
                 PlaybackState = group.PlaybackState;
-                Volume = group.Volume;
-                IsMuted = group.Muted;
+                // Note: Volume/IsMuted are NOT updated from GroupState as that contains the GROUP average.
+                // Player-specific volume/mute is updated via OnPlayerStateChanged from server/command.
                 CurrentTrack = group.Metadata;
 
                 // Capture group name for Switch Group button
@@ -1176,6 +1180,52 @@ public partial class MainViewModel : ViewModelBase
         {
             AlbumArtwork = imageData;
             _logger.LogDebug("Artwork received: {Length} bytes", imageData.Length);
+        });
+    }
+
+    /// <summary>
+    /// Handles player state changes from server/command messages (server-initiated mode).
+    /// This updates the player's actual volume/mute state, not the group average.
+    /// </summary>
+    private void OnPlayerStateChanged(object? sender, PlayerState state)
+    {
+        App.Current.Dispatcher.Invoke(() =>
+        {
+            _isUpdatingFromServer = true;
+            try
+            {
+                Volume = state.Volume;
+                IsMuted = state.Muted;
+                _logger.LogDebug("Player state updated (host): Volume={Volume}, Muted={Muted}",
+                    state.Volume, state.Muted);
+            }
+            finally
+            {
+                _isUpdatingFromServer = false;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Handles player state changes from server/command messages (client-initiated mode).
+    /// This updates the player's actual volume/mute state, not the group average.
+    /// </summary>
+    private void OnManualClientPlayerStateChanged(object? sender, PlayerState state)
+    {
+        App.Current.Dispatcher.Invoke(() =>
+        {
+            _isUpdatingFromServer = true;
+            try
+            {
+                Volume = state.Volume;
+                IsMuted = state.Muted;
+                _logger.LogDebug("Player state updated (manual): Volume={Volume}, Muted={Muted}",
+                    state.Volume, state.Muted);
+            }
+            finally
+            {
+                _isUpdatingFromServer = false;
+            }
         });
     }
 
@@ -1796,6 +1846,28 @@ public partial class MainViewModel : ViewModelBase
             _volumeDebouncesCts = new CancellationTokenSource();
             _ = SendVolumeChangeDebounced(value, _volumeDebouncesCts.Token);
         }
+
+        // Debounced auto-save - persist after user stops adjusting the slider
+        _volumeSaveCts?.Cancel();
+        _volumeSaveCts?.Dispose();
+        _volumeSaveCts = new CancellationTokenSource();
+        var saveCts = _volumeSaveCts;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(SettingsAutoSaveDebounceMs, saveCts.Token);
+                if (!saveCts.Token.IsCancellationRequested)
+                {
+                    await SavePlayerVolumeAsync(value);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Slider still being adjusted, ignore
+            }
+        });
     }
 
     private async Task SendVolumeChangeDebounced(int volume, CancellationToken cancellationToken)
@@ -1821,6 +1893,52 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Saves the player volume to user appsettings.json.
+    /// </summary>
+    private async Task SavePlayerVolumeAsync(int value)
+    {
+        try
+        {
+            await _settingsService.UpdateSettingAsync("Audio", "PlayerVolume", value);
+            _logger.LogDebug("Player volume saved: {Volume}", value);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to auto-save player volume");
+        }
+    }
+
+    /// <summary>
+    /// Called when the mute state changes.
+    /// Saves the state to settings (server updates already handled by SDK).
+    /// </summary>
+    partial void OnIsMutedChanged(bool value)
+    {
+        // Skip if server-initiated update (SDK already applied via server/command)
+        if (_isUpdatingFromServer)
+            return;
+
+        // Save muted state immediately (no debounce needed for boolean toggle)
+        _ = SavePlayerMutedAsync(value);
+    }
+
+    /// <summary>
+    /// Saves the player muted state to user appsettings.json.
+    /// </summary>
+    private async Task SavePlayerMutedAsync(bool value)
+    {
+        try
+        {
+            await _settingsService.UpdateSettingAsync("Audio", "PlayerMuted", value);
+            _logger.LogDebug("Player muted state saved: {Muted}", value);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to auto-save player muted state");
+        }
+    }
+
     #region Settings
 
     /// <summary>
@@ -1837,6 +1955,10 @@ public partial class MainViewModel : ViewModelBase
 
         // Load audio settings
         SettingsStaticDelayMs = _configuration.GetValue<double>("Audio:StaticDelayMs", 0);
+
+        // Load persisted player volume/mute (these get applied via OnVolumeChanged/OnIsMutedChanged)
+        Volume = _configuration.GetValue<int>("Audio:PlayerVolume", 100);
+        IsMuted = _configuration.GetValue<bool>("Audio:PlayerMuted", false);
 
         // Load audio stream type preference
         var preferredCodec = _configuration.GetValue<string>("Audio:PreferredCodec", "flac")?.ToLowerInvariant() ?? "flac";
@@ -2327,6 +2449,9 @@ public partial class MainViewModel : ViewModelBase
         _volumeDebouncesCts?.Cancel();
         _volumeDebouncesCts?.Dispose();
         _volumeDebouncesCts = null;
+        _volumeSaveCts?.Cancel();
+        _volumeSaveCts?.Dispose();
+        _volumeSaveCts = null;
 
         // Cancel any pending static delay debounce
         _staticDelayClearCts?.Cancel();

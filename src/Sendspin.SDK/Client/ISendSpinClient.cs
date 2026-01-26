@@ -25,9 +25,19 @@ public interface ISendspinClient : IAsyncDisposable
     string? ServerName { get; }
 
     /// <summary>
-    /// Current group state.
+    /// Current group state (volume/mute represent group averages for display).
     /// </summary>
     GroupState? CurrentGroup { get; }
+
+    /// <summary>
+    /// This player's own volume and mute state (applied to audio output).
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="CurrentGroup"/>, which contains the group average,
+    /// this represents THIS player's actual volume as set by <c>server/command</c>
+    /// messages or local user input.
+    /// </remarks>
+    PlayerState CurrentPlayerState { get; }
 
     /// <summary>
     /// Current clock synchronization status.
@@ -82,6 +92,15 @@ public interface ISendspinClient : IAsyncDisposable
     /// Event raised when group state updates (playback, metadata, volume).
     /// </summary>
     event EventHandler<GroupState>? GroupStateChanged;
+
+    /// <summary>
+    /// Event raised when THIS player's volume or mute state changes.
+    /// </summary>
+    /// <remarks>
+    /// This event fires when <c>server/command</c> messages change the player's
+    /// volume or mute state. Subscribe to this for audio-affecting changes.
+    /// </remarks>
+    event EventHandler<PlayerState>? PlayerStateChanged;
 
     /// <summary>
     /// Event raised when artwork is received.

@@ -23,6 +23,7 @@ public sealed class SendspinClientService : ISendspinClient
 
     private TaskCompletionSource<bool>? _handshakeTcs;
     private GroupState? _currentGroup;
+    private PlayerState _playerState;
     private CancellationTokenSource? _timeSyncCts;
     private bool _disposed;
 
@@ -74,11 +75,13 @@ public sealed class SendspinClientService : ISendspinClient
     public string? ConnectionReason { get; private set; }
 
     public GroupState? CurrentGroup => _currentGroup;
+    public PlayerState CurrentPlayerState => _playerState;
     public ClockSyncStatus? ClockSyncStatus => _clockSynchronizer.GetStatus();
     public bool IsClockSynced => _clockSynchronizer.IsConverged;
 
     public event EventHandler<ConnectionStateChangedEventArgs>? ConnectionStateChanged;
     public event EventHandler<GroupState>? GroupStateChanged;
+    public event EventHandler<PlayerState>? PlayerStateChanged;
     public event EventHandler<byte[]>? ArtworkReceived;
     public event EventHandler<ClockSyncStatus>? ClockSyncConverged;
     public event EventHandler<SyncOffsetEventArgs>? SyncOffsetApplied;
@@ -95,6 +98,13 @@ public sealed class SendspinClientService : ISendspinClient
         _clockSynchronizer = clockSynchronizer ?? new KalmanClockSynchronizer();
         _capabilities = capabilities ?? new ClientCapabilities();
         _audioPipeline = audioPipeline;
+
+        // Initialize player state from capabilities
+        _playerState = new PlayerState
+        {
+            Volume = Math.Clamp(_capabilities.InitialVolume, 0, 100),
+            Muted = _capabilities.InitialMuted
+        };
 
         // Subscribe to connection events
         _connection.StateChanged += OnConnectionStateChanged;
@@ -366,17 +376,23 @@ public sealed class SendspinClientService : ISendspinClient
     /// <summary>
     /// Sends the initial client/state message after handshake.
     /// Per the protocol, clients with player role must send their state immediately.
-    /// Uses InitialVolume and InitialMuted from ClientCapabilities.
+    /// Uses the current <see cref="_playerState"/> which was initialized from ClientCapabilities.
     /// </summary>
     private async Task SendInitialClientStateAsync()
     {
         try
         {
-            var volume = Math.Clamp(_capabilities.InitialVolume, 0, 100);
-            var stateMessage = ClientStateMessage.CreateSynchronized(volume: volume, muted: _capabilities.InitialMuted);
+            // Send the current player state (initialized from capabilities)
+            var stateMessage = ClientStateMessage.CreateSynchronized(
+                volume: _playerState.Volume,
+                muted: _playerState.Muted);
             var stateJson = MessageSerializer.Serialize(stateMessage);
             _logger.LogInformation("Sending initial client/state:\n{Json}", stateJson);
             await _connection.SendMessageAsync(stateMessage);
+
+            // Also apply to audio pipeline to ensure consistency
+            _audioPipeline?.SetVolume(_playerState.Volume);
+            _audioPipeline?.SetMuted(_playerState.Muted);
         }
         catch (Exception ex)
         {
@@ -699,6 +715,13 @@ public sealed class SendspinClientService : ISendspinClient
     /// Handles server/command messages that instruct the player to apply volume or mute changes.
     /// These commands originate from controller clients and are relayed by the server to all players.
     /// </summary>
+    /// <remarks>
+    /// Per the Sendspin spec, after applying a server/command, the player MUST send a client/state
+    /// message back to acknowledge the change. This allows the server to:
+    /// 1. Confirm the player received and applied the command
+    /// 2. Recalculate the group average from actual player states
+    /// 3. Broadcast updated group state to controllers
+    /// </remarks>
     private void HandleServerCommand(string json)
     {
         var message = MessageSerializer.Deserialize<ServerCommandMessage>(json);
@@ -709,26 +732,56 @@ public sealed class SendspinClientService : ISendspinClient
         }
 
         var player = message.Payload.Player;
-        _currentGroup ??= new GroupState();
+        var changed = false;
 
         _logger.LogDebug("server/command: {Command}", player.Command);
 
-        // Apply volume change - update both state tracking and audio pipeline
+        // Apply volume change - update player state and audio pipeline
+        // Note: This updates _playerState (THIS player's volume), not _currentGroup (group average)
         if (player.Volume.HasValue)
         {
-            _currentGroup.Volume = player.Volume.Value;
+            _playerState.Volume = player.Volume.Value;
             _audioPipeline?.SetVolume(player.Volume.Value);
+            changed = true;
+            _logger.LogInformation("server/command: Applied volume {Volume}", player.Volume.Value);
         }
 
-        // Apply mute change - update both state tracking and audio pipeline
+        // Apply mute change - update player state and audio pipeline
         if (player.Mute.HasValue)
         {
-            _currentGroup.Muted = player.Mute.Value;
+            _playerState.Muted = player.Mute.Value;
             _audioPipeline?.SetMuted(player.Mute.Value);
+            changed = true;
+            _logger.LogInformation("server/command: Applied mute {Muted}", player.Mute.Value);
         }
 
-        // Notify UI of state change
-        GroupStateChanged?.Invoke(this, _currentGroup);
+        if (changed)
+        {
+            // Notify listeners of player state change
+            PlayerStateChanged?.Invoke(this, _playerState);
+
+            // Send acknowledgement back to server per spec
+            // "State updates must be sent whenever any state changes, including changes
+            // triggered by server/command or device controls"
+            SendPlayerStateAckAsync().SafeFireAndForget(_logger);
+        }
+    }
+
+    /// <summary>
+    /// Sends a player state acknowledgement after a server/command.
+    /// </summary>
+    private async Task SendPlayerStateAckAsync()
+    {
+        try
+        {
+            await SendPlayerStateAsync(_playerState.Volume, _playerState.Muted);
+            _logger.LogDebug("Sent player state ACK: Volume={Volume}, Muted={Muted}",
+                _playerState.Volume, _playerState.Muted);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send player state ACK");
+        }
     }
 
     /// <summary>
