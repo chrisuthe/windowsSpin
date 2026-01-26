@@ -113,7 +113,8 @@ public sealed class MdnsServiceAdvertiser : IAsyncDisposable
 
             // Add TXT records - path must start with /
             _serviceProfile.AddProperty("path", _options.Path);
-            _serviceProfile.AddProperty("name", _options.PlayerName);
+            // TODO: Re-enable once "name" TXT record is in official spec
+            // _serviceProfile.AddProperty("name", _options.PlayerName);
 
             // Log the service profile details
             _logger.LogInformation(
