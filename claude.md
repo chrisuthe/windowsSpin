@@ -432,46 +432,9 @@ Shows currently playing track in Discord status using discord-rpc-csharp.
 ## Reference Implementation
 
 ### Gold Standard
-**Location**: `C:\Users\chris\Downloads\sendspin-cli-main`
+**Location**: `Z:\CodeProjects\sendspin-cli-main`
 
 The Python CLI player is the reference implementation. When implementing or fixing sync, audio buffering, or timing logic, **always refer to the CLI code**. Don't guess—read the Python code.
-
-**Reference file**: `C:\Users\chris\Downloads\sendspin-cli-main\sendspin-cli-main\sendspin\audio.py`
-
-### Key CLI Reference Points
-
-**Sync error calculation** (audio.py:1032):
-```python
-sync_error_us = self._last_known_playback_position_us - self._server_ts_cursor_us
-```
-Both values are in **server timestamp space**.
-
-**Clear/Reset behavior** - When `clear()` is called, the CLI resets **EVERYTHING**:
-```python
-self._playback_state = PlaybackState.INITIALIZING
-self._scheduled_start_loop_time_us = None
-self._server_ts_cursor_us = 0
-self._sync_error_filter.reset()
-self._insert_every_n_frames = 0
-self._drop_every_n_frames = 0
-# ... all timing state reset
-```
-
-**CLI Constants**:
-```python
-_CORRECTION_DEADBAND_US = 2_000      # 2ms
-_REANCHOR_THRESHOLD_US = 500_000     # 500ms
-_MAX_SPEED_CORRECTION = 0.04         # 4%
-_CORRECTION_TARGET_SECONDS = 2.0     # Fix error in 2 seconds
-```
-
-**CLI's DAC Timing** (audio.py:472):
-```python
-dac_time_us = int(time.outputBufferDacTime * 1_000_000)
-self._dac_loop_calibrations.append((dac_time_us, loop_time_us))
-estimated_position = self._compute_server_time(loop_at_dac_us)
-self._last_known_playback_position_us = estimated_position
-```
 
 ---
 

@@ -20,6 +20,8 @@ public sealed class GroupUpdateMessage : IMessageWithPayload<GroupUpdatePayload>
     [JsonIgnore]
     public string GroupId => Payload.GroupId;
     [JsonIgnore]
+    public string? GroupName => Payload.GroupName;
+    [JsonIgnore]
     public PlaybackState? PlaybackState => Payload.PlaybackState;
     [JsonIgnore]
     public int? Volume => Payload.Volume;
@@ -45,6 +47,12 @@ public sealed class GroupUpdatePayload
     /// </summary>
     [JsonPropertyName("group_id")]
     public string GroupId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Friendly display name of the group.
+    /// </summary>
+    [JsonPropertyName("group_name")]
+    public string? GroupName { get; set; }
 
     /// <summary>
     /// Current playback state.

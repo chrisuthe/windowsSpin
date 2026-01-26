@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>5.4.0</Version>
+    <Version>5.4.1</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,20 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v5.4.1 - Group Handling Fixes:
+Bug Fixes:
+- Fixed GroupId not updating when player switches groups
+  - HandleGroupUpdate() used null-coalescing assignment (??=) which only set GroupId when creating
+    a new GroupState object, never updating it on subsequent group/update messages
+  - Now always updates GroupId when non-empty, allowing proper group switching behavior
+- Added group_name field to GroupUpdatePayload (per Sendspin spec)
+  - GroupState.Name is now populated from server's group_name field
+  - Enables proper display of group names in UI (e.g., Switch Group button tooltip)
+
+Impact:
+- Fixes group switching functionality for players moving between groups
+- GroupState.Name now contains the friendly group name when provided by server
+
 v5.4.0 - Player Volume Separation &amp; Server Command ACK:
 BREAKING CHANGES:
 - GroupState.Volume and GroupState.Muted now represent the GROUP AVERAGE (display only)
