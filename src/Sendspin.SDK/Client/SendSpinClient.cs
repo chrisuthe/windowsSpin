@@ -631,7 +631,10 @@ public sealed class SendspinClientService : ISendspinClient
         // Create group state if needed
         _currentGroup ??= new GroupState();
 
-        // Per spec, group/update only contains: group_id, group_name, playback_state
+        var previousGroupId = _currentGroup.GroupId;
+        var previousName = _currentGroup.Name;
+
+        // group/update contains: group_id, group_name, playback_state
         // Volume, mute, metadata come via server/state (handled in HandleServerState)
         if (!string.IsNullOrEmpty(message.GroupId))
             _currentGroup.GroupId = message.GroupId;
@@ -640,7 +643,22 @@ public sealed class SendspinClientService : ISendspinClient
         if (message.PlaybackState.HasValue)
             _currentGroup.PlaybackState = message.PlaybackState.Value;
 
-        _logger.LogDebug("Group update: GroupId={GroupId}, Name={Name}, State={State}",
+        // Log group ID changes (helps diagnose grouping issues)
+        if (previousGroupId != _currentGroup.GroupId && !string.IsNullOrEmpty(previousGroupId))
+        {
+            _logger.LogInformation("group/update [{Player}]: Group ID changed {OldId} -> {NewId}",
+                _capabilities.ClientName, previousGroupId, _currentGroup.GroupId);
+        }
+
+        // Log group name changes
+        if (previousName != _currentGroup.Name && _currentGroup.Name is not null)
+        {
+            _logger.LogInformation("group/update [{Player}]: Group name changed '{OldName}' -> '{NewName}'",
+                _capabilities.ClientName, previousName ?? "(none)", _currentGroup.Name);
+        }
+
+        _logger.LogInformation("group/update [{Player}]: GroupId={GroupId}, Name={Name}, State={State}",
+            _capabilities.ClientName,
             _currentGroup.GroupId,
             _currentGroup.Name ?? "(none)",
             _currentGroup.PlaybackState);
@@ -697,7 +715,8 @@ public sealed class SendspinClientService : ISendspinClient
                 _currentGroup.Muted = payload.Controller.Muted.Value;
         }
 
-        _logger.LogDebug("Server state update: Volume={Volume}, Muted={Muted}, Track={Track} by {Artist}",
+        _logger.LogDebug("server/state [{Player}]: Volume={Volume}, Muted={Muted}, Track={Track} by {Artist}",
+            _capabilities.ClientName,
             _currentGroup.Volume,
             _currentGroup.Muted,
             _currentGroup.Metadata?.Title ?? "unknown",
@@ -738,7 +757,8 @@ public sealed class SendspinClientService : ISendspinClient
             _playerState.Volume = player.Volume.Value;
             _audioPipeline?.SetVolume(player.Volume.Value);
             changed = true;
-            _logger.LogInformation("server/command: Applied volume {Volume}", player.Volume.Value);
+            _logger.LogInformation("server/command [{Player}]: Applied volume {Volume}",
+                _capabilities.ClientName, player.Volume.Value);
         }
 
         // Apply mute change - update player state and audio pipeline
@@ -747,7 +767,8 @@ public sealed class SendspinClientService : ISendspinClient
             _playerState.Muted = player.Mute.Value;
             _audioPipeline?.SetMuted(player.Mute.Value);
             changed = true;
-            _logger.LogInformation("server/command: Applied mute {Muted}", player.Mute.Value);
+            _logger.LogInformation("server/command [{Player}]: Applied mute {Muted}",
+                _capabilities.ClientName, player.Mute.Value);
         }
 
         if (changed)
@@ -755,28 +776,18 @@ public sealed class SendspinClientService : ISendspinClient
             // Notify listeners of player state change
             PlayerStateChanged?.Invoke(this, _playerState);
 
-            // Send acknowledgement back to server per spec
-            // "State updates must be sent whenever any state changes, including changes
-            // triggered by server/command or device controls"
+            // ACK: send client/state to confirm applied state back to server.
             SendPlayerStateAckAsync().SafeFireAndForget(_logger);
         }
     }
 
     /// <summary>
-    /// Sends a player state acknowledgement after a server/command.
+    /// Sends a client/state acknowledgement after applying a server/command.
+    /// Reports current player volume and mute state back to the server.
     /// </summary>
     private async Task SendPlayerStateAckAsync()
     {
-        try
-        {
-            await SendPlayerStateAsync(_playerState.Volume, _playerState.Muted);
-            _logger.LogDebug("Sent player state ACK: Volume={Volume}, Muted={Muted}",
-                _playerState.Volume, _playerState.Muted);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to send player state ACK");
-        }
+        await SendPlayerStateAsync(_playerState.Volume, _playerState.Muted);
     }
 
     /// <summary>
