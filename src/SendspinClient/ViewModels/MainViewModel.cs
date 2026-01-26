@@ -1451,9 +1451,8 @@ public partial class MainViewModel : ViewModelBase
         UpdateTrayToolTip();
 
         // Only show notification if this is actually a different track
-        // Use URI if available, otherwise fall back to title+artist combination
-        var currentTrackId = value?.Uri
-            ?? (value != null ? $"{value.Title}|{value.Artist}" : null);
+        // Use title+artist+album as unique track identifier
+        var currentTrackId = value != null ? $"{value.Title}|{value.Artist}|{value.Album}" : null;
 
         if (value != null && !string.IsNullOrEmpty(currentTrackId) && currentTrackId != _previousTrackId)
         {

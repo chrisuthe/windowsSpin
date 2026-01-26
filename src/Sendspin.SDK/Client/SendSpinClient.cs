@@ -631,33 +631,19 @@ public sealed class SendspinClientService : ISendspinClient
         // Create group state if needed
         _currentGroup ??= new GroupState();
 
-        // Always update GroupId and Name - these change when player switches groups
+        // Per spec, group/update only contains: group_id, group_name, playback_state
+        // Volume, mute, metadata come via server/state (handled in HandleServerState)
         if (!string.IsNullOrEmpty(message.GroupId))
             _currentGroup.GroupId = message.GroupId;
         if (!string.IsNullOrEmpty(message.GroupName))
             _currentGroup.Name = message.GroupName;
-
         if (message.PlaybackState.HasValue)
             _currentGroup.PlaybackState = message.PlaybackState.Value;
-        // Group volume/muted are for UI display only - do NOT apply to audio pipeline.
-        // The server sends server/command with player-specific volume when it wants to
-        // change THIS player's output. group/update contains the group average.
-        if (message.Volume.HasValue)
-            _currentGroup.Volume = message.Volume.Value;
-        if (message.Muted.HasValue)
-            _currentGroup.Muted = message.Muted.Value;
-        if (message.Metadata is not null)
-            _currentGroup.Metadata = message.Metadata;
-        if (message.Shuffle.HasValue)
-            _currentGroup.Shuffle = message.Shuffle.Value;
-        if (message.Repeat is not null)
-            _currentGroup.Repeat = message.Repeat;
 
-        _logger.LogDebug("Group update: {State}, Volume={Volume}, Muted={Muted}, Track={Track}",
-            _currentGroup.PlaybackState,
-            _currentGroup.Volume,
-            _currentGroup.Muted,
-            _currentGroup.Metadata?.ToString() ?? "no track");
+        _logger.LogDebug("Group update: GroupId={GroupId}, Name={Name}, State={State}",
+            _currentGroup.GroupId,
+            _currentGroup.Name ?? "(none)",
+            _currentGroup.PlaybackState);
 
         GroupStateChanged?.Invoke(this, _currentGroup);
     }
@@ -679,17 +665,20 @@ public sealed class SendspinClientService : ISendspinClient
             // Only update fields that are present in the message
             _currentGroup.Metadata = new TrackMetadata
             {
+                Timestamp = meta.Timestamp ?? existing.Timestamp,
                 Title = meta.Title ?? existing.Title,
                 Artist = meta.Artist ?? existing.Artist,
+                AlbumArtist = meta.AlbumArtist ?? existing.AlbumArtist,
                 Album = meta.Album ?? existing.Album,
                 ArtworkUrl = meta.ArtworkUrl ?? existing.ArtworkUrl,
-                ArtworkUri = existing.ArtworkUri,
-                // Server sends milliseconds, TrackMetadata uses seconds
-                Duration = meta.Progress?.TrackDuration / 1000.0 ?? existing.Duration,
-                Position = meta.Progress?.TrackProgress / 1000.0 ?? existing.Position
+                Year = meta.Year ?? existing.Year,
+                Track = meta.Track ?? existing.Track,
+                Progress = meta.Progress ?? existing.Progress,
+                Repeat = meta.Repeat ?? existing.Repeat,
+                Shuffle = meta.Shuffle ?? existing.Shuffle
             };
 
-            // Update shuffle/repeat from metadata
+            // Update group-level shuffle/repeat from metadata
             if (meta.Shuffle.HasValue)
                 _currentGroup.Shuffle = meta.Shuffle.Value;
             if (meta.Repeat is not null)
@@ -865,7 +854,7 @@ public sealed class SendspinClientService : ISendspinClient
         {
             try
             {
-                await _audioPipeline.StartAsync(message.Format, message.TargetTimestamp);
+                await _audioPipeline.StartAsync(message.Format);
 
                 // Drain any chunks that arrived during initialization
                 var drainedCount = 0;
@@ -927,7 +916,7 @@ public sealed class SendspinClientService : ISendspinClient
         var message = MessageSerializer.Deserialize<StreamClearMessage>(json);
         _logger.LogDebug("Stream clear (seek)");
 
-        _audioPipeline?.Clear(message?.TargetTimestamp);
+        _audioPipeline?.Clear();
     }
 
     private void OnBinaryMessageReceived(object? sender, ReadOnlyMemory<byte> data)

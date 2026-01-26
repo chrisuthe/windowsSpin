@@ -21,39 +21,20 @@ public sealed class StreamStartMessage : IMessageWithPayload<StreamStartPayload>
     [JsonPropertyName("payload")]
     public StreamStartPayload Payload { get; set; } = new();
 
-    // Convenience accessors
+    // Convenience accessor
     [JsonIgnore]
     public AudioFormat Format => Payload.Format;
-
-    [JsonIgnore]
-    public string? StreamId => Payload.StreamId;
-
-    [JsonIgnore]
-    public long? TargetTimestamp => Payload.TargetTimestamp;
 }
 
 /// <summary>
-/// Payload for stream/start message.
+/// Payload for stream/start message per Sendspin spec.
 /// </summary>
 public sealed class StreamStartPayload
 {
     /// <summary>
     /// Gets or sets the audio format for the incoming stream.
-    /// Note: Server sends this as "player" not "format".
+    /// The "player" object contains codec, channels, sample_rate, bit_depth, and codec_header.
     /// </summary>
     [JsonPropertyName("player")]
     public AudioFormat Format { get; set; } = new();
-
-    /// <summary>
-    /// Gets or sets the stream identifier (for multi-stream scenarios).
-    /// </summary>
-    [JsonPropertyName("stream_id")]
-    public string? StreamId { get; set; }
-
-    /// <summary>
-    /// Gets or sets the playback target timestamp in server time (microseconds).
-    /// Audio chunks should be played at or after this time.
-    /// </summary>
-    [JsonPropertyName("target_timestamp")]
-    public long? TargetTimestamp { get; set; }
 }

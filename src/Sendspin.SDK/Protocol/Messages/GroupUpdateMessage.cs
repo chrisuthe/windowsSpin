@@ -5,9 +5,15 @@ namespace Sendspin.SDK.Protocol.Messages;
 
 /// <summary>
 /// Message from server with group state updates.
-/// Sent when playback state, metadata, or volume changes.
+/// Sent when playback state or group identity changes.
 /// Uses the envelope format: { "type": "group/update", "payload": { ... } }
 /// </summary>
+/// <remarks>
+/// <para>
+/// Per Sendspin spec, <c>group/update</c> only contains playback state and group identity.
+/// Volume, mute, and metadata are delivered separately via <c>server/state</c>.
+/// </para>
+/// </remarks>
 public sealed class GroupUpdateMessage : IMessageWithPayload<GroupUpdatePayload>
 {
     [JsonPropertyName("type")]
@@ -23,23 +29,16 @@ public sealed class GroupUpdateMessage : IMessageWithPayload<GroupUpdatePayload>
     public string? GroupName => Payload.GroupName;
     [JsonIgnore]
     public PlaybackState? PlaybackState => Payload.PlaybackState;
-    [JsonIgnore]
-    public int? Volume => Payload.Volume;
-    [JsonIgnore]
-    public bool? Muted => Payload.Muted;
-    [JsonIgnore]
-    public TrackMetadata? Metadata => Payload.Metadata;
-    [JsonIgnore]
-    public double? Position => Payload.Position;
-    [JsonIgnore]
-    public bool? Shuffle => Payload.Shuffle;
-    [JsonIgnore]
-    public string? Repeat => Payload.Repeat;
 }
 
 /// <summary>
-/// Payload for the group/update message.
+/// Payload for the group/update message per Sendspin spec.
 /// </summary>
+/// <remarks>
+/// Contains only playback state and group identity.
+/// Volume/mute comes via <c>server/state</c> controller object.
+/// Metadata comes via <c>server/state</c> metadata object.
+/// </remarks>
 public sealed class GroupUpdatePayload
 {
     /// <summary>
@@ -55,44 +54,8 @@ public sealed class GroupUpdatePayload
     public string? GroupName { get; set; }
 
     /// <summary>
-    /// Current playback state.
+    /// Current playback state (playing, paused, stopped).
     /// </summary>
     [JsonPropertyName("playback_state")]
     public PlaybackState? PlaybackState { get; set; }
-
-    /// <summary>
-    /// Group volume level (0-100).
-    /// </summary>
-    [JsonPropertyName("volume")]
-    public int? Volume { get; set; }
-
-    /// <summary>
-    /// Whether the group is muted.
-    /// </summary>
-    [JsonPropertyName("muted")]
-    public bool? Muted { get; set; }
-
-    /// <summary>
-    /// Current track metadata.
-    /// </summary>
-    [JsonPropertyName("metadata")]
-    public TrackMetadata? Metadata { get; set; }
-
-    /// <summary>
-    /// Current playback position in seconds.
-    /// </summary>
-    [JsonPropertyName("position")]
-    public double? Position { get; set; }
-
-    /// <summary>
-    /// Whether shuffle is enabled.
-    /// </summary>
-    [JsonPropertyName("shuffle")]
-    public bool? Shuffle { get; set; }
-
-    /// <summary>
-    /// Repeat mode.
-    /// </summary>
-    [JsonPropertyName("repeat")]
-    public string? Repeat { get; set; }
 }

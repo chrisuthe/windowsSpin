@@ -38,6 +38,7 @@ public sealed class ClientStateMessage : IMessageWithPayload<ClientStatePayload>
     /// <summary>
     /// Creates an error state message.
     /// </summary>
+    /// <param name="errorMessage">Optional error message (SDK extension).</param>
     public static ClientStateMessage CreateError(string? errorMessage = null)
     {
         return new ClientStateMessage
@@ -75,6 +76,10 @@ public sealed class ClientStatePayload
 /// <summary>
 /// Player-specific state within client/state message.
 /// </summary>
+/// <remarks>
+/// Per Sendspin spec, the player object contains <c>volume</c> and <c>muted</c>.
+/// The <c>buffer_level</c> and <c>error</c> fields are SDK extensions for diagnostics.
+/// </remarks>
 public sealed class PlayerStatePayload
 {
     /// <summary>
@@ -94,6 +99,9 @@ public sealed class PlayerStatePayload
     /// <summary>
     /// Buffer level in milliseconds.
     /// </summary>
+    /// <remarks>
+    /// SDK extension (not part of Sendspin spec). Used for diagnostic reporting.
+    /// </remarks>
     [JsonPropertyName("buffer_level")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? BufferLevel { get; init; }
@@ -101,6 +109,9 @@ public sealed class PlayerStatePayload
     /// <summary>
     /// Error message if in error state.
     /// </summary>
+    /// <remarks>
+    /// SDK extension (not part of Sendspin spec). Used for error reporting.
+    /// </remarks>
     [JsonPropertyName("error")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Error { get; init; }
