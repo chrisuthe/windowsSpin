@@ -631,9 +631,11 @@ public sealed class SendspinClientService : ISendspinClient
         // Create group state if needed
         _currentGroup ??= new GroupState();
 
-        // Always update GroupId - this changes when player switches groups
+        // Always update GroupId and Name - these change when player switches groups
         if (!string.IsNullOrEmpty(message.GroupId))
             _currentGroup.GroupId = message.GroupId;
+        if (!string.IsNullOrEmpty(message.GroupName))
+            _currentGroup.Name = message.GroupName;
 
         if (message.PlaybackState.HasValue)
             _currentGroup.PlaybackState = message.PlaybackState.Value;
