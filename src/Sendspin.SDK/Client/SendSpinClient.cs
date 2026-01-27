@@ -25,6 +25,7 @@ public sealed class SendspinClientService : ISendspinClient
     private GroupState? _currentGroup;
     private PlayerState _playerState;
     private CancellationTokenSource? _timeSyncCts;
+    private bool _isReconnecting;
     private bool _disposed;
 
     /// <summary>
@@ -120,12 +121,52 @@ public sealed class SendspinClientService : ISendspinClient
         // Connect WebSocket
         await _connection.ConnectAsync(serverUri, cancellationToken);
 
-        // Prepare handshake completion
+        // Perform handshake (send client hello, wait for server hello)
+        await SendHandshakeAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Sends the ClientHello message and waits for the ServerHello response.
+    /// Used for both initial connection and reconnection handshakes.
+    /// </summary>
+    private async Task SendHandshakeAsync(CancellationToken cancellationToken = default)
+    {
         _handshakeTcs = new TaskCompletionSource<bool>();
 
-        // Send client hello with proper payload envelope
-        // Use audio formats from capabilities (order matters - server picks first supported)
-        var hello = ClientHelloMessage.Create(
+        var hello = CreateClientHelloMessage();
+        var helloJson = MessageSerializer.Serialize(hello);
+        _logger.LogInformation("Sending client/hello:\n{Json}", helloJson);
+        await _connection.SendMessageAsync(hello, cancellationToken);
+
+        // Wait for server hello with timeout
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        try
+        {
+            var registration = linkedCts.Token.Register(() => _handshakeTcs.TrySetCanceled());
+            var success = await _handshakeTcs.Task;
+
+            if (success)
+            {
+                _logger.LogInformation("Handshake complete with server {ServerId} ({ServerName})", ServerId, ServerName);
+            }
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        {
+            _logger.LogError("Handshake timeout - no server/hello received");
+            await _connection.DisconnectAsync("handshake_timeout");
+            throw new TimeoutException("Server did not respond to handshake");
+        }
+    }
+
+    /// <summary>
+    /// Creates the ClientHello message from current capabilities.
+    /// Extracted for reuse between initial connection and reconnection handshakes.
+    /// </summary>
+    private ClientHelloMessage CreateClientHelloMessage()
+    {
+        return ClientHelloMessage.Create(
             clientId: _capabilities.ClientId,
             name: _capabilities.ClientName,
             supportedRoles: _capabilities.Roles,
@@ -163,31 +204,32 @@ public sealed class SendspinClientService : ISendspinClient
                 SoftwareVersion = _capabilities.SoftwareVersion
             }
         );
+    }
 
-        // Log the full JSON being sent for debugging
-        var helloJson = MessageSerializer.Serialize(hello);
-        _logger.LogInformation("Sending client/hello:\n{Json}", helloJson);
-        await _connection.SendMessageAsync(hello, cancellationToken);
+    /// <summary>
+    /// Performs handshake after the connection layer has successfully reconnected the WebSocket.
+    /// Called from OnConnectionStateChanged when entering Handshaking state during reconnection.
+    /// Resets the clock synchronizer and sends a fresh ClientHello.
+    /// </summary>
+    private async Task PerformReconnectHandshakeAsync()
+    {
+        _logger.LogInformation("WebSocket reconnected, performing handshake...");
 
-        // Wait for server hello with timeout
-        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+        // Reset clock synchronizer for the new connection
+        _clockSynchronizer.Reset();
 
         try
         {
-            var registration = linkedCts.Token.Register(() => _handshakeTcs.TrySetCanceled());
-            var success = await _handshakeTcs.Task;
-
-            if (success)
-            {
-                _logger.LogInformation("Handshake complete with server {ServerId} ({ServerName})", ServerId, ServerName);
-            }
+            await SendHandshakeAsync();
         }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        catch (TimeoutException)
         {
-            _logger.LogError("Handshake timeout - no server/hello received");
-            await _connection.DisconnectAsync("handshake_timeout");
-            throw new TimeoutException("Server did not respond to handshake");
+            _logger.LogWarning("Reconnect handshake timed out");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Reconnect handshake failed");
+            await _connection.DisconnectAsync("handshake_failed");
         }
     }
 
@@ -266,14 +308,36 @@ public sealed class SendspinClientService : ISendspinClient
         // Forward the event
         ConnectionStateChanged?.Invoke(this, e);
 
-        // Handle disconnection
+        // Stop time sync on any disconnection-related state to prevent
+        // "WebSocket is not connected" spam from the time sync loop
+        if (e.NewState is ConnectionState.Disconnected or ConnectionState.Reconnecting)
+        {
+            StopTimeSyncLoop();
+        }
+
+        // Clean up client state on full disconnection
         if (e.NewState == ConnectionState.Disconnected)
         {
             _handshakeTcs?.TrySetResult(false);
-            StopTimeSyncLoop();
             ServerId = null;
             ServerName = null;
             ConnectionReason = null;
+        }
+
+        // Re-handshake when WebSocket reconnects successfully
+        if (e.NewState == ConnectionState.Handshaking && _isReconnecting)
+        {
+            PerformReconnectHandshakeAsync().SafeFireAndForget(_logger);
+        }
+
+        // Track reconnection state
+        if (e.NewState == ConnectionState.Reconnecting)
+        {
+            _isReconnecting = true;
+        }
+        else if (e.NewState is ConnectionState.Connected or ConnectionState.Disconnected)
+        {
+            _isReconnecting = false;
         }
     }
 
