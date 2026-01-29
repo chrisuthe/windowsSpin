@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Sendspin.SDK.Protocol;
 
 namespace Sendspin.SDK.Protocol.Messages;
 
@@ -64,8 +65,17 @@ public sealed class ServerMetadata
     [JsonPropertyName("track")]
     public int? Track { get; init; }
 
+    /// <summary>
+    /// Playback progress information.
+    /// Uses <see cref="Optional{T}"/> to distinguish:
+    /// <list type="bullet">
+    ///   <item><description><b>Absent</b>: No progress update (keep existing)</description></item>
+    ///   <item><description><b>Present but null</b>: Track ended (clear progress)</description></item>
+    ///   <item><description><b>Present with value</b>: Update progress</description></item>
+    /// </list>
+    /// </summary>
     [JsonPropertyName("progress")]
-    public PlaybackProgress? Progress { get; init; }
+    public Optional<PlaybackProgress?> Progress { get; init; } = Optional<PlaybackProgress?>.Absent();
 
     [JsonPropertyName("repeat")]
     public string? Repeat { get; init; }

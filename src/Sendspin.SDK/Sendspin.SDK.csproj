@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>6.0.0</Version>
+    <Version>6.1.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,32 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v6.1.0 - Track End State Fix:
+
+Bug Fixes:
+- Fixed track end not clearing progress display (issue: UI showed stuck at final position with play button)
+  - Server sends progress=null to signal track ended, but SDK was keeping the old progress value
+  - Root cause: null-coalescing merge (meta.Progress ?? existing.Progress) couldn't distinguish
+    "field absent" (partial update - keep existing) from "field is null" (track ended - clear progress)
+
+New Features:
+- Optional&lt;T&gt; type: Distinguishes JSON field absent from explicit null
+  - Optional.IsPresent: Field was in the JSON (value may be null)
+  - Optional.IsAbsent: Field was not in the JSON
+  - Used for ServerMetadata.Progress to properly handle track end signal
+- OptionalJsonConverterFactory: System.Text.Json converter for Optional&lt;T&gt;
+
+BREAKING (compile-time only, minor):
+- ServerMetadata.Progress type changed from PlaybackProgress? to Optional&lt;PlaybackProgress?&gt;
+  - Most consumers use GroupState.Metadata.Progress (unchanged, still PlaybackProgress?)
+  - Only affects code that directly accesses ServerMetadata from ServerStateMessage
+
+Migration:
+- If you directly access ServerMetadata.Progress:
+  OLD: if (meta.Progress != null) { ... meta.Progress.TrackProgress ... }
+  NEW: if (meta.Progress.IsPresent &amp;&amp; meta.Progress.Value != null) { ... meta.Progress.Value.TrackProgress ... }
+- GroupState.Metadata.Progress usage is unchanged (SDK handles the Optional internally)
+
 v6.0.0 - Spec Compliance Overhaul:
 
 This release brings the SDK into alignment with the official Sendspin protocol specification
