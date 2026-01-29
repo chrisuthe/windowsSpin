@@ -629,7 +629,7 @@ public sealed class SendspinClientService : ISendspinClient
         var status = _clockSynchronizer.GetStatus();
         if (status.MeasurementCount <= 10 || status.MeasurementCount % 10 == 0)
         {
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "Clock sync: offset={Offset:F2}ms (±{Uncertainty:F2}ms), drift={Drift:F2}μs/s, converged={Converged}, driftReliable={DriftReliable}",
                 status.OffsetMilliseconds,
                 status.OffsetUncertaintyMicroseconds / 1000.0,
