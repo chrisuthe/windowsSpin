@@ -23,6 +23,7 @@ public sealed class SendspinConnection : ISendspinConnection
     private Uri? _serverUri;
     private ConnectionState _state = ConnectionState.Disconnected;
     private int _reconnectAttempt;
+    private int _connectionLostGuard;
     private bool _disposed;
 
     public ConnectionState State => _state;
@@ -50,7 +51,28 @@ public sealed class SendspinConnection : ISendspinConnection
         _serverUri = serverUri;
         _reconnectAttempt = 0;
 
-        await ConnectInternalAsync(cancellationToken);
+        try
+        {
+            await ConnectInternalAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            if (_options.AutoReconnect && !cancellationToken.IsCancellationRequested)
+            {
+                // Initial connection failed - enter reconnection loop
+                SetState(ConnectionState.Reconnecting, "Initial connection failed");
+                await TryReconnectAsync(cancellationToken);
+            }
+            else
+            {
+                SetState(ConnectionState.Disconnected, "Connection failed");
+                throw;
+            }
+        }
     }
 
     private async Task ConnectInternalAsync(CancellationToken cancellationToken)
@@ -91,16 +113,10 @@ public sealed class SendspinConnection : ISendspinConnection
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to connect to {Uri}", _serverUri);
-            SetState(ConnectionState.Disconnected, ex.Message, ex);
-
-            if (_options.AutoReconnect && !cancellationToken.IsCancellationRequested)
-            {
-                await TryReconnectAsync(cancellationToken);
-            }
-            else
-            {
-                throw;
-            }
+            // Let caller decide how to handle failure.
+            // TryReconnectAsync's loop handles retries without transitioning through Disconnected.
+            // ConnectAsync handles initial connection failure.
+            throw;
         }
     }
 
@@ -145,6 +161,13 @@ public sealed class SendspinConnection : ISendspinConnection
 
         if (_webSocket?.State != WebSocketState.Open)
         {
+            // Trigger connection lost handling if receive loop hasn't detected it yet.
+            // This handles the race where WebSocket detected closure but ReceiveAsync is still blocking.
+            if (_state is ConnectionState.Connected or ConnectionState.Handshaking)
+            {
+                _ = Task.Run(() => HandleConnectionLostAsync());
+            }
+
             throw new InvalidOperationException("WebSocket is not connected");
         }
 
@@ -173,6 +196,11 @@ public sealed class SendspinConnection : ISendspinConnection
 
         if (_webSocket?.State != WebSocketState.Open)
         {
+            if (_state is ConnectionState.Connected or ConnectionState.Handshaking)
+            {
+                _ = Task.Run(() => HandleConnectionLostAsync());
+            }
+
             throw new InvalidOperationException("WebSocket is not connected");
         }
 
@@ -261,15 +289,30 @@ public sealed class SendspinConnection : ISendspinConnection
         if (_state == ConnectionState.Disconnecting || _disposed)
             return;
 
-        SetState(ConnectionState.Reconnecting, "Connection lost");
-
-        if (_options.AutoReconnect)
+        // Atomic guard - only the first caller proceeds, prevents duplicate reconnection attempts
+        // when both send failure and receive loop detect connection loss simultaneously
+        if (Interlocked.CompareExchange(ref _connectionLostGuard, 1, 0) == 1)
         {
-            await TryReconnectAsync(CancellationToken.None);
+            _logger.LogDebug("Connection loss already being handled, skipping duplicate call");
+            return;
         }
-        else
+
+        try
         {
-            SetState(ConnectionState.Disconnected, "Connection lost");
+            SetState(ConnectionState.Reconnecting, "Connection lost");
+
+            if (_options.AutoReconnect)
+            {
+                await TryReconnectAsync(CancellationToken.None);
+            }
+            else
+            {
+                SetState(ConnectionState.Disconnected, "Connection lost");
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _connectionLostGuard, 0);
         }
     }
 

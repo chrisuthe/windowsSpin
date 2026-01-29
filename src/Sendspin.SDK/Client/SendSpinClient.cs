@@ -120,12 +120,52 @@ public sealed class SendspinClientService : ISendspinClient
         // Connect WebSocket
         await _connection.ConnectAsync(serverUri, cancellationToken);
 
-        // Prepare handshake completion
+        // Perform handshake (send client hello, wait for server hello)
+        await SendHandshakeAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Sends the ClientHello message and waits for the ServerHello response.
+    /// Used for both initial connection and reconnection handshakes.
+    /// </summary>
+    private async Task SendHandshakeAsync(CancellationToken cancellationToken = default)
+    {
         _handshakeTcs = new TaskCompletionSource<bool>();
 
-        // Send client hello with proper payload envelope
-        // Use audio formats from capabilities (order matters - server picks first supported)
-        var hello = ClientHelloMessage.Create(
+        var hello = CreateClientHelloMessage();
+        var helloJson = MessageSerializer.Serialize(hello);
+        _logger.LogInformation("Sending client/hello:\n{Json}", helloJson);
+        await _connection.SendMessageAsync(hello, cancellationToken);
+
+        // Wait for server hello with timeout
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        try
+        {
+            var registration = linkedCts.Token.Register(() => _handshakeTcs.TrySetCanceled());
+            var success = await _handshakeTcs.Task;
+
+            if (success)
+            {
+                _logger.LogInformation("Handshake complete with server {ServerId} ({ServerName})", ServerId, ServerName);
+            }
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        {
+            _logger.LogError("Handshake timeout - no server/hello received");
+            await _connection.DisconnectAsync("handshake_timeout");
+            throw new TimeoutException("Server did not respond to handshake");
+        }
+    }
+
+    /// <summary>
+    /// Creates the ClientHello message from current capabilities.
+    /// Extracted for reuse between initial connection and reconnection handshakes.
+    /// </summary>
+    private ClientHelloMessage CreateClientHelloMessage()
+    {
+        return ClientHelloMessage.Create(
             clientId: _capabilities.ClientId,
             name: _capabilities.ClientName,
             supportedRoles: _capabilities.Roles,
@@ -163,31 +203,36 @@ public sealed class SendspinClientService : ISendspinClient
                 SoftwareVersion = _capabilities.SoftwareVersion
             }
         );
+    }
 
-        // Log the full JSON being sent for debugging
-        var helloJson = MessageSerializer.Serialize(hello);
-        _logger.LogInformation("Sending client/hello:\n{Json}", helloJson);
-        await _connection.SendMessageAsync(hello, cancellationToken);
-
-        // Wait for server hello with timeout
-        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+    /// <summary>
+    /// Performs handshake after the connection layer has successfully reconnected the WebSocket.
+    /// Called from OnConnectionStateChanged when entering Handshaking state during reconnection.
+    /// </summary>
+    /// <remarks>
+    /// Clock synchronizer is reset in HandleServerHello when the handshake completes,
+    /// so we don't need to reset it here.
+    /// </remarks>
+    private async Task PerformReconnectHandshakeAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("WebSocket reconnected, performing handshake...");
 
         try
         {
-            var registration = linkedCts.Token.Register(() => _handshakeTcs.TrySetCanceled());
-            var success = await _handshakeTcs.Task;
-
-            if (success)
-            {
-                _logger.LogInformation("Handshake complete with server {ServerId} ({ServerName})", ServerId, ServerName);
-            }
+            await SendHandshakeAsync(cancellationToken);
         }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        catch (TimeoutException)
         {
-            _logger.LogError("Handshake timeout - no server/hello received");
-            await _connection.DisconnectAsync("handshake_timeout");
-            throw new TimeoutException("Server did not respond to handshake");
+            _logger.LogWarning("Reconnect handshake timed out");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogDebug("Reconnect handshake cancelled");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Reconnect handshake failed");
+            await _connection.DisconnectAsync("handshake_failed");
         }
     }
 
@@ -266,14 +311,27 @@ public sealed class SendspinClientService : ISendspinClient
         // Forward the event
         ConnectionStateChanged?.Invoke(this, e);
 
-        // Handle disconnection
+        // Stop time sync on any disconnection-related state to prevent
+        // "WebSocket is not connected" spam from the time sync loop
+        if (e.NewState is ConnectionState.Disconnected or ConnectionState.Reconnecting)
+        {
+            StopTimeSyncLoop();
+        }
+
+        // Clean up client state on full disconnection
         if (e.NewState == ConnectionState.Disconnected)
         {
             _handshakeTcs?.TrySetResult(false);
-            StopTimeSyncLoop();
             ServerId = null;
             ServerName = null;
             ConnectionReason = null;
+        }
+
+        // Re-handshake when WebSocket reconnects successfully
+        // Use e.OldState instead of a separate field to avoid race conditions
+        if (e.NewState == ConnectionState.Handshaking && e.OldState == ConnectionState.Reconnecting)
+        {
+            PerformReconnectHandshakeAsync().SafeFireAndForget(_logger);
         }
     }
 
@@ -407,8 +465,8 @@ public sealed class SendspinClientService : ISendspinClient
 
         _timeSyncCts = new CancellationTokenSource();
 
-        // Fire-and-forget: task runs until cancelled, no need to await
-        _ = TimeSyncLoopAsync(_timeSyncCts.Token);
+        // Fire-and-forget with proper exception handling
+        TimeSyncLoopAsync(_timeSyncCts.Token).SafeFireAndForget(_logger);
 
         _logger.LogDebug("Time sync loop started (adaptive intervals)");
     }
@@ -631,7 +689,10 @@ public sealed class SendspinClientService : ISendspinClient
         // Create group state if needed
         _currentGroup ??= new GroupState();
 
-        // Per spec, group/update only contains: group_id, group_name, playback_state
+        var previousGroupId = _currentGroup.GroupId;
+        var previousName = _currentGroup.Name;
+
+        // group/update contains: group_id, group_name, playback_state
         // Volume, mute, metadata come via server/state (handled in HandleServerState)
         if (!string.IsNullOrEmpty(message.GroupId))
             _currentGroup.GroupId = message.GroupId;
@@ -640,7 +701,22 @@ public sealed class SendspinClientService : ISendspinClient
         if (message.PlaybackState.HasValue)
             _currentGroup.PlaybackState = message.PlaybackState.Value;
 
-        _logger.LogDebug("Group update: GroupId={GroupId}, Name={Name}, State={State}",
+        // Log group ID changes (helps diagnose grouping issues)
+        if (previousGroupId != _currentGroup.GroupId && !string.IsNullOrEmpty(previousGroupId))
+        {
+            _logger.LogInformation("group/update [{Player}]: Group ID changed {OldId} -> {NewId}",
+                _capabilities.ClientName, previousGroupId, _currentGroup.GroupId);
+        }
+
+        // Log group name changes
+        if (previousName != _currentGroup.Name && _currentGroup.Name is not null)
+        {
+            _logger.LogInformation("group/update [{Player}]: Group name changed '{OldName}' -> '{NewName}'",
+                _capabilities.ClientName, previousName ?? "(none)", _currentGroup.Name);
+        }
+
+        _logger.LogDebug("group/update [{Player}]: GroupId={GroupId}, Name={Name}, State={State}",
+            _capabilities.ClientName,
             _currentGroup.GroupId,
             _currentGroup.Name ?? "(none)",
             _currentGroup.PlaybackState);
@@ -701,7 +777,8 @@ public sealed class SendspinClientService : ISendspinClient
                 _currentGroup.Muted = payload.Controller.Muted.Value;
         }
 
-        _logger.LogDebug("Server state update: Volume={Volume}, Muted={Muted}, Track={Track} by {Artist}",
+        _logger.LogDebug("server/state [{Player}]: Volume={Volume}, Muted={Muted}, Track={Track} by {Artist}",
+            _capabilities.ClientName,
             _currentGroup.Volume,
             _currentGroup.Muted,
             _currentGroup.Metadata?.Title ?? "unknown",
@@ -742,7 +819,8 @@ public sealed class SendspinClientService : ISendspinClient
             _playerState.Volume = player.Volume.Value;
             _audioPipeline?.SetVolume(player.Volume.Value);
             changed = true;
-            _logger.LogInformation("server/command: Applied volume {Volume}", player.Volume.Value);
+            _logger.LogInformation("server/command [{Player}]: Applied volume {Volume}",
+                _capabilities.ClientName, player.Volume.Value);
         }
 
         // Apply mute change - update player state and audio pipeline
@@ -751,7 +829,8 @@ public sealed class SendspinClientService : ISendspinClient
             _playerState.Muted = player.Mute.Value;
             _audioPipeline?.SetMuted(player.Mute.Value);
             changed = true;
-            _logger.LogInformation("server/command: Applied mute {Muted}", player.Mute.Value);
+            _logger.LogInformation("server/command [{Player}]: Applied mute {Muted}",
+                _capabilities.ClientName, player.Mute.Value);
         }
 
         if (changed)
@@ -759,28 +838,18 @@ public sealed class SendspinClientService : ISendspinClient
             // Notify listeners of player state change
             PlayerStateChanged?.Invoke(this, _playerState);
 
-            // Send acknowledgement back to server per spec
-            // "State updates must be sent whenever any state changes, including changes
-            // triggered by server/command or device controls"
+            // ACK: send client/state to confirm applied state back to server.
             SendPlayerStateAckAsync().SafeFireAndForget(_logger);
         }
     }
 
     /// <summary>
-    /// Sends a player state acknowledgement after a server/command.
+    /// Sends a client/state acknowledgement after applying a server/command.
+    /// Reports current player volume and mute state back to the server.
     /// </summary>
     private async Task SendPlayerStateAckAsync()
     {
-        try
-        {
-            await SendPlayerStateAsync(_playerState.Volume, _playerState.Muted);
-            _logger.LogDebug("Sent player state ACK: Volume={Volume}, Muted={Muted}",
-                _playerState.Volume, _playerState.Muted);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to send player state ACK");
-        }
+        await SendPlayerStateAsync(_playerState.Volume, _playerState.Muted);
     }
 
     /// <summary>
