@@ -196,6 +196,44 @@ public partial class StatsViewModel : ViewModelBase
     [ObservableProperty]
     private string _outputLatencyDisplay = "-- ms";
 
+    /// <summary>
+    /// Gets the expected RTT display string.
+    /// Only shown when RTT tracking is enabled.
+    /// </summary>
+    [ObservableProperty]
+    private string _expectedRttDisplay = "-- μs";
+
+    /// <summary>
+    /// Gets whether RTT tracking is reliable.
+    /// </summary>
+    [ObservableProperty]
+    private string _rttReliableDisplay = "N/A";
+
+    /// <summary>
+    /// Gets the color for the RTT reliable indicator.
+    /// </summary>
+    [ObservableProperty]
+    private Brush _rttReliableColor = Brushes.Gray;
+
+    /// <summary>
+    /// Gets the drift acceleration display string.
+    /// Only shown when acceleration tracking is enabled.
+    /// </summary>
+    [ObservableProperty]
+    private string _driftAccelerationDisplay = "-- μs/s²";
+
+    /// <summary>
+    /// Gets the number of adaptive forgetting events triggered by offset errors.
+    /// </summary>
+    [ObservableProperty]
+    private int _adaptiveForgettingCount;
+
+    /// <summary>
+    /// Gets the number of network change events detected via RTT shifts.
+    /// </summary>
+    [ObservableProperty]
+    private int _networkChangeCount;
+
     #endregion
 
     #region Throughput Properties
@@ -580,6 +618,49 @@ public partial class StatsViewModel : ViewModelBase
         // Detected output latency (from audio pipeline)
         var detectedLatency = _audioPipeline.DetectedOutputLatencyMs;
         OutputLatencyDisplay = detectedLatency > 0 ? $"{detectedLatency} ms" : "-- ms";
+
+        // 4D Kalman filter extended state (shown when enabled)
+        // Expected RTT
+        if (status.ExpectedRttMicroseconds > 0)
+        {
+            ExpectedRttDisplay = $"{status.ExpectedRttMicroseconds:F0} μs (±{status.RttUncertaintyMicroseconds:F0})";
+        }
+        else
+        {
+            ExpectedRttDisplay = "-- μs";
+        }
+
+        // RTT reliability indicator
+        if (status.IsRttReliable)
+        {
+            RttReliableDisplay = "✓ Yes";
+            RttReliableColor = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)); // Green
+        }
+        else if (status.ExpectedRttMicroseconds > 0)
+        {
+            RttReliableDisplay = "Calibrating...";
+            RttReliableColor = new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
+        }
+        else
+        {
+            RttReliableDisplay = "Disabled";
+            RttReliableColor = Brushes.Gray;
+        }
+
+        // Drift acceleration (for thermal tracking)
+        var accel = status.DriftAccelerationMicrosecondsPerSecondSquared;
+        if (Math.Abs(accel) > 0.001)
+        {
+            DriftAccelerationDisplay = $"{accel:+0.000;-0.000} μs/s²";
+        }
+        else
+        {
+            DriftAccelerationDisplay = "0 μs/s²";
+        }
+
+        // Adaptive forgetting counters
+        AdaptiveForgettingCount = status.AdaptiveForgettingTriggerCount;
+        NetworkChangeCount = status.NetworkChangeTriggerCount;
     }
 
     private static string FormatSampleCount(long samples)
