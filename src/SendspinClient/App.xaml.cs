@@ -211,11 +211,17 @@ public partial class App : Application
             var adaptiveCutoff = _configuration!.GetValue<double>("Audio:ClockSync:AdaptiveCutoff", 0.75);
             var minSamplesForForgetting = _configuration!.GetValue<int>("Audio:ClockSync:MinSamplesForForgetting", 100);
 
+            // 4D Kalman filter features (enabled by default for better network resilience)
+            var enableRttTracking = _configuration!.GetValue<bool>("Audio:ClockSync:EnableRttTracking", true);
+            var enableAccelTracking = _configuration!.GetValue<bool>("Audio:ClockSync:EnableAccelTracking", true);
+
             var clockSync = new KalmanClockSynchronizer(
                 logger,
                 forgetFactor: forgetFactor,
                 adaptiveCutoff: adaptiveCutoff,
-                minSamplesForForgetting: minSamplesForForgetting);
+                minSamplesForForgetting: minSamplesForForgetting,
+                enableRttTracking: enableRttTracking,
+                enableAccelTracking: enableAccelTracking);
 
             // Apply static delay from configuration
             var staticDelayMs = _configuration!.GetValue<double>("Audio:StaticDelayMs", 0);

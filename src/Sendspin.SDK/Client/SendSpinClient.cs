@@ -418,8 +418,13 @@ public sealed class SendspinClientService : ISendspinClient
             incoming.MarkConnected();
         }
 
-        // Reset clock synchronizer for new connection
-        _clockSynchronizer.Reset();
+        // Reset clock synchronizer for new connection, but only for client-initiated connections.
+        // Server-initiated connections (IncomingConnection) may be transient and get rejected,
+        // so we don't want them resetting the shared synchronizer.
+        if (_connection is SendspinConnection)
+        {
+            _clockSynchronizer.Reset();
+        }
 
         // Send initial client state (required by protocol after server/hello)
         // This tells the server we're synchronized and ready
@@ -595,10 +600,12 @@ public sealed class SendspinClientService : ISendspinClient
 
     /// <summary>
     /// Processes collected burst results and feeds the best measurement to the Kalman filter.
+    /// Computes burst statistics to help the filter assess measurement quality.
     /// </summary>
     private void ProcessBurstResults()
     {
         (long t1, long t2, long t3, long t4, double rtt) bestResult;
+        BurstStatistics? burstStats = null;
         int totalResults;
 
         lock (_burstLock)
@@ -612,18 +619,35 @@ public sealed class SendspinClientService : ISendspinClient
 
             // Find the measurement with smallest RTT (best quality)
             bestResult = _burstResults.OrderBy(r => r.rtt).First();
+
+            // Compute burst statistics for enhanced quality assessment
+            if (totalResults >= 2)
+            {
+                burstStats = ComputeBurstStatistics(_burstResults);
+            }
+
             _burstResults.Clear();
             _pendingBurstTimestamps.Clear();
         }
 
-        _logger.LogDebug("Processing best of {Count} burst results: RTT={RTT:F0}μs",
-            totalResults, bestResult.rtt);
+        if (burstStats != null)
+        {
+            _logger.LogDebug(
+                "Processing best of {Count} burst results: RTT={RTT:F0}μs (range={Min:F0}-{Max:F0}μs, spread={Spread:F0}μs)",
+                totalResults, bestResult.rtt, burstStats.MinRtt, burstStats.MaxRtt, burstStats.OffsetSpread);
+        }
+        else
+        {
+            _logger.LogDebug("Processing best of {Count} burst results: RTT={RTT:F0}μs",
+                totalResults, bestResult.rtt);
+        }
 
         // Track if we were already converged before this measurement
         bool wasConverged = _clockSynchronizer.IsConverged;
 
-        // Feed only the best measurement to the Kalman filter
-        _clockSynchronizer.ProcessMeasurement(bestResult.t1, bestResult.t2, bestResult.t3, bestResult.t4);
+        // Feed the best measurement to the Kalman filter with burst statistics
+        _clockSynchronizer.ProcessMeasurementWithBurstStats(
+            bestResult.t1, bestResult.t2, bestResult.t3, bestResult.t4, burstStats);
 
         // Log the sync status periodically
         var status = _clockSynchronizer.GetStatus();
@@ -644,6 +668,39 @@ public sealed class SendspinClientService : ISendspinClient
             _logger.LogInformation("Clock synchronization converged after {Count} measurements", status.MeasurementCount);
             ClockSyncConverged?.Invoke(this, status);
         }
+    }
+
+    /// <summary>
+    /// Computes statistics from a burst of time sync measurements.
+    /// These statistics help the Kalman filter assess measurement quality and detect network instability.
+    /// </summary>
+    private static BurstStatistics ComputeBurstStatistics(
+        List<(long t1, long t2, long t3, long t4, double rtt)> results)
+    {
+        // Extract RTTs and compute offsets
+        var rtts = results.Select(r => r.rtt).ToList();
+        var offsets = results.Select(r => ((r.t2 - r.t1) + (r.t3 - r.t4)) / 2.0).ToList();
+
+        double minRtt = rtts.Min();
+        double maxRtt = rtts.Max();
+        double meanRtt = rtts.Average();
+
+        // Compute RTT variance: Var(X) = E[X²] - E[X]²
+        double meanRttSq = rtts.Select(r => r * r).Average();
+        double rttVariance = meanRttSq - meanRtt * meanRtt;
+
+        // Offset spread (max - min) indicates measurement consistency
+        double offsetSpread = offsets.Max() - offsets.Min();
+
+        return new BurstStatistics
+        {
+            MinRtt = minRtt,
+            MaxRtt = maxRtt,
+            MeanRtt = meanRtt,
+            RttVariance = rttVariance,
+            OffsetSpread = offsetSpread,
+            SampleCount = results.Count
+        };
     }
 
     private void HandleServerTime(string json)
