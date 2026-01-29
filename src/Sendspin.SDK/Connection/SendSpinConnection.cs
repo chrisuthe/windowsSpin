@@ -23,6 +23,7 @@ public sealed class SendspinConnection : ISendspinConnection
     private Uri? _serverUri;
     private ConnectionState _state = ConnectionState.Disconnected;
     private int _reconnectAttempt;
+    private int _connectionLostGuard;
     private bool _disposed;
 
     public ConnectionState State => _state;
@@ -288,15 +289,30 @@ public sealed class SendspinConnection : ISendspinConnection
         if (_state == ConnectionState.Disconnecting || _disposed)
             return;
 
-        SetState(ConnectionState.Reconnecting, "Connection lost");
-
-        if (_options.AutoReconnect)
+        // Atomic guard - only the first caller proceeds, prevents duplicate reconnection attempts
+        // when both send failure and receive loop detect connection loss simultaneously
+        if (Interlocked.CompareExchange(ref _connectionLostGuard, 1, 0) == 1)
         {
-            await TryReconnectAsync(CancellationToken.None);
+            _logger.LogDebug("Connection loss already being handled, skipping duplicate call");
+            return;
         }
-        else
+
+        try
         {
-            SetState(ConnectionState.Disconnected, "Connection lost");
+            SetState(ConnectionState.Reconnecting, "Connection lost");
+
+            if (_options.AutoReconnect)
+            {
+                await TryReconnectAsync(CancellationToken.None);
+            }
+            else
+            {
+                SetState(ConnectionState.Disconnected, "Connection lost");
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _connectionLostGuard, 0);
         }
     }
 

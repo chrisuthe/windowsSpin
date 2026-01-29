@@ -25,7 +25,6 @@ public sealed class SendspinClientService : ISendspinClient
     private GroupState? _currentGroup;
     private PlayerState _playerState;
     private CancellationTokenSource? _timeSyncCts;
-    private bool _isReconnecting;
     private bool _disposed;
 
     /// <summary>
@@ -209,22 +208,26 @@ public sealed class SendspinClientService : ISendspinClient
     /// <summary>
     /// Performs handshake after the connection layer has successfully reconnected the WebSocket.
     /// Called from OnConnectionStateChanged when entering Handshaking state during reconnection.
-    /// Resets the clock synchronizer and sends a fresh ClientHello.
     /// </summary>
-    private async Task PerformReconnectHandshakeAsync()
+    /// <remarks>
+    /// Clock synchronizer is reset in HandleServerHello when the handshake completes,
+    /// so we don't need to reset it here.
+    /// </remarks>
+    private async Task PerformReconnectHandshakeAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("WebSocket reconnected, performing handshake...");
 
-        // Reset clock synchronizer for the new connection
-        _clockSynchronizer.Reset();
-
         try
         {
-            await SendHandshakeAsync();
+            await SendHandshakeAsync(cancellationToken);
         }
         catch (TimeoutException)
         {
             _logger.LogWarning("Reconnect handshake timed out");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogDebug("Reconnect handshake cancelled");
         }
         catch (Exception ex)
         {
@@ -325,19 +328,10 @@ public sealed class SendspinClientService : ISendspinClient
         }
 
         // Re-handshake when WebSocket reconnects successfully
-        if (e.NewState == ConnectionState.Handshaking && _isReconnecting)
+        // Use e.OldState instead of a separate field to avoid race conditions
+        if (e.NewState == ConnectionState.Handshaking && e.OldState == ConnectionState.Reconnecting)
         {
             PerformReconnectHandshakeAsync().SafeFireAndForget(_logger);
-        }
-
-        // Track reconnection state
-        if (e.NewState == ConnectionState.Reconnecting)
-        {
-            _isReconnecting = true;
-        }
-        else if (e.NewState is ConnectionState.Connected or ConnectionState.Disconnected)
-        {
-            _isReconnecting = false;
         }
     }
 
@@ -471,8 +465,8 @@ public sealed class SendspinClientService : ISendspinClient
 
         _timeSyncCts = new CancellationTokenSource();
 
-        // Fire-and-forget: task runs until cancelled, no need to await
-        _ = TimeSyncLoopAsync(_timeSyncCts.Token);
+        // Fire-and-forget with proper exception handling
+        TimeSyncLoopAsync(_timeSyncCts.Token).SafeFireAndForget(_logger);
 
         _logger.LogDebug("Time sync loop started (adaptive intervals)");
     }
@@ -721,7 +715,7 @@ public sealed class SendspinClientService : ISendspinClient
                 _capabilities.ClientName, previousName ?? "(none)", _currentGroup.Name);
         }
 
-        _logger.LogInformation("group/update [{Player}]: GroupId={GroupId}, Name={Name}, State={State}",
+        _logger.LogDebug("group/update [{Player}]: GroupId={GroupId}, Name={Name}, State={State}",
             _capabilities.ClientName,
             _currentGroup.GroupId,
             _currentGroup.Name ?? "(none)",
