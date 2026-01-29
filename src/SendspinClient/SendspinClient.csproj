@@ -10,7 +10,7 @@
     <ApplicationIcon>Resources\Icons\sendspinTray.ico</ApplicationIcon>
 
     <!-- Version info - set via -p:Version= during CI builds -->
-    <Version>1.9.0</Version>
+    <Version>1.9.1</Version>
     <!--
       AssemblyVersion/FileVersion must be purely numeric (major.minor.build.revision).
       For prerelease versions like "0.0.0-dev.xxx", we need separate numeric versions.
