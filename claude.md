@@ -485,6 +485,29 @@ HighPrecisionTimer.Shared.GetCurrentTimeMicroseconds()
 ### 6. Track Change / Stream Restart
 When tracks change, the sync error calculation can get into a stuck "dropping" state. The buffer's `Clear()` method must reset **all** timing state, matching CLI's behavior.
 
+### 7. JSON Field Absent vs Explicit Null (Optional<T>)
+JSON has three states for a field, but C# nullable types only have two:
+```
+JSON                          C# Nullable      C# Optional<T>
+─────────────────────────────────────────────────────────────
+{"progress": {...}}           value            Present(value)
+{"progress": null}            null             Present(null)   ← TRACK ENDED
+{}                            null             Absent()        ← KEEP EXISTING
+```
+
+The SDK uses `Optional<T>` (in `Sendspin.SDK.Protocol`) for fields where explicit null has semantic meaning:
+- `ServerMetadata.Progress`: `null` means track ended, absent means no update
+
+```csharp
+// WRONG - treats track-end (null) same as no-update (absent)
+Progress = meta.Progress ?? existing.Progress;
+
+// CORRECT - uses Optional<T> to distinguish
+Progress = meta.Progress.IsPresent ? meta.Progress.Value : existing.Progress;
+```
+
+This matches the CLI's `UndefinedField` pattern in Python.
+
 ---
 
 ## Testing & Debugging
@@ -649,6 +672,8 @@ Follow [SemVer](https://semver.org/):
 | `src/SendspinClient.Services/Audio/WasapiAudioPlayer.cs` | Windows audio output |
 | `src/SendspinClient.Services/Audio/DynamicResamplerSampleProvider.cs` | Playback rate resampling for sync |
 | `src/Sendspin.SDK/Protocol/Messages/MessageTypes.cs` | Protocol message definitions |
+| `src/Sendspin.SDK/Protocol/Optional.cs` | Optional<T> for JSON absent vs null distinction |
+| `src/Sendspin.SDK/Protocol/OptionalJsonConverter.cs` | JSON converter for Optional<T> |
 | `src/Sendspin.SDK/Audio/SyncCorrectionOptions.cs` | Configurable sync correction parameters |
 
 ---

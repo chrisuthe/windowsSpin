@@ -1132,17 +1132,31 @@ public partial class MainViewModel : ViewModelBase
                 // Capture group name for Switch Group button
                 CurrentGroupName = group.Name ?? group.GroupId;
 
-                if (group.Metadata?.Duration.HasValue == true)
+                // Handle progress updates OR clearing
+                // Progress can be:
+                //   - Non-null: update position/duration and enable interpolation
+                //   - Null: track ended - stop interpolation but keep final position visible
+                if (group.Metadata?.Progress is not null)
                 {
-                    Duration = group.Metadata.Duration.Value;
-                }
+                    // Progress exists - update position/duration
+                    if (group.Metadata.Duration.HasValue)
+                    {
+                        Duration = group.Metadata.Duration.Value;
+                    }
 
-                // Update position from server and set anchor for interpolation
-                if (group.Metadata?.Position.HasValue == true)
+                    if (group.Metadata.Position.HasValue)
+                    {
+                        _lastServerPosition = group.Metadata.Position.Value;
+                        _lastServerPositionUpdate = DateTime.UtcNow;
+                        Position = _lastServerPosition;
+                    }
+                }
+                else if (group.Metadata is not null)
                 {
-                    _lastServerPosition = group.Metadata.Position.Value;
-                    _lastServerPositionUpdate = DateTime.UtcNow;
-                    Position = _lastServerPosition;
+                    // Progress explicitly cleared (track ended)
+                    // Keep final position visible, but stop interpolation timer
+                    // The PlaybackState change (via group/update) handles the play/pause button
+                    _lastServerPositionUpdate = DateTime.MinValue;
                 }
 
                 // Update status with now playing info

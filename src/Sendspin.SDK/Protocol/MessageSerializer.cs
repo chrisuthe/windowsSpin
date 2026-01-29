@@ -15,7 +15,8 @@ public static class MessageSerializer
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         Converters =
         {
-            new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower)
+            new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower),
+            new OptionalJsonConverterFactory()
         }
     };
 

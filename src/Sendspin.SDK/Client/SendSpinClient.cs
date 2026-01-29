@@ -663,6 +663,10 @@ public sealed class SendspinClientService : ISendspinClient
             var existing = _currentGroup.Metadata ?? new TrackMetadata();
 
             // Only update fields that are present in the message
+            // For Progress, we use Optional<T> to distinguish between:
+            //   - Absent: keep existing value (partial update)
+            //   - Present but null: clear progress (track ended)
+            //   - Present with value: update progress
             _currentGroup.Metadata = new TrackMetadata
             {
                 Timestamp = meta.Timestamp ?? existing.Timestamp,
@@ -673,7 +677,7 @@ public sealed class SendspinClientService : ISendspinClient
                 ArtworkUrl = meta.ArtworkUrl ?? existing.ArtworkUrl,
                 Year = meta.Year ?? existing.Year,
                 Track = meta.Track ?? existing.Track,
-                Progress = meta.Progress ?? existing.Progress,
+                Progress = meta.Progress.IsPresent ? meta.Progress.Value : existing.Progress,
                 Repeat = meta.Repeat ?? existing.Repeat,
                 Shuffle = meta.Shuffle ?? existing.Shuffle
             };
