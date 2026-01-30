@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>6.1.1</Version>
+    <Version>6.2.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,46 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v6.2.0 - 4D Kalman Filter for Enhanced Clock Synchronization:
+
+New Features:
+- Extended Kalman filter from 2D [offset, drift] to 4D [offset, drift, drift_accel, expected_rtt]
+  - RTT tracking: Learns expected network latency for smarter measurement weighting
+  - Drift acceleration: Tracks rate of drift change for thermal/power state adaptation
+  - Both features configurable via constructor parameters (enabled by default)
+
+- Burst Statistics API: New ProcessMeasurementWithBurstStats() method
+  - BurstStatistics record captures RTT variance, offset spread, min/max/mean RTT
+  - High RTT variance increases measurement noise (unstable network = lower trust)
+  - High offset spread flags inconsistent bursts for quality control
+
+- RTT-Based Network Change Detection:
+  - Detects significant RTT shifts indicating network topology changes (WiFi → Ethernet)
+  - Selectively scales offset/drift covariance while preserving RTT learning
+  - Logs network change events with expected vs measured RTT
+
+- ClockSyncStatus enhancements:
+  - ExpectedRttMicroseconds: Learned baseline network latency
+  - RttUncertaintyMicroseconds: Confidence in RTT estimate
+  - IsRttReliable: True when RTT tracking has converged (5+ measurements, &lt;500μs uncertainty)
+  - NetworkChangeTriggerCount: Number of RTT-based forgetting events
+
+New Constructor Parameters (KalmanClockSynchronizer):
+- enableRttTracking: Enable RTT state variable (default: false)
+- enableAccelTracking: Enable drift acceleration state variable (default: false)
+- processNoiseAccel: Process noise for acceleration (default: 0.1 μs²/s⁵)
+- processNoiseRtt: Process noise for RTT (default: 1000 μs²/s)
+- accelDecay: Decay factor for acceleration toward zero (default: 0.92)
+- rttDecay: Decay factor for RTT toward baseline (default: 0.98)
+- rttMeasurementNoise: Measurement noise for RTT observations (default: 1000 μs²)
+- rttChangeCutoff: Threshold multiplier for network change detection (default: 2.0)
+
+Benefits:
+- Improved network resilience: Adapts to WiFi variability and network path changes
+- Better thermal adaptation: Tracks drift acceleration during CPU/power state changes
+- Smarter measurement weighting: Trusts consistent high-RTT networks, penalizes spikes
+- Backward compatible: Default behavior unchanged; enable features via constructor
+
 v6.1.1 - Logging Improvements:
 - Changed clock sync telemetry from Information to Debug log level
 - Reduces log noise in production environments (offset/drift measurements are internal details)

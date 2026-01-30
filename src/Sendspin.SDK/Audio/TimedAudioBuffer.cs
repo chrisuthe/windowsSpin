@@ -64,6 +64,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     private bool _needsReanchor;          // Flag to trigger re-anchoring
     private int _reanchorEventPending;    // 0 = not pending, 1 = pending (for thread-safe event coalescing)
     private float[]? _lastOutputFrame;    // Last output frame for smooth drop/insert (Python CLI approach)
+    private bool _wasBufferEmpty = true;  // Track empty→non-empty transitions for pause/resume detection
 
     // Statistics
     private long _underrunCount;
@@ -256,6 +257,25 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
 
         lock (_lock)
         {
+            // Detect resume from empty buffer - reset timing anchors for fresh sync.
+            // This handles pause/resume when server doesn't send stream/end + stream/start.
+            // When WASAPI is paused, Read() stops being called. When it resumes, the timing
+            // anchors are stale (from original start). Resetting allows fresh re-anchoring.
+            //
+            // IMPORTANT: This check must happen BEFORE the empty buffer early return below,
+            // otherwise _wasBufferEmpty never gets set to true during the empty period.
+            bool isBufferEmpty = _count == 0;
+            if (!isBufferEmpty && _wasBufferEmpty && _playbackStarted)
+            {
+                // Audio resumed after being empty - reset timing for fresh sync.
+                // ResetSyncTracking() sets _playbackStarted = false, allowing
+                // the scheduled start logic below to re-anchor timing properly.
+                _logger.LogDebug("Buffer resumed from empty state, resetting sync tracking");
+                ResetSyncTracking();
+            }
+
+            _wasBufferEmpty = isBufferEmpty;
+
             // If buffer is empty, output silence
             if (_count == 0)
             {
@@ -607,6 +627,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             Interlocked.Exchange(ref _reanchorEventPending, 0);
             _lastOutputFrame = null;
             TargetPlaybackRate = 1.0;
+            _wasBufferEmpty = true;  // Reset resume detection state
             // Note: Don't reset _samplesDroppedForSync/_samplesInsertedForSync - these are cumulative stats
         }
     }
@@ -648,6 +669,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             Interlocked.Exchange(ref _reanchorEventPending, 0);
             _lastOutputFrame = null;
             TargetPlaybackRate = 1.0;
+            _wasBufferEmpty = true;  // Reset resume detection state
         }
     }
 
