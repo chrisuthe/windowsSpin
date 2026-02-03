@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>6.2.0-preview.1</Version>
+    <Version>6.2.0-preview.2</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,7 +20,17 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
-v6.2.0 - VM-Resilient Timing:
+v6.2.0-preview.2 - MonotonicTimer Diagnostics:
+- Added telemetry counters to MonotonicTimer for diagnosing timer behavior in VMs
+  - TotalCalls, BackwardJumpCount, ForwardJumpCount
+  - TotalBackwardJumpMicroseconds, TotalForwardJumpClampedMicroseconds
+  - MaxBackwardJumpMicroseconds, MaxForwardJumpMicroseconds
+  - GetStatsSummary() for formatted stats display
+- MonotonicTimer now automatically reset on AudioPipeline.Clear() to avoid stale state
+- Enhanced sync drift logging includes timer stats when error exceeds 50ms
+- Reset() now accepts optional resetTelemetry parameter
+
+v6.2.0-preview.1 - VM-Resilient Timing:
 - Added MonotonicTimer wrapper for VM environments where wall clock can jump erratically
 - Enforces monotonicity (never returns decreasing values) and clamps forward jumps to 50ms max
 - Enabled by default in AudioPipeline - all SDK consumers automatically benefit

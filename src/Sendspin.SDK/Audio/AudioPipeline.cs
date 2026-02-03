@@ -239,6 +239,14 @@ public sealed class AudioPipeline : IAudioPipeline
         _buffer?.Clear();
         _decoder?.Reset();
 
+        // Reset monotonic timer state to avoid carrying over stale time tracking
+        // This ensures fresh timing after track changes or resync
+        if (_precisionTimer is MonotonicTimer monotonicTimer)
+        {
+            monotonicTimer.Reset();
+            _logger.LogDebug("Reset MonotonicTimer state on buffer clear");
+        }
+
         // Reset sync wait state so we wait for convergence again after clear
         _bufferReadyTime = 0;
         _loggedSyncWaiting = false;
@@ -604,19 +612,23 @@ public sealed class AudioPipeline : IAudioPipeline
                 ? $"drift={clockStatus.DriftMicrosecondsPerSecond:+0.0;-0.0}μs/s"
                 : "drift=pending";
 
+            // Get monotonic timer stats for diagnostics
+            var timerStats = _precisionTimer is MonotonicTimer mt ? mt.GetStatsSummary() : "N/A";
+
             // Use appropriate log level based on sync error magnitude
             if (absError > 50) // > 50ms - significant drift
             {
                 _logger.LogWarning(
                     "Sync drift: error={SyncErrorMs:+0.00;-0.00}ms, elapsed={Elapsed:F0}ms, readTime={ReadTime:F0}ms, " +
-                    "latencyComp={Latency}ms, {DriftInfo}, correction={Correction}, buffer={BufferMs:F0}ms",
+                    "latencyComp={Latency}ms, {DriftInfo}, correction={Correction}, buffer={BufferMs:F0}ms, timer=[{TimerStats}]",
                     syncErrorMs,
                     stats.ElapsedSinceStartMs,
                     samplesReadTimeMs,
                     _buffer?.OutputLatencyMicroseconds / 1000 ?? 0,
                     driftInfo,
                     correctionInfo,
-                    stats.BufferedMs);
+                    stats.BufferedMs,
+                    timerStats);
             }
             else if (absError > 10) // > 10ms - noticeable
             {
