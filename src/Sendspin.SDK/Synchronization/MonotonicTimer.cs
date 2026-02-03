@@ -32,6 +32,50 @@ public sealed class MonotonicTimer : IHighPrecisionTimer
     private long _lastReturnedTime;
     private bool _initialized;
 
+    // Telemetry counters for diagnosing timer behavior
+    private long _totalCalls;
+    private long _backwardJumpCount;
+    private long _forwardJumpCount;
+    private long _totalBackwardJumpMicroseconds;
+    private long _totalForwardJumpMicroseconds;
+    private long _maxBackwardJumpMicroseconds;
+    private long _maxForwardJumpMicroseconds;
+
+    /// <summary>
+    /// Gets the total number of GetCurrentTimeMicroseconds calls.
+    /// </summary>
+    public long TotalCalls => _totalCalls;
+
+    /// <summary>
+    /// Gets the number of backward timer jumps that were filtered.
+    /// </summary>
+    public long BackwardJumpCount => _backwardJumpCount;
+
+    /// <summary>
+    /// Gets the number of forward timer jumps that were clamped.
+    /// </summary>
+    public long ForwardJumpCount => _forwardJumpCount;
+
+    /// <summary>
+    /// Gets the total microseconds of backward jumps that were absorbed.
+    /// </summary>
+    public long TotalBackwardJumpMicroseconds => _totalBackwardJumpMicroseconds;
+
+    /// <summary>
+    /// Gets the total microseconds of forward jumps that were clamped (amount over threshold).
+    /// </summary>
+    public long TotalForwardJumpClampedMicroseconds => _totalForwardJumpMicroseconds;
+
+    /// <summary>
+    /// Gets the maximum backward jump observed in microseconds.
+    /// </summary>
+    public long MaxBackwardJumpMicroseconds => _maxBackwardJumpMicroseconds;
+
+    /// <summary>
+    /// Gets the maximum forward jump observed in microseconds.
+    /// </summary>
+    public long MaxForwardJumpMicroseconds => _maxForwardJumpMicroseconds;
+
     /// <summary>
     /// Maximum allowed time advance per call in microseconds.
     /// </summary>
@@ -55,6 +99,7 @@ public sealed class MonotonicTimer : IHighPrecisionTimer
     /// <inheritdoc/>
     public long GetCurrentTimeMicroseconds()
     {
+        _totalCalls++;
         var rawTime = _inner.GetCurrentTimeMicroseconds();
 
         if (!_initialized)
@@ -71,9 +116,18 @@ public sealed class MonotonicTimer : IHighPrecisionTimer
         // Handle backward jump (timer went backwards)
         if (rawDelta < 0)
         {
+            var absJump = -rawDelta;
+            _backwardJumpCount++;
+            _totalBackwardJumpMicroseconds += absJump;
+            if (absJump > _maxBackwardJumpMicroseconds)
+            {
+                _maxBackwardJumpMicroseconds = absJump;
+            }
+
             _logger?.LogDebug(
-                "Timer went backward by {DeltaMs:F2}ms, holding at last value",
-                -rawDelta / 1000.0);
+                "Timer went backward by {DeltaMs:F2}ms, holding at last value (total backward jumps: {Count})",
+                absJump / 1000.0,
+                _backwardJumpCount);
             // Return last value (time doesn't go backward)
             return _lastReturnedTime;
         }
@@ -81,10 +135,19 @@ public sealed class MonotonicTimer : IHighPrecisionTimer
         // Handle forward jump (timer jumped ahead)
         if (rawDelta > MaxDeltaMicroseconds)
         {
+            var excessMicroseconds = rawDelta - MaxDeltaMicroseconds;
+            _forwardJumpCount++;
+            _totalForwardJumpMicroseconds += excessMicroseconds;
+            if (rawDelta > _maxForwardJumpMicroseconds)
+            {
+                _maxForwardJumpMicroseconds = rawDelta;
+            }
+
             _logger?.LogDebug(
-                "Timer jumped forward by {DeltaMs:F2}ms, clamping to {MaxMs}ms",
+                "Timer jumped forward by {DeltaMs:F2}ms, clamping to {MaxMs}ms (total forward jumps: {Count})",
                 rawDelta / 1000.0,
-                MaxDeltaMicroseconds / 1000.0);
+                MaxDeltaMicroseconds / 1000.0,
+                _forwardJumpCount);
             rawDelta = MaxDeltaMicroseconds;
         }
 
@@ -101,15 +164,52 @@ public sealed class MonotonicTimer : IHighPrecisionTimer
     /// <summary>
     /// Resets the timer state. Call when playback restarts.
     /// </summary>
+    /// <param name="resetTelemetry">If true, also resets the telemetry counters.</param>
     /// <remarks>
     /// This resets the internal state so the next call to GetCurrentTimeMicroseconds
     /// will re-initialize from the underlying timer. Use this when starting a new
     /// playback session to avoid carrying over stale state.
     /// </remarks>
-    public void Reset()
+    public void Reset(bool resetTelemetry = false)
     {
         _initialized = false;
         _lastRawTime = 0;
         _lastReturnedTime = 0;
+
+        if (resetTelemetry)
+        {
+            _totalCalls = 0;
+            _backwardJumpCount = 0;
+            _forwardJumpCount = 0;
+            _totalBackwardJumpMicroseconds = 0;
+            _totalForwardJumpMicroseconds = 0;
+            _maxBackwardJumpMicroseconds = 0;
+            _maxForwardJumpMicroseconds = 0;
+        }
+    }
+
+    /// <summary>
+    /// Gets a formatted summary of the timer's filtering activity.
+    /// Useful for diagnostics and "Stats for Nerds" displays.
+    /// </summary>
+    /// <returns>A string summarizing timer jump filtering stats.</returns>
+    public string GetStatsSummary()
+    {
+        if (_totalCalls == 0)
+        {
+            return "No timer calls yet";
+        }
+
+        var backwardRate = _totalCalls > 0 ? (double)_backwardJumpCount / _totalCalls * 100 : 0;
+        var forwardRate = _totalCalls > 0 ? (double)_forwardJumpCount / _totalCalls * 100 : 0;
+
+        if (_backwardJumpCount == 0 && _forwardJumpCount == 0)
+        {
+            return $"No timer jumps filtered ({_totalCalls:N0} calls)";
+        }
+
+        return $"Backward: {_backwardJumpCount:N0} ({backwardRate:F2}%, max {_maxBackwardJumpMicroseconds / 1000.0:F1}ms), " +
+               $"Forward: {_forwardJumpCount:N0} ({forwardRate:F2}%, max {_maxForwardJumpMicroseconds / 1000.0:F1}ms), " +
+               $"Total calls: {_totalCalls:N0}";
     }
 }
