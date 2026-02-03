@@ -641,7 +641,7 @@ public sealed class SendspinClientService : ISendspinClient
         // Notify when first converged
         if (!wasConverged && _clockSynchronizer.IsConverged)
         {
-            _logger.LogInformation("Clock synchronization converged after {Count} measurements", status.MeasurementCount);
+            _logger.LogInformation("[ClockSync] Converged after {Count} measurements", status.MeasurementCount);
             ClockSyncConverged?.Invoke(this, status);
         }
     }
@@ -879,7 +879,7 @@ public sealed class SendspinClientService : ISendspinClient
         if (Math.Abs(clampedOffset - payload.OffsetMs) > 0.001)
         {
             _logger.LogWarning(
-                "client/sync_offset: Offset clamped from {Original}ms to {Clamped}ms",
+                "[ClockSync] sync_offset: Offset clamped from {Original}ms to {Clamped}ms",
                 payload.OffsetMs,
                 clampedOffset);
         }
@@ -887,7 +887,7 @@ public sealed class SendspinClientService : ISendspinClient
         // Apply the offset to the clock synchronizer
         _clockSynchronizer.StaticDelayMs = clampedOffset;
 
-        _logger.LogDebug("client/sync_offset: Static delay set to {Delay}ms", clampedOffset);
+        _logger.LogDebug("[ClockSync] Static delay set to {Delay:+0.0;-0.0}ms", clampedOffset);
 
         // Raise event for UI notification
         SyncOffsetApplied?.Invoke(this, new SyncOffsetEventArgs(payload.PlayerId, clampedOffset, payload.Source));

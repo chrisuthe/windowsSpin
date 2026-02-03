@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>6.3.1</Version>
+    <Version>6.3.3</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,32 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v6.3.3 - Categorized Diagnostic Logging:
+- All log messages now include category prefixes for easy filtering:
+  - [ClockSync] - Clock synchronization, drift, static delay
+  - [Timing] - Timing source selection and transitions
+  - [Playback] - Pipeline start/stop, startup latency
+  - [SyncError] - Periodic sync status monitoring
+  - [Correction] - Frame drop/insert correction events
+  - [Buffer] - Buffer overrun/underrun events
+- Added timing source transition logging: logs when audio clock becomes available/unavailable
+- Enhanced startup latency visibility: logs at Info level when non-zero
+- Example categorized output:
+  "[ClockSync] Converged after 5 measurements"
+  "[Timing] Source changed: monotonic → audio-clock"
+  "[Playback] Starting playback: buffer=500ms, sync offset=+12.3ms"
+  "[Correction] Started: DROPPING (syncError=+45ms, timing=audio-clock)"
+
+v6.3.2 - Timing Source Visibility:
+- Added ITimedAudioBuffer.TimingSourceName property to track active timing source
+- Sync correction logs now include timing source (audio-clock, monotonic, wall-clock)
+- AudioPipeline sets timing source name on buffer for consistent logging across components
+- Improved logging clarity: MonotonicTimer stats only shown when it's the active source
+- Skip MonotonicTimer reset on Clear() when audio clock is active (unnecessary operation)
+- Example log output:
+  "Sync correction started: DROPPING (..., timing=audio-clock)"
+  "Sync correction ended: DROPPING complete (..., timing=monotonic)"
+
 v6.3.1 - Sync Correction Diagnostic Logging:
 - Added logging for sync correction mode transitions (None↔Dropping, None↔Inserting)
 - Logs include: session counts, cumulative totals, duration, sync error values at transition
