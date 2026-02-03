@@ -707,6 +707,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 SamplesReadSinceStart = _samplesReadSinceStart,
                 SamplesOutputSinceStart = _samplesOutputSinceStart,
                 ElapsedSinceStartMs = _lastElapsedMicroseconds / 1000.0,
+                TimingSourceName = TimingSourceName,
             };
         }
     }

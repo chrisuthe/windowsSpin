@@ -30,6 +30,7 @@ v6.3.3 - Categorized Diagnostic Logging:
   - [Buffer] - Buffer overrun/underrun events
 - Added timing source transition logging: logs when audio clock becomes available/unavailable
 - Enhanced startup latency visibility: logs at Info level when non-zero
+- Added AudioBufferStats.TimingSourceName property for UI "Stats for Nerds" display
 - Example categorized output:
   "[ClockSync] Converged after 5 measurements"
   "[Timing] Source changed: monotonic → audio-clock"

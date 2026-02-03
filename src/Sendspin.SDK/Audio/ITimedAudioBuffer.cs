@@ -318,6 +318,11 @@ public record AudioBufferStats
     /// Gets elapsed time since playback started in milliseconds (for sync debugging).
     /// </summary>
     public double ElapsedSinceStartMs { get; init; }
+
+    /// <summary>
+    /// Gets the active timing source name ("audio-clock", "monotonic", or "wall-clock").
+    /// </summary>
+    public string? TimingSourceName { get; init; }
 }
 
 /// <summary>
