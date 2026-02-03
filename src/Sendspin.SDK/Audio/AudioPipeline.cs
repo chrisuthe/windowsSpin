@@ -192,6 +192,16 @@ public sealed class AudioPipeline : IAudioPipeline
                 _player.OutputLatencyMs,
                 _player.CalibratedStartupLatencyMs);
 
+            // Log which timing source will be used for sync calculation
+            if (_player.GetAudioClockMicroseconds().HasValue)
+            {
+                _logger.LogInformation("Using audio hardware clock for sync timing (VM-immune)");
+            }
+            else
+            {
+                _logger.LogDebug("Audio hardware clock not available, using MonotonicTimer fallback");
+            }
+
             // Create sample source bridging buffer to player
             _sampleSource = _sourceFactory(_buffer, GetCurrentLocalTimeMicroseconds);
             _player.SetSampleSource(_sampleSource);
@@ -402,15 +412,28 @@ public sealed class AudioPipeline : IAudioPipeline
     }
 
     /// <summary>
-    /// Gets the current local time in microseconds using high-precision timer.
+    /// Gets the current local time in microseconds, preferring audio hardware clock when available.
     /// Used by the sample source to know when to release audio.
     /// </summary>
     /// <remarks>
-    /// Uses Stopwatch-based timing instead of DateTimeOffset for microsecond precision.
-    /// DateTimeOffset.UtcNow only has ~15ms resolution on Windows.
+    /// <para>
+    /// Priority: Audio hardware clock (if player provides it) → MonotonicTimer (wall clock fallback).
+    /// </para>
+    /// <para>
+    /// Audio hardware clocks are immune to VM wall clock issues because they run on the
+    /// audio device's crystal oscillator, not the hypervisor's timer.
+    /// </para>
     /// </remarks>
     private long GetCurrentLocalTimeMicroseconds()
     {
+        // Try audio hardware clock first (VM-immune)
+        var audioClockTime = _player?.GetAudioClockMicroseconds();
+        if (audioClockTime.HasValue)
+        {
+            return audioClockTime.Value;
+        }
+
+        // Fall back to MonotonicTimer (filtered wall clock)
         return _precisionTimer.GetCurrentTimeMicroseconds();
     }
 

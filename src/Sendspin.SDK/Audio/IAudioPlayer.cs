@@ -70,6 +70,30 @@ public interface IAudioPlayer : IAsyncDisposable
     AudioFormat? OutputFormat => null;
 
     /// <summary>
+    /// Gets the current playback time from the audio hardware clock in microseconds.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Implementations should return time based on their audio backend's hardware clock,
+    /// which is immune to VM wall clock issues:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>PortAudio: <c>outputBufferDacTime * 1_000_000</c></description></item>
+    /// <item><description>PulseAudio: <c>pa_stream_get_time()</c></description></item>
+    /// <item><description>ALSA: <c>snd_pcm_htimestamp()</c></description></item>
+    /// <item><description>CoreAudio: <c>AudioTimeStamp.mHostTime</c></description></item>
+    /// </list>
+    /// <para>
+    /// Return <c>null</c> if hardware clock is not available (e.g., WASAPI shared mode).
+    /// The SDK will fall back to wall clock timing with MonotonicTimer filtering.
+    /// </para>
+    /// </remarks>
+    /// <returns>
+    /// Audio hardware clock time in microseconds, or <c>null</c> to use wall clock fallback.
+    /// </returns>
+    long? GetAudioClockMicroseconds() => null;
+
+    /// <summary>
     /// Initializes the audio output with the specified format.
     /// </summary>
     /// <param name="format">Audio format to use.</param>
