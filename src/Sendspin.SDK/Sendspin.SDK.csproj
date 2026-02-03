@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>6.1.1</Version>
+    <Version>6.2.0-preview.1</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,12 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v6.2.0 - VM-Resilient Timing:
+- Added MonotonicTimer wrapper for VM environments where wall clock can jump erratically
+- Enforces monotonicity (never returns decreasing values) and clamps forward jumps to 50ms max
+- Enabled by default in AudioPipeline - all SDK consumers automatically benefit
+- No code changes required for existing consumers
+
 v6.1.1 - Logging Improvements:
 - Changed clock sync telemetry from Information to Debug log level
 - Reduces log noise in production environments (offset/drift measurements are internal details)
