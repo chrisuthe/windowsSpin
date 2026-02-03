@@ -65,6 +65,12 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     private int _reanchorEventPending;    // 0 = not pending, 1 = pending (for thread-safe event coalescing)
     private float[]? _lastOutputFrame;    // Last output frame for smooth drop/insert (Python CLI approach)
 
+    // Correction mode transition tracking (for diagnostic logging)
+    private SyncCorrectionMode _previousCorrectionMode = SyncCorrectionMode.None;
+    private long _correctionStartTimeUs;       // When current correction session started
+    private long _droppedAtSessionStart;       // Samples dropped count at start of drop session
+    private long _insertedAtSessionStart;      // Samples inserted count at start of insert session
+
     // Statistics
     private long _underrunCount;
     private long _overrunCount;
@@ -608,6 +614,12 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             _lastOutputFrame = null;
             TargetPlaybackRate = 1.0;
             // Note: Don't reset _samplesDroppedForSync/_samplesInsertedForSync - these are cumulative stats
+
+            // Reset correction mode transition tracking (avoids stale logging after clear)
+            _previousCorrectionMode = SyncCorrectionMode.None;
+            _correctionStartTimeUs = 0;
+            _droppedAtSessionStart = 0;
+            _insertedAtSessionStart = 0;
         }
     }
 
@@ -648,6 +660,12 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             Interlocked.Exchange(ref _reanchorEventPending, 0);
             _lastOutputFrame = null;
             TargetPlaybackRate = 1.0;
+
+            // Reset correction mode transition tracking (avoids stale logging after reset)
+            _previousCorrectionMode = SyncCorrectionMode.None;
+            _correctionStartTimeUs = 0;
+            _droppedAtSessionStart = 0;
+            _insertedAtSessionStart = 0;
         }
     }
 
@@ -937,6 +955,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         // Tier 1: Deadband - error is small enough to ignore
         if (absError < DeadbandThreshold)
         {
+            LogCorrectionModeTransition(SyncCorrectionMode.None);
             SetTargetPlaybackRate(1.0);
             _dropEveryNFrames = 0;
             _insertEveryNFrames = 0;
@@ -949,6 +968,9 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         // Example: 10ms error with 3s target → rate = 1.00333 (0.33% faster)
         if (absError < ResamplingThreshold)
         {
+            // Log transition from drop/insert mode back to resampling (effectively None for drop/insert)
+            LogCorrectionModeTransition(SyncCorrectionMode.Resampling);
+
             // Calculate proportional correction (matching Python CLI approach)
             var correctionFactor = _smoothedSyncErrorMicroseconds
                 / _syncOptions.CorrectionTargetSeconds
@@ -995,13 +1017,95 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             // Playing too slow - need to drop frames to catch up
             _dropEveryNFrames = correctionInterval;
             _insertEveryNFrames = 0;
+            LogCorrectionModeTransition(SyncCorrectionMode.Dropping);
         }
         else
         {
             // Playing too fast - need to insert frames to slow down
             _dropEveryNFrames = 0;
             _insertEveryNFrames = correctionInterval;
+            LogCorrectionModeTransition(SyncCorrectionMode.Inserting);
         }
+    }
+
+    /// <summary>
+    /// Logs sync correction mode transitions for debugging.
+    /// Must be called under lock.
+    /// </summary>
+    /// <remarks>
+    /// This method tracks when correction mode changes (e.g., None -> Dropping, Dropping -> None)
+    /// and logs the transition with cumulative counts and duration information.
+    /// This helps diagnose what triggers large frame drop/insert corrections.
+    /// </remarks>
+    /// <param name="newMode">The new correction mode being entered.</param>
+    private void LogCorrectionModeTransition(SyncCorrectionMode newMode)
+    {
+        if (newMode == _previousCorrectionMode)
+        {
+            return; // No transition
+        }
+
+        var currentTimeUs = _playbackStartLocalTime > 0
+            ? _lastElapsedMicroseconds + _playbackStartLocalTime
+            : 0;
+
+        // Log the END of the previous correction session (if any)
+        if (_previousCorrectionMode == SyncCorrectionMode.Dropping)
+        {
+            var sessionDropped = _samplesDroppedForSync - _droppedAtSessionStart;
+            var sessionDurationMs = _correctionStartTimeUs > 0
+                ? (currentTimeUs - _correctionStartTimeUs) / 1000.0
+                : 0;
+
+            _logger.LogInformation(
+                "Sync correction ended: DROPPING complete (dropped={DroppedSession} session, {DroppedTotal} total, duration={DurationMs:F0}ms)",
+                sessionDropped,
+                _samplesDroppedForSync,
+                sessionDurationMs);
+        }
+        else if (_previousCorrectionMode == SyncCorrectionMode.Inserting)
+        {
+            var sessionInserted = _samplesInsertedForSync - _insertedAtSessionStart;
+            var sessionDurationMs = _correctionStartTimeUs > 0
+                ? (currentTimeUs - _correctionStartTimeUs) / 1000.0
+                : 0;
+
+            _logger.LogInformation(
+                "Sync correction ended: INSERTING complete (inserted={InsertedSession} session, {InsertedTotal} total, duration={DurationMs:F0}ms)",
+                sessionInserted,
+                _samplesInsertedForSync,
+                sessionDurationMs);
+        }
+
+        // Log the START of the new correction session (if not None)
+        if (newMode == SyncCorrectionMode.Dropping)
+        {
+            _correctionStartTimeUs = currentTimeUs;
+            _droppedAtSessionStart = _samplesDroppedForSync;
+
+            _logger.LogInformation(
+                "Sync correction started: DROPPING (syncError={SyncErrorMs:+0.00;-0.00}ms, smoothed={SmoothedMs:+0.00;-0.00}ms, " +
+                "dropEveryN={DropEveryN}, elapsed={ElapsedMs:F0}ms)",
+                _currentSyncErrorMicroseconds / 1000.0,
+                _smoothedSyncErrorMicroseconds / 1000.0,
+                _dropEveryNFrames,
+                _lastElapsedMicroseconds / 1000.0);
+        }
+        else if (newMode == SyncCorrectionMode.Inserting)
+        {
+            _correctionStartTimeUs = currentTimeUs;
+            _insertedAtSessionStart = _samplesInsertedForSync;
+
+            _logger.LogInformation(
+                "Sync correction started: INSERTING (syncError={SyncErrorMs:+0.00;-0.00}ms, smoothed={SmoothedMs:+0.00;-0.00}ms, " +
+                "insertEveryN={InsertEveryN}, elapsed={ElapsedMs:F0}ms)",
+                _currentSyncErrorMicroseconds / 1000.0,
+                _smoothedSyncErrorMicroseconds / 1000.0,
+                _insertEveryNFrames,
+                _lastElapsedMicroseconds / 1000.0);
+        }
+
+        _previousCorrectionMode = newMode;
     }
 
     /// <summary>
