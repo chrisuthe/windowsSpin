@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>6.3.0</Version>
+    <Version>6.3.1</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,14 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v6.3.1 - Sync Correction Diagnostic Logging:
+- Added logging for sync correction mode transitions (None↔Dropping, None↔Inserting)
+- Logs include: session counts, cumulative totals, duration, sync error values at transition
+- Helps diagnose what triggers large frame drop/insert corrections in VM environments
+- Example log output:
+  "Sync correction started: DROPPING (syncError=+45.32ms, smoothed=+42.18ms, dropEveryN=480, elapsed=5000ms)"
+  "Sync correction ended: DROPPING complete (dropped=11934 session, 11934 total, duration=850ms)"
+
 v6.3.0 - Hybrid Audio Clock Support:
 New Features:
 - Added optional audio hardware clock support for VM-immune sync timing
