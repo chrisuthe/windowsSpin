@@ -52,6 +52,8 @@ public sealed class AudioPipeline : IAudioPipeline
     private int _volume = 100;
     private bool _muted;
     private long _lastSyncLogTime;
+    private bool _usingAudioClock;
+    private bool? _lastAudioClockAvailable; // For tracking timing source transitions
 
     // How often to log sync status during playback (microseconds)
     private const long SyncLogIntervalMicroseconds = 5_000_000; // 5 seconds
@@ -121,11 +123,12 @@ public sealed class AudioPipeline : IAudioPipeline
         _convergenceTimeoutMs = convergenceTimeoutMs;
 
         // Set up the precision timer, optionally wrapping with monotonic filter for VM resilience
+        // Note: If player provides audio clock, that will be used instead (determined at playback start)
         var baseTimer = precisionTimer ?? HighPrecisionTimer.Shared;
         if (useMonotonicTimer)
         {
             _precisionTimer = new MonotonicTimer(baseTimer, logger);
-            _logger.LogDebug("Using MonotonicTimer wrapper for VM-resilient timing");
+            _logger.LogDebug("MonotonicTimer wrapper enabled (will be used as fallback if audio clock unavailable)");
         }
         else
         {
@@ -187,19 +190,37 @@ public sealed class AudioPipeline : IAudioPipeline
 
             // Set calibrated startup latency for sync error compensation (push-model backends only)
             _buffer.CalibratedStartupLatencyMicroseconds = _player.CalibratedStartupLatencyMs * 1000L;
-            _logger.LogDebug(
-                "Output latency: {LatencyMs}ms, Calibrated startup latency: {CalibratedMs}ms",
-                _player.OutputLatencyMs,
-                _player.CalibratedStartupLatencyMs);
-
-            // Log which timing source will be used for sync calculation
-            if (_player.GetAudioClockMicroseconds().HasValue)
+            if (_player.CalibratedStartupLatencyMs > 0)
             {
-                _logger.LogInformation("Using audio hardware clock for sync timing (VM-immune)");
+                _logger.LogInformation(
+                    "[Playback] Startup latency: {CalibratedMs}ms (output latency: {OutputMs}ms)",
+                    _player.CalibratedStartupLatencyMs,
+                    _player.OutputLatencyMs);
             }
             else
             {
-                _logger.LogDebug("Audio hardware clock not available, using MonotonicTimer fallback");
+                _logger.LogDebug(
+                    "[Playback] Output latency: {OutputMs}ms, No startup latency compensation",
+                    _player.OutputLatencyMs);
+            }
+
+            // Determine and log which timing source will be used for sync calculation
+            _usingAudioClock = _player.GetAudioClockMicroseconds().HasValue;
+            _lastAudioClockAvailable = _usingAudioClock; // Initialize for transition tracking
+            if (_usingAudioClock)
+            {
+                _buffer.TimingSourceName = "audio-clock";
+                _logger.LogInformation("[Timing] Using audio hardware clock for sync timing (VM-immune)");
+            }
+            else if (_precisionTimer is MonotonicTimer)
+            {
+                _buffer.TimingSourceName = "monotonic";
+                _logger.LogInformation("[Timing] Using MonotonicTimer for sync timing (audio clock not available)");
+            }
+            else
+            {
+                _buffer.TimingSourceName = "wall-clock";
+                _logger.LogInformation("[Timing] Using wall clock for sync timing (audio clock not available)");
             }
 
             // Create sample source bridging buffer to player
@@ -215,7 +236,7 @@ public sealed class AudioPipeline : IAudioPipeline
             _player.ErrorOccurred += OnPlayerError;
 
             SetState(AudioPipelineState.Buffering);
-            _logger.LogInformation("Audio pipeline started: {Format}", format);
+            _logger.LogInformation("[Playback] Audio pipeline started: {Format}", format);
         }
         catch (Exception ex)
         {
@@ -240,7 +261,7 @@ public sealed class AudioPipeline : IAudioPipeline
         await CleanupAsync();
 
         SetState(AudioPipelineState.Idle);
-        _logger.LogInformation("Audio pipeline stopped");
+        _logger.LogInformation("[Playback] Audio pipeline stopped");
     }
 
     /// <inheritdoc/>
@@ -250,8 +271,8 @@ public sealed class AudioPipeline : IAudioPipeline
         _decoder?.Reset();
 
         // Reset monotonic timer state to avoid carrying over stale time tracking
-        // This ensures fresh timing after track changes or resync
-        if (_precisionTimer is MonotonicTimer monotonicTimer)
+        // Only needed when MonotonicTimer is the active timing source (not when using audio clock)
+        if (!_usingAudioClock && _precisionTimer is MonotonicTimer monotonicTimer)
         {
             monotonicTimer.Reset();
             _logger.LogDebug("Reset MonotonicTimer state on buffer clear");
@@ -428,9 +449,27 @@ public sealed class AudioPipeline : IAudioPipeline
     {
         // Try audio hardware clock first (VM-immune)
         var audioClockTime = _player?.GetAudioClockMicroseconds();
-        if (audioClockTime.HasValue)
+        var audioClockAvailable = audioClockTime.HasValue;
+
+        // Log timing source transitions (only after initial setup)
+        if (_lastAudioClockAvailable.HasValue && audioClockAvailable != _lastAudioClockAvailable.Value)
         {
-            return audioClockTime.Value;
+            var fromSource = _lastAudioClockAvailable.Value ? "audio-clock" : (_precisionTimer is MonotonicTimer ? "monotonic" : "wall-clock");
+            var toSource = audioClockAvailable ? "audio-clock" : (_precisionTimer is MonotonicTimer ? "monotonic" : "wall-clock");
+            _logger.LogInformation("[Timing] Source changed: {FromSource} → {ToSource}", fromSource, toSource);
+
+            // Update buffer's timing source name
+            if (_buffer != null)
+            {
+                _buffer.TimingSourceName = toSource;
+            }
+        }
+
+        _lastAudioClockAvailable = audioClockAvailable;
+
+        if (audioClockAvailable)
+        {
+            return audioClockTime!.Value;
         }
 
         // Fall back to MonotonicTimer (filtered wall clock)
@@ -454,7 +493,7 @@ public sealed class AudioPipeline : IAudioPipeline
 
             SetState(AudioPipelineState.Playing);
             _logger.LogInformation(
-                "Starting playback: buffer={BufferMs:F0}ms, sync offset={OffsetMs:F2}ms (±{UncertaintyMs:F2}ms), " +
+                "[Playback] Starting playback: buffer={BufferMs:F0}ms, sync offset={OffsetMs:F2}ms (±{UncertaintyMs:F2}ms), " +
                 "output latency={OutputLatencyMs}ms, timer resolution={ResolutionNs:F0}ns",
                 _buffer?.BufferedMilliseconds ?? 0,
                 syncStatus.OffsetMilliseconds,
@@ -500,7 +539,7 @@ public sealed class AudioPipeline : IAudioPipeline
         {
             var status = _clockSync.GetStatus();
             _logger.LogWarning(
-                "Clock sync timeout after {ElapsedMs}ms. Starting playback without full convergence. " +
+                "[ClockSync] Timeout after {ElapsedMs}ms. Starting playback without full convergence. " +
                 "Measurements: {Count}, Uncertainty: {Uncertainty:F2}ms",
                 elapsed / 1000,
                 status.MeasurementCount,
@@ -521,7 +560,7 @@ public sealed class AudioPipeline : IAudioPipeline
             _loggedSyncWaiting = true;
             var status = _clockSync.GetStatus();
             _logger.LogInformation(
-                "Buffer ready ({BufferMs:F0}ms), waiting for clock sync convergence. " +
+                "[ClockSync] Buffer ready ({BufferMs:F0}ms), waiting for convergence. " +
                 "Measurements: {Count}, Uncertainty: {Uncertainty:F2}ms, Converged: {Converged}",
                 _buffer?.BufferedMilliseconds ?? 0,
                 status.MeasurementCount,
@@ -563,7 +602,7 @@ public sealed class AudioPipeline : IAudioPipeline
     {
         var stats = _buffer?.GetStats();
         _logger.LogWarning(
-            "Re-anchoring required: sync error {SyncErrorMs:F1}ms exceeds threshold. " +
+            "[Correction] Re-anchor required: sync error {SyncErrorMs:F1}ms exceeds threshold. " +
             "Dropped={Dropped}, Inserted={Inserted}. Clearing buffer for resync.",
             stats?.SyncErrorMs ?? 0,
             stats?.SamplesDroppedForSync ?? 0,
@@ -635,15 +674,27 @@ public sealed class AudioPipeline : IAudioPipeline
                 ? $"drift={clockStatus.DriftMicrosecondsPerSecond:+0.0;-0.0}μs/s"
                 : "drift=pending";
 
-            // Get monotonic timer stats for diagnostics
-            var timerStats = _precisionTimer is MonotonicTimer mt ? mt.GetStatsSummary() : "N/A";
+            // Get timer info for diagnostics - only include MonotonicTimer stats when it's the active source
+            string timerInfo;
+            if (_usingAudioClock)
+            {
+                timerInfo = "audio-clock";
+            }
+            else if (_precisionTimer is MonotonicTimer mt)
+            {
+                timerInfo = $"monotonic: {mt.GetStatsSummary()}";
+            }
+            else
+            {
+                timerInfo = "wall-clock";
+            }
 
             // Use appropriate log level based on sync error magnitude
             if (absError > 50) // > 50ms - significant drift
             {
                 _logger.LogWarning(
-                    "Sync drift: error={SyncErrorMs:+0.00;-0.00}ms, elapsed={Elapsed:F0}ms, readTime={ReadTime:F0}ms, " +
-                    "latencyComp={Latency}ms, {DriftInfo}, correction={Correction}, buffer={BufferMs:F0}ms, timer=[{TimerStats}]",
+                    "[SyncError] Drift: error={SyncErrorMs:+0.00;-0.00}ms, elapsed={Elapsed:F0}ms, readTime={ReadTime:F0}ms, " +
+                    "latencyComp={Latency}ms, {DriftInfo}, correction={Correction}, buffer={BufferMs:F0}ms, timing=[{TimerInfo}]",
                     syncErrorMs,
                     stats.ElapsedSinceStartMs,
                     samplesReadTimeMs,
@@ -651,12 +702,12 @@ public sealed class AudioPipeline : IAudioPipeline
                     driftInfo,
                     correctionInfo,
                     stats.BufferedMs,
-                    timerStats);
+                    timerInfo);
             }
             else if (absError > 10) // > 10ms - noticeable
             {
                 _logger.LogInformation(
-                    "Sync status: error={SyncErrorMs:+0.00;-0.00}ms, elapsed={Elapsed:F0}ms, readTime={ReadTime:F0}ms, " +
+                    "[SyncError] Status: error={SyncErrorMs:+0.00;-0.00}ms, elapsed={Elapsed:F0}ms, readTime={ReadTime:F0}ms, " +
                     "{DriftInfo}, correction={Correction}, buffer={BufferMs:F0}ms",
                     syncErrorMs,
                     stats.ElapsedSinceStartMs,
@@ -668,7 +719,7 @@ public sealed class AudioPipeline : IAudioPipeline
             else // < 10ms - good sync
             {
                 _logger.LogDebug(
-                    "Sync OK: error={SyncErrorMs:+0.00;-0.00}ms, {DriftInfo}, buffer={BufferMs:F0}ms",
+                    "[SyncError] OK: error={SyncErrorMs:+0.00;-0.00}ms, {DriftInfo}, buffer={BufferMs:F0}ms",
                     syncErrorMs,
                     driftInfo,
                     stats.BufferedMs);

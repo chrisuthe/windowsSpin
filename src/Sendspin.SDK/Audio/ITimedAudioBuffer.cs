@@ -72,6 +72,16 @@ public interface ITimedAudioBuffer : IDisposable
     long CalibratedStartupLatencyMicroseconds { get; set; }
 
     /// <summary>
+    /// Gets or sets a descriptive name for the timing source used for sync calculations.
+    /// </summary>
+    /// <remarks>
+    /// Set by the pipeline to indicate which timing source is providing timestamps:
+    /// "audio-clock" for hardware audio clock, "monotonic" for MonotonicTimer, "wall-clock" for raw timer.
+    /// Included in sync correction diagnostic logs to help identify timing-related issues.
+    /// </remarks>
+    string? TimingSourceName { get; set; }
+
+    /// <summary>
     /// Gets the current raw sync error in microseconds.
     /// Positive = behind (need to speed up/drop), Negative = ahead (need to slow down/insert).
     /// </summary>

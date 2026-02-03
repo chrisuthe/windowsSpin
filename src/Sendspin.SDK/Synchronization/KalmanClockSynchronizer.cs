@@ -337,7 +337,7 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
             {
                 _driftReliableLogged = true;
                 _logger?.LogInformation(
-                    "Drift is now reliable: drift={Drift:F2}μs/s (±{Uncertainty:F1}μs/s), " +
+                    "[ClockSync] Drift reliable: drift={Drift:F2}μs/s (±{Uncertainty:F1}μs/s), " +
                     "offset={Offset:F0}μs, measurements={Count}. " +
                     "Future timestamps will include drift compensation.",
                     _drift,

@@ -157,6 +157,9 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     public long CalibratedStartupLatencyMicroseconds { get; set; }
 
     /// <inheritdoc/>
+    public string? TimingSourceName { get; set; }
+
+    /// <inheritdoc/>
     public long SyncErrorMicroseconds
     {
         get
@@ -239,7 +242,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 DropOldestSamples(toDrop);
                 _overrunCount++;
                 _logger.LogWarning(
-                    "Buffer overrun #{Count}: dropped {DroppedMs:F1}ms of audio to make room (buffer full at {CapacityMs}ms)",
+                    "[Buffer] Overrun #{Count}: dropped {DroppedMs:F1}ms of audio to make room (buffer full at {CapacityMs}ms)",
                     _overrunCount,
                     toDrop / (double)_samplesPerMs,
                     _buffer.Length / (double)_samplesPerMs);
@@ -1058,10 +1061,11 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 : 0;
 
             _logger.LogInformation(
-                "Sync correction ended: DROPPING complete (dropped={DroppedSession} session, {DroppedTotal} total, duration={DurationMs:F0}ms)",
+                "[Correction] Ended: DROPPING complete (dropped={DroppedSession} session, {DroppedTotal} total, duration={DurationMs:F0}ms, timing={TimingSource})",
                 sessionDropped,
                 _samplesDroppedForSync,
-                sessionDurationMs);
+                sessionDurationMs,
+                TimingSourceName ?? "unknown");
         }
         else if (_previousCorrectionMode == SyncCorrectionMode.Inserting)
         {
@@ -1071,10 +1075,11 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 : 0;
 
             _logger.LogInformation(
-                "Sync correction ended: INSERTING complete (inserted={InsertedSession} session, {InsertedTotal} total, duration={DurationMs:F0}ms)",
+                "[Correction] Ended: INSERTING complete (inserted={InsertedSession} session, {InsertedTotal} total, duration={DurationMs:F0}ms, timing={TimingSource})",
                 sessionInserted,
                 _samplesInsertedForSync,
-                sessionDurationMs);
+                sessionDurationMs,
+                TimingSourceName ?? "unknown");
         }
 
         // Log the START of the new correction session (if not None)
@@ -1084,12 +1089,13 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             _droppedAtSessionStart = _samplesDroppedForSync;
 
             _logger.LogInformation(
-                "Sync correction started: DROPPING (syncError={SyncErrorMs:+0.00;-0.00}ms, smoothed={SmoothedMs:+0.00;-0.00}ms, " +
-                "dropEveryN={DropEveryN}, elapsed={ElapsedMs:F0}ms)",
+                "[Correction] Started: DROPPING (syncError={SyncErrorMs:+0.00;-0.00}ms, smoothed={SmoothedMs:+0.00;-0.00}ms, " +
+                "dropEveryN={DropEveryN}, elapsed={ElapsedMs:F0}ms, timing={TimingSource})",
                 _currentSyncErrorMicroseconds / 1000.0,
                 _smoothedSyncErrorMicroseconds / 1000.0,
                 _dropEveryNFrames,
-                _lastElapsedMicroseconds / 1000.0);
+                _lastElapsedMicroseconds / 1000.0,
+                TimingSourceName ?? "unknown");
         }
         else if (newMode == SyncCorrectionMode.Inserting)
         {
@@ -1097,12 +1103,13 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             _insertedAtSessionStart = _samplesInsertedForSync;
 
             _logger.LogInformation(
-                "Sync correction started: INSERTING (syncError={SyncErrorMs:+0.00;-0.00}ms, smoothed={SmoothedMs:+0.00;-0.00}ms, " +
-                "insertEveryN={InsertEveryN}, elapsed={ElapsedMs:F0}ms)",
+                "[Correction] Started: INSERTING (syncError={SyncErrorMs:+0.00;-0.00}ms, smoothed={SmoothedMs:+0.00;-0.00}ms, " +
+                "insertEveryN={InsertEveryN}, elapsed={ElapsedMs:F0}ms, timing={TimingSource})",
                 _currentSyncErrorMicroseconds / 1000.0,
                 _smoothedSyncErrorMicroseconds / 1000.0,
                 _insertEveryNFrames,
-                _lastElapsedMicroseconds / 1000.0);
+                _lastElapsedMicroseconds / 1000.0,
+                TimingSourceName ?? "unknown");
         }
 
         _previousCorrectionMode = newMode;
@@ -1336,7 +1343,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
 
         // Log the accumulated underruns
         _logger.LogWarning(
-            "Buffer underrun: {Count} events in last {IntervalMs}ms (total: {TotalCount}). " +
+            "[Buffer] Underrun: {Count} events in last {IntervalMs}ms (total: {TotalCount}). " +
             "Buffer empty, outputting silence. Check network/decoding performance.",
             _underrunsSinceLastLog,
             (currentLocalTime - _lastUnderrunLogTime) / 1000,
