@@ -98,6 +98,7 @@ public sealed class AudioPipeline : IAudioPipeline
     /// <param name="precisionTimer">High-precision timer for accurate timing (optional, uses shared instance if null).</param>
     /// <param name="waitForConvergence">Whether to wait for clock sync convergence before starting playback (default: true).</param>
     /// <param name="convergenceTimeoutMs">Timeout in milliseconds to wait for clock sync convergence (default: 5000ms).</param>
+    /// <param name="useMonotonicTimer">Whether to wrap the timer with monotonicity enforcement for VM resilience (default: true).</param>
     public AudioPipeline(
         ILogger<AudioPipeline> logger,
         IAudioDecoderFactory decoderFactory,
@@ -107,7 +108,8 @@ public sealed class AudioPipeline : IAudioPipeline
         Func<ITimedAudioBuffer, Func<long>, IAudioSampleSource> sourceFactory,
         IHighPrecisionTimer? precisionTimer = null,
         bool waitForConvergence = true,
-        int convergenceTimeoutMs = 5000)
+        int convergenceTimeoutMs = 5000,
+        bool useMonotonicTimer = true)
     {
         _logger = logger;
         _decoderFactory = decoderFactory;
@@ -115,9 +117,20 @@ public sealed class AudioPipeline : IAudioPipeline
         _bufferFactory = bufferFactory;
         _playerFactory = playerFactory;
         _sourceFactory = sourceFactory;
-        _precisionTimer = precisionTimer ?? HighPrecisionTimer.Shared;
         _waitForConvergence = waitForConvergence;
         _convergenceTimeoutMs = convergenceTimeoutMs;
+
+        // Set up the precision timer, optionally wrapping with monotonic filter for VM resilience
+        var baseTimer = precisionTimer ?? HighPrecisionTimer.Shared;
+        if (useMonotonicTimer)
+        {
+            _precisionTimer = new MonotonicTimer(baseTimer, logger);
+            _logger.LogDebug("Using MonotonicTimer wrapper for VM-resilient timing");
+        }
+        else
+        {
+            _precisionTimer = baseTimer;
+        }
 
         // Log timer precision at startup
         if (HighPrecisionTimer.IsHighResolution)
