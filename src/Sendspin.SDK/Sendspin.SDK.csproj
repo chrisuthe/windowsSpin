@@ -554,7 +554,7 @@ New Features:
 - Default convergence timeout reduced from 5000ms to 1000ms
 
 Migration Guide:
-- If you implement IClockSynchronizer, add: bool HasMinimalSync => MeasurementCount >= 2;
+- If you implement IClockSynchronizer, add: bool HasMinimalSync =&gt; MeasurementCount &gt;= 2;
 - If you only use KalmanClockSynchronizer (most users), no changes needed
 
 v2.2.1:
@@ -620,9 +620,31 @@ New Features:
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net8.0|AnyCPU'">
+    <IsTrimmable>True</IsTrimmable>
+    <IsAotCompatible>True</IsAotCompatible>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net10.0|AnyCPU'">
+    <IsTrimmable>True</IsTrimmable>
+    <IsAotCompatible>True</IsAotCompatible>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|net8.0|AnyCPU'">
+    <IsTrimmable>True</IsTrimmable>
+    <IsAotCompatible>True</IsAotCompatible>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|net10.0|AnyCPU'">
+    <IsTrimmable>True</IsTrimmable>
+    <IsAotCompatible>True</IsAotCompatible>
+    <TrimMode>partial</TrimMode>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
   <ItemGroup>
     <!-- Core dependencies - all cross-platform -->
-    <PackageReference Include="Fleck" Version="1.2.0" />
     <PackageReference Include="Concentus" Version="2.2.2" />
     <PackageReference Include="Zeroconf" Version="3.7.16" />
     <PackageReference Include="Makaretu.Dns.Multicast" Version="0.27.0" />
@@ -633,6 +655,16 @@ New Features:
 
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" />
+    
+    <!-- Add trimming descriptor for AOT support -->
+    <TrimmerRootDescriptor Include="PublishTrimming.xml" />
+    
+    <!-- Preserve these assemblies completely (prevent trimming) -->
+    <TrimmerRootAssembly Include="Concentus" />
+    <TrimmerRootAssembly Include="Sendspin.SDK" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Fleck\src\Fleck\Fleck.csproj" />
+  </ItemGroup>
 </Project>

@@ -38,7 +38,7 @@ public sealed class OpusDecoder : IAudioDecoder
         Format = format;
 
         // Create Concentus decoder using the factory (preferred over deprecated constructor)
-        _decoder = OpusCodecFactory.CreateDecoder(format.SampleRate, format.Channels);
+        _decoder = new Concentus.Structs.OpusDecoder(format.SampleRate, format.Channels);
 
         // Opus max frame is 120ms, but typically 20ms (960 samples at 48kHz per channel)
         // Allocate for worst case: 120ms * sampleRate / 1000 * channels

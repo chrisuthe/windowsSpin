@@ -1,0 +1,23 @@
+<Directives xmlns="http://schemas.microsoft.com/netfx/2013/01/metadata">
+  <Application>
+    <!-- Preserve all of Concentus (Opus decoder library) -->
+    <Assembly Name="Concentus" Dynamic="Required All" />
+    
+    <!-- Preserve Sendspin.SDK types that might be accessed dynamically -->
+    <Assembly Name="Sendspin.SDK" Dynamic="Required All" />
+    
+    <!-- Preserve Concentus factory and decoder types explicitly -->
+    <Type Name="Concentus.OpusCodecFactory" Dynamic="Required All" />
+    <Type Name="Concentus.Structs.OpusDecoder" Dynamic="Required All" />
+    <Type Name="Concentus.IOpusDecoder" Dynamic="Required All" />
+    
+    <!-- Preserve audio codec types -->
+    <Type Name="Sendspin.SDK.Audio.Codecs.OpusDecoder" Dynamic="Required All" />
+    <Type Name="Sendspin.SDK.Audio.Codecs.FlacDecoder" Dynamic="Required All" />
+    <Type Name="Sendspin.SDK.Audio.Codecs.PcmDecoder" Dynamic="Required All" />
+    
+    <!-- Preserve protocol message types for JSON serialization -->
+    <Namespace Name="Sendspin.SDK.Protocol.Messages" Dynamic="Required All" />
+    <Namespace Name="Sendspin.SDK.Models" Dynamic="Required All" />
+  </Application>
+</Directives>

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace Sendspin.SDK.Protocol;
 
@@ -55,7 +56,9 @@ internal sealed class OptionalJsonConverter<T> : JsonConverter<Optional<T>>
         }
 
         // Field is present with a value
-        var value = JsonSerializer.Deserialize<T>(ref reader, options);
+        // Use JsonTypeInfo to avoid RequiresUnreferencedCode warning (AOT-friendly)
+        var typeInfo = (JsonTypeInfo<T>)options.GetTypeInfo(typeof(T));
+        var value = JsonSerializer.Deserialize(ref reader, typeInfo);
         return Optional<T>.Present(value);
     }
 
