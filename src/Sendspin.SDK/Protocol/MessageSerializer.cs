@@ -1,5 +1,5 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Sendspin.SDK.Protocol.Messages;
 
 namespace Sendspin.SDK.Protocol;
@@ -9,23 +9,16 @@ namespace Sendspin.SDK.Protocol;
 /// </summary>
 public static class MessageSerializer
 {
-    private static readonly JsonSerializerOptions s_options = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters =
-        {
-            new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower),
-            new OptionalJsonConverterFactory()
-        }
-    };
+    private static readonly MessageSerializerContext s_context = MessageSerializerContext.Default;
+
+    private static JsonTypeInfo<T> GetTypeInfo<T>() => (JsonTypeInfo<T>)s_context.GetTypeInfo(typeof(T))!;
 
     /// <summary>
     /// Serializes a message to JSON string.
     /// </summary>
     public static string Serialize<T>(T message) where T : IMessage
     {
-        return JsonSerializer.Serialize(message, s_options);
+        return JsonSerializer.Serialize(message, GetTypeInfo<T>());
     }
 
     /// <summary>
@@ -33,7 +26,7 @@ public static class MessageSerializer
     /// </summary>
     public static byte[] SerializeToBytes<T>(T message) where T : IMessage
     {
-        return JsonSerializer.SerializeToUtf8Bytes(message, s_options);
+        return JsonSerializer.SerializeToUtf8Bytes(message, GetTypeInfo<T>());
     }
 
     /// <summary>
@@ -51,13 +44,13 @@ public static class MessageSerializer
         var messageType = typeProp.GetString();
         return messageType switch
         {
-            MessageTypes.ServerHello => JsonSerializer.Deserialize<ServerHelloMessage>(json, s_options),
-            MessageTypes.ServerTime => JsonSerializer.Deserialize<ServerTimeMessage>(json, s_options),
-            MessageTypes.StreamStart => JsonSerializer.Deserialize<StreamStartMessage>(json, s_options),
-            MessageTypes.StreamEnd => JsonSerializer.Deserialize<StreamEndMessage>(json, s_options),
-            MessageTypes.StreamClear => JsonSerializer.Deserialize<StreamClearMessage>(json, s_options),
-            MessageTypes.GroupUpdate => JsonSerializer.Deserialize<GroupUpdateMessage>(json, s_options),
-            MessageTypes.ServerCommand => JsonSerializer.Deserialize<ServerCommandMessage>(json, s_options), // Player commands (volume/mute)
+            MessageTypes.ServerHello => JsonSerializer.Deserialize(json, s_context.ServerHelloMessage),
+            MessageTypes.ServerTime => JsonSerializer.Deserialize(json, s_context.ServerTimeMessage),
+            MessageTypes.StreamStart => JsonSerializer.Deserialize(json, s_context.StreamStartMessage),
+            MessageTypes.StreamEnd => JsonSerializer.Deserialize(json, s_context.StreamEndMessage),
+            MessageTypes.StreamClear => JsonSerializer.Deserialize(json, s_context.StreamClearMessage),
+            MessageTypes.GroupUpdate => JsonSerializer.Deserialize(json, s_context.GroupUpdateMessage),
+            MessageTypes.ServerCommand => JsonSerializer.Deserialize(json, s_context.ServerCommandMessage), // Player commands (volume/mute)
             _ => null // Unknown message type
         };
     }
@@ -67,7 +60,7 @@ public static class MessageSerializer
     /// </summary>
     public static T? Deserialize<T>(string json) where T : class, IMessage
     {
-        return JsonSerializer.Deserialize<T>(json, s_options);
+        return JsonSerializer.Deserialize(json, GetTypeInfo<T>());
     }
 
     /// <summary>
