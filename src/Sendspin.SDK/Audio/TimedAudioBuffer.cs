@@ -194,7 +194,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     /// </summary>
     /// <param name="format">Audio format for samples.</param>
     /// <param name="clockSync">Clock synchronizer for timestamp conversion.</param>
-    /// <param name="bufferCapacityMs">Maximum buffer capacity in milliseconds. Should be large enough to absorb the server's initial burst (typically 30s).</param>
+    /// <param name="bufferCapacityMs">Maximum buffer capacity in milliseconds. Should be large enough to absorb the server's initial burst. Compact codecs like OPUS can burst 40-60+ seconds; 120s recommended.</param>
     /// <param name="syncOptions">Optional sync correction options. Uses <see cref="SyncCorrectionOptions.Default"/> if not provided.</param>
     /// <param name="logger">Optional logger for diagnostics (uses NullLogger if not provided).</param>
     public TimedAudioBuffer(
@@ -241,14 +241,35 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             // Convert server timestamp to local playback time
             var localPlaybackTime = _clockSync.ServerToClientTime(serverTimestamp);
 
-            // Check for overrun - drop oldest if needed
+            // Check for overrun
             if (_count + samples.Length > _buffer.Length)
             {
+                _overrunCount++;
+
+                if (!_playbackStarted)
+                {
+                    // Before playback starts, discard INCOMING audio to preserve the stream's
+                    // starting position. The server's initial burst can far exceed buffer capacity
+                    // (especially for compact codecs like OPUS), and dropping the oldest audio
+                    // would destroy the beginning of the stream — causing the player to start
+                    // from the wrong position (potentially tens of seconds into the song).
+                    if (_overrunCount <= 3 || _overrunCount % 500 == 0)
+                    {
+                        _logger.LogDebug(
+                            "[Buffer] Pre-playback overrun #{Count}: discarding incoming {ChunkMs:F1}ms to preserve stream start (buffer full at {CapacityMs}ms)",
+                            _overrunCount,
+                            samples.Length / (double)_samplesPerMs,
+                            _buffer.Length / (double)_samplesPerMs);
+                    }
+
+                    return; // Discard incoming chunk — do NOT drop oldest
+                }
+
+                // During playback, drop oldest to make room (normal overrun behavior)
                 var toDrop = (_count + samples.Length) - _buffer.Length;
                 DropOldestSamples(toDrop);
-                _overrunCount++;
-                _logger.LogWarning(
-                    "[Buffer] Overrun #{Count}: dropped {DroppedMs:F1}ms of audio to make room (buffer full at {CapacityMs}ms)",
+                _logger.LogDebug(
+                    "[Buffer] Overrun #{Count}: dropped {DroppedMs:F1}ms of oldest audio (buffer full at {CapacityMs}ms)",
                     _overrunCount,
                     toDrop / (double)_samplesPerMs,
                     _buffer.Length / (double)_samplesPerMs);
@@ -314,6 +335,18 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                     buffer.Fill(0f);
                     return 0;
                 }
+
+                // If scheduled time is significantly in the past, skip forward to near-current audio.
+                if (timeUntilStart < -_syncOptions.ScheduledStartGraceWindowMicroseconds)
+                {
+                    SkipStaleAudio(currentLocalTime);
+                }
+
+                _logger.LogInformation(
+                    "[Buffer] Playback starting (Read): timeUntilStart={TimeUntilStart:F1}ms, " +
+                    "buffered={BufferedMs:F0}ms, segments={Segments}, scheduledStart={Scheduled}",
+                    timeUntilStart / 1000.0, _count / (double)_samplesPerMs,
+                    _segments.Count, _scheduledStartLocalTime);
 
                 // Scheduled time arrived - start playback!
                 _playbackStarted = true;
@@ -469,6 +502,18 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                     buffer.Fill(0f);
                     return 0;
                 }
+
+                // Skip stale audio if scheduled time is in the past
+                if (timeUntilStart < -_syncOptions.ScheduledStartGraceWindowMicroseconds)
+                {
+                    SkipStaleAudio(currentLocalTime);
+                }
+
+                _logger.LogInformation(
+                    "[Buffer] Playback starting: timeUntilStart={TimeUntilStart:F1}ms, " +
+                    "buffered={BufferedMs:F0}ms, segments={Segments}, scheduledStart={Scheduled}",
+                    timeUntilStart / 1000.0, _count / (double)_samplesPerMs,
+                    _segments.Count, _scheduledStartLocalTime);
 
                 _playbackStarted = true;
                 _waitingForScheduledStart = false;
@@ -864,6 +909,58 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
         }
 
         return peeked;
+    }
+
+    /// <summary>
+    /// Skips forward through the buffer to discard stale audio whose playback time has already passed.
+    /// Called when playback starts and the buffer contains audio with timestamps in the past.
+    /// Without this, a large buffer holding a server burst would start playing from audio that's
+    /// 20+ seconds old, causing massive sync offset vs other players (even though sync error reads 0).
+    /// Must be called under lock.
+    /// </summary>
+    /// <param name="currentLocalTime">Current local time in microseconds.</param>
+    /// <returns>Number of samples skipped.</returns>
+    private int SkipStaleAudio(long currentLocalTime)
+    {
+        var totalSkipped = 0;
+
+        // Skip segments whose playback time is in the past, but keep at least
+        // the target buffer depth worth of audio so we have something to play
+        while (_segments.Count > 1 && _count > _samplesPerMs * (int)TargetBufferMilliseconds)
+        {
+            var segment = _segments.Peek();
+
+            // Stop skipping once we reach audio that's near-current or in the future.
+            // Use the grace window as tolerance (default 10ms).
+            if (segment.LocalPlaybackTime >= currentLocalTime - _syncOptions.ScheduledStartGraceWindowMicroseconds)
+                break;
+
+            // This segment is stale — skip it
+            var toSkip = Math.Min(segment.SampleCount, _count);
+            _readPos = (_readPos + toSkip) % _buffer.Length;
+            _count -= toSkip;
+            _droppedSamples += toSkip;
+            totalSkipped += toSkip;
+            ConsumeSegments(toSkip);
+        }
+
+        if (totalSkipped > 0)
+        {
+            var skippedMs = totalSkipped / (double)_samplesPerMs;
+            _logger.LogInformation(
+                "[Buffer] Skipped {SkippedMs:F0}ms of stale audio on playback start (buffer had audio from the past)",
+                skippedMs);
+
+            // Re-anchor scheduled start to the new first segment
+            if (_segments.Count > 0)
+            {
+                var newFirst = _segments.Peek();
+                _scheduledStartLocalTime = newFirst.LocalPlaybackTime;
+                _nextExpectedPlaybackTime = newFirst.LocalPlaybackTime;
+            }
+        }
+
+        return totalSkipped;
     }
 
     /// <summary>

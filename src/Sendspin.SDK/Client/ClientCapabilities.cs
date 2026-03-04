@@ -42,7 +42,9 @@ public sealed class ClientCapabilities
     };
 
     /// <summary>
-    /// Audio buffer capacity in bytes (32MB like reference implementation).
+    /// Audio buffer capacity in compressed bytes. The server uses this to limit how much
+    /// audio it sends ahead. Should be derived from your PCM buffer duration and the
+    /// highest-bitrate codec you support. Default is 32MB (reference implementation fallback).
     /// </summary>
     public int BufferCapacity { get; set; } = 32_000_000;
 
