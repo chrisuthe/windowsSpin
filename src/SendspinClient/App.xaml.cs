@@ -284,9 +284,12 @@ public partial class App : Application
             var decoderFactory = sp.GetRequiredService<IAudioDecoderFactory>();
             var clockSync = sp.GetRequiredService<IClockSynchronizer>();
 
-            // Read buffer configuration (matching JS client's faster startup)
+            // Read buffer configuration
+            // Capacity must hold the full server burst without overflowing.
+            // We advertise 32MB BufferCapacity (compressed bytes) — for FLAC with ~4:1
+            // compression, that decodes to 30+ seconds of audio. Default 30s matches this.
             var bufferTargetMs = _configuration!.GetValue<double>("Audio:Buffer:TargetMs", 250);
-            var bufferCapacityMs = _configuration!.GetValue<int>("Audio:Buffer:CapacityMs", 8000);
+            var bufferCapacityMs = _configuration!.GetValue<int>("Audio:Buffer:CapacityMs", 30000);
 
             // Read clock sync wait configuration
             var waitForConvergence = _configuration!.GetValue<bool>("Audio:ClockSync:WaitForConvergence", true);

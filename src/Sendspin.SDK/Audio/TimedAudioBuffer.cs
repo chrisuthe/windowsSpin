@@ -194,7 +194,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     /// </summary>
     /// <param name="format">Audio format for samples.</param>
     /// <param name="clockSync">Clock synchronizer for timestamp conversion.</param>
-    /// <param name="bufferCapacityMs">Maximum buffer capacity in milliseconds (default 500ms).</param>
+    /// <param name="bufferCapacityMs">Maximum buffer capacity in milliseconds. Should be large enough to absorb the server's initial burst (typically 30s).</param>
     /// <param name="syncOptions">Optional sync correction options. Uses <see cref="SyncCorrectionOptions.Default"/> if not provided.</param>
     /// <param name="logger">Optional logger for diagnostics (uses NullLogger if not provided).</param>
     public TimedAudioBuffer(
