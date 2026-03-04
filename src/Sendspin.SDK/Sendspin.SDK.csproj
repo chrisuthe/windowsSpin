@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>7.2.0</Version>
+    <Version>7.2.1</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,24 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v7.2.1 - Buffer Overrun Sync Fix:
+
+Bug Fixes:
+- Fixed multi-player sync catastrophe where buffer overruns during the server's initial
+  audio burst destroyed the beginning of the stream. Compact codecs (OPUS) can burst 40+
+  seconds of audio in seconds on LAN, causing 1700+ overruns that advanced the player
+  20-35 seconds into the song while other players started from the beginning.
+- Pre-playback overrun safety net: When the buffer fills before playback starts, incoming
+  audio is now discarded instead of dropping the oldest. This preserves the stream's
+  starting position so all players begin at the same point in the song.
+- SkipStaleAudio: When a player's pipeline initializes late and the scheduled start time
+  is already in the past, the buffer now skips forward through stale segments to the
+  correct playback position. Previously, the player would start from the beginning of
+  the buffer regardless of timestamps, causing permanent offset vs other players.
+- Updated ClientCapabilities.BufferCapacity doc: Clarified that apps should derive this
+  from actual PCM buffer duration and worst-case codec bitrate instead of using the
+  hardcoded 32MB default.
+
 v7.2.0 - Reconnect Resilience, Freeze/Thaw Kalman State, FLAC Fixes:
 
 New Features:
@@ -401,290 +419,7 @@ Scenarios improved:
 - Pause/resume: Near-instant resume when clock already synced
 - Track changes: Faster transitions between tracks
 
-v5.0.3:
-Bug Fixes:
-- Fixed SDK always reporting 100% volume to server on connect
-  - Initial client/state message was hardcoded to send volume=100, muted=false
-  - Now uses InitialVolume and InitialMuted from ClientCapabilities
-
-New Features:
-- ClientCapabilities.InitialVolume: Set initial volume (0-100) reported to server (default: 100)
-- ClientCapabilities.InitialMuted: Set initial mute state reported to server (default: false)
-
-v5.0.2:
-Documentation:
-- Completely rewritten README for v5.0.0 external sync correction architecture
-- Added comprehensive usage examples for SyncCorrectionCalculator
-- Updated architecture diagram showing app-layer correction
-- Added v5.0.0 migration guide with before/after code examples
-- Documented tiered correction strategy and configuration options
-
-v5.0.1:
-Bug Fixes:
-- Fixed Task.Run exception handling in TimedAudioBuffer re-anchor event firing
-  - If Task.Run throws (ThreadPool exhaustion, OOM), the pending flag is now reset
-  - Prevents permanently blocking future re-anchor events in rare edge cases
-
-Improvements:
-- SyncCorrectionCalculator constructor now validates sampleRate and channels > 0
-  - Throws ArgumentOutOfRangeException with clear message for invalid inputs
-- NotifyExternalCorrection now throws separate exceptions for each invalid parameter
-- Added Debug.Assert to catch logically invalid state (both drop and insert > 0)
-- Enhanced documentation for thread safety, contracts, and IDisposable lifecycle
-
-v5.0.0 - Major Architecture Change: External Sync Correction
-
-BREAKING CHANGES:
-This release moves sync correction logic OUT of the SDK into the application layer.
-The SDK now only reports sync error - your app decides HOW to correct.
-
-This enables:
-- Different platforms to use different correction strategies (browser: playbackRate, Windows: drop/insert, Linux: ALSA rate)
-- Apps to offer multiple correction profiles
-- Cleaner SDK with single responsibility (buffering + timing, not correction)
-
-New Public API:
-- ISyncCorrectionProvider: Interface for correction strategy abstraction
-  - CurrentMode: SyncCorrectionMode (None, Resampling, Dropping, Inserting)
-  - DropEveryNFrames: Interval for dropping frames (0 = disabled)
-  - InsertEveryNFrames: Interval for inserting frames (0 = disabled)
-  - TargetPlaybackRate: Rate for resampling-based correction (1.0 = normal)
-  - CorrectionChanged event: Notifies when correction parameters change
-  - UpdateFromSyncError(): Call with buffer's sync error values
-  - Reset(): Reset to initial state on buffer clear/restart
-
-- SyncCorrectionCalculator: Default ISyncCorrectionProvider implementation
-  - Implements tiered correction matching the CLI: deadband → resampling → drop/insert
-  - Uses SyncCorrectionOptions for configuration
-  - Thread-safe for use from audio callbacks
-
-- ITimedAudioBuffer new members:
-  - SyncErrorMicroseconds: Raw sync error (positive = behind, negative = ahead)
-  - SmoothedSyncErrorMicroseconds: EMA-filtered error for stable decisions
-  - ReadRaw(): Read samples WITHOUT internal correction (use with external provider)
-  - NotifyExternalCorrection(): Report drops/inserts for accurate error tracking
-
-Deprecated API (still functional for backwards compatibility):
-- ITimedAudioBuffer.TargetPlaybackRate [Obsolete]
-- ITimedAudioBuffer.TargetPlaybackRateChanged [Obsolete]
-- ITimedAudioBuffer.Read() [Obsolete] - use ReadRaw() with external correction
-
-Migration Guide:
-OLD (SDK applies correction internally):
-  var read = buffer.Read(samples, currentTime);
-  buffer.TargetPlaybackRateChanged += rate => resampler.Rate = rate;
-
-NEW (App applies correction externally):
-  // Create correction provider
-  var correctionProvider = new SyncCorrectionCalculator(
-      buffer.SyncOptions, sampleRate, channels);
-
-  // Read raw samples (no internal correction)
-  var read = buffer.ReadRaw(samples, currentTime);
-
-  // Update correction provider with current error
-  correctionProvider.UpdateFromSyncError(
-      buffer.SyncErrorMicroseconds,
-      buffer.SmoothedSyncErrorMicroseconds);
-
-  // Apply correction based on provider's decisions
-  var mode = correctionProvider.CurrentMode;
-  if (mode == SyncCorrectionMode.Dropping) {
-      // Apply drop every N frames
-      buffer.NotifyExternalCorrection(droppedCount, 0);
-  }
-
-  // Or subscribe to rate changes for resampling
-  correctionProvider.CorrectionChanged += p => resampler.Rate = p.TargetPlaybackRate;
-
-Architecture Diagram:
-  SDK (reports error only)         →    App (applies correction)
-  ─────────────────────────────────────────────────────────────
-  TimedAudioBuffer                      SyncCorrectionCalculator
-  ├─ ReadRaw() - no correction          ├─ UpdateFromSyncError()
-  ├─ SyncErrorMicroseconds              ├─ DropEveryNFrames
-  ├─ SmoothedSyncErrorMicroseconds      ├─ InsertEveryNFrames
-  └─ NotifyExternalCorrection()         └─ TargetPlaybackRate
-
-Benefits:
-- Browser apps can use native playbackRate (WSOLA time-stretching)
-- Windows apps can choose WDL resampler, SoundTouch, or drop/insert only
-- Linux apps can use ALSA hardware rate adjustment
-- Embedded systems can implement platform-specific correction
-- Testability: Correction logic isolated, easier to unit test
-
-v3.5.1:
-Improved Push-Model Backend Support:
-- Refactored calibrated startup latency handling for cleaner architecture
-- Instead of adding latency to every sync error calculation, now backdates
-  _playbackStartLocalTime when playback starts
-- This handles static buffer pre-fill time once at initialization
-- Sync error formula remains clean: elapsed - samplesReadTime
-- Drift/fluctuation correction logic unchanged
-
-v3.5.0:
-New Features:
-- CalibratedStartupLatencyMicroseconds: New property on ITimedAudioBuffer for push-model audio backend support
-  - Compensates for ALSA-style backends that pre-fill output buffers before playback starts
-  - Without compensation, buffer prefill causes constant negative sync error (~-200ms)
-  - Pull-model backends (WASAPI) leave this at 0 (default) - no behavior change
-- IAudioPlayer.CalibratedStartupLatencyMs: New property with default implementation returning 0
-  - ALSA players can override to report their measured startup latency
-  - Value is automatically passed to TimedAudioBuffer by AudioPipeline
-
-Sync Error Formula Update:
-- syncError = elapsed - samplesReadTime + CalibratedStartupLatencyMicroseconds
-- When CalibratedStartupLatencyMicroseconds = 0, behavior is unchanged from previous versions
-
-v3.4.0:
-Improved Sync Correction:
-- Replaced fixed rate steps (1-2%) with proportional correction
-  - Rate = 1.0 + (error / CorrectionTargetSeconds / 1,000,000)
-  - Prevents overshoot by adjusting rate based on error magnitude
-  - Example: 10ms error with 3s target = 0.33% rate adjustment (vs fixed 1-2%)
-- Added EMA smoothing for sync error measurements (alpha=0.1)
-  - Filters measurement jitter before making correction decisions
-  - Prevents rapid oscillation between correction modes
-- Tiered correction now: deadband (1ms) -> proportional (1-15ms) -> drop/insert (15ms+)
-
-Deprecations:
-- EntryDeadbandMicroseconds: No longer used, marked [Obsolete]
-- ExitDeadbandMicroseconds: No longer used, marked [Obsolete]
-- BypassDeadband: No longer used, marked [Obsolete]
-These properties are retained for backward compatibility but have no effect.
-
-v3.3.1:
-New Features:
-- IAudioPlayer.OutputFormat: Optional property exposing the audio format sent to output device
-  - Default implementation returns null (non-breaking)
-  - Override in your implementation to expose actual output format
-- IAudioPipeline.OutputFormat: Optional property for output format (complements CurrentFormat)
-  - Default implementation returns null (non-breaking)
-  - Useful for debugging format conversions in the pipeline
-
-v3.3.0:
-New Features:
-- SyncCorrectionOptions: All sync correction parameters are now configurable via TimedAudioBuffer constructor
-  - EntryDeadbandMicroseconds: Error threshold to start correcting (default: 2ms)
-  - ExitDeadbandMicroseconds: Error threshold to stop correcting with hysteresis (default: 0.5ms)
-  - MaxSpeedCorrection: Maximum playback rate adjustment (default: 2%, CLI uses 4%)
-  - CorrectionTargetSeconds: Target time to eliminate drift (default: 3s, CLI uses 2s)
-  - ResamplingThresholdMicroseconds: Boundary between resampling and drop/insert (default: 15ms)
-  - ReanchorThresholdMicroseconds: Error threshold for buffer clear/restart (default: 500ms)
-  - StartupGracePeriodMicroseconds: No correction during startup (default: 500ms)
-  - ScheduledStartGraceWindowMicroseconds: Start timing tolerance (default: 10ms)
-  - BypassDeadband: Disable deadband for continuous correction (default: false)
-- Static presets: SyncCorrectionOptions.Default and SyncCorrectionOptions.CliDefaults
-- ITimedAudioBuffer.SyncOptions property for runtime inspection
-- Validation via SyncCorrectionOptions.Validate() to catch invalid configurations
-
-This enables SDK consumers to tune sync behavior for different platforms (ALSA, PulseAudio, CoreAudio, embedded)
-without code changes, addressing platform-specific timing characteristics.
-
-v3.2.0:
-Sync Correction Tuning:
-- Reduced MaxSpeedCorrection from 4% to 2% to prevent oscillation on platforms with higher timing variability (e.g., PulseAudio)
-- Increased CorrectionTargetSeconds from 2.0s to 3.0s for gentler, more stable convergence
-- These changes improve stability on cross-platform audio backends while maintaining good sync accuracy
-
-v3.1.0:
-New Features:
-- ClockSyncConverged event: Notifies when clock synchronizer reaches stable estimate
-  - Indicates client is ready for sample-accurate synchronized playback
-  - Useful for UI feedback and playback state management
-- SyncOffsetApplied event: Reports when external calibration adjusts sync offset
-  - Triggered by GroupSync acoustic calibration
-  - Provides offset value and source information via SyncOffsetEventArgs
-
-Internal Improvements:
-- Extracted WaitForHandshakeAsync for cleaner handshake timeout handling
-- Improved code organization in SendSpinHostService
-
-v3.0.2:
-Documentation:
-- Completely rewritten README with updated architecture diagram
-- Added sync correction tier table explaining hysteresis behavior
-- Updated Quick Start example with device info configuration
-- Added migration guides for v2.0 and v3.0 upgrades
-
-v3.0.1:
-New Features:
-- Configurable device info: ClientCapabilities now exposes ProductName, Manufacturer, and SoftwareVersion
-  - All fields are optional and omitted from JSON when null
-  - SDK consumers can now identify their player to servers
-
-Bug Fixes:
-- Fixed sync correction oscillation with hysteresis deadband
-  - Entry threshold: 2ms (start correcting when error exceeds this)
-  - Exit threshold: 0.5ms (stop correcting when error drops below this)
-  - Prevents constant toggling between "Resampling" and "None" modes
-  - Results in smoother, more stable playback rate adjustments
-
-v3.0.0 - Breaking Changes:
-- BREAKING: IClockSynchronizer interface now requires HasMinimalSync property
-  - Returns true after 2+ time sync measurements (vs IsConverged which requires 5+)
-  - Existing implementations must add this property
-
-New Features:
-- Quick-start playback: reduced time-to-playback from ~5 seconds to ~300-500ms
-  - AudioPipeline now uses HasMinimalSync instead of IsConverged for playback gating
-  - Matches JS/CLI player behavior for faster startup
-  - Sync correction system handles any initial estimation errors
-- Default convergence timeout reduced from 5000ms to 1000ms
-
-Migration Guide:
-- If you implement IClockSynchronizer, add: bool HasMinimalSync => MeasurementCount >= 2;
-- If you only use KalmanClockSynchronizer (most users), no changes needed
-
-v2.2.1:
-Bug Fixes:
-- CRITICAL: Fixed sync error calculation that prevented resampling correction from converging
-  - Removed incorrect output latency subtraction from sync error formula
-  - Output latency is a constant offset that doesn't affect sync rate correction
-  - Previously caused permanent negative sync error (~-115ms), continuous slowdown, and buffer growth
-- ITimedAudioBuffer.OutputLatencyMicroseconds is now informational only (not used in sync calculation)
-
-v2.2.0:
-New Features:
-- Tiered sync correction strategy matching JS client for smoother playback:
-  - Tier 1 (&lt;2ms): Deadband, no correction needed
-  - Tier 2 (2-15ms): Smooth playback rate adjustment via resampling (imperceptible)
-  - Tier 3 (&gt;15ms): Frame drop/insert for faster correction
-- ITimedAudioBuffer.TargetPlaybackRate property for resampler-based sync correction
-- ITimedAudioBuffer.TargetPlaybackRateChanged event for rate change notifications
-- SyncCorrectionMode.Resampling enum value for stats reporting
-- AudioPipeline clock sync gating: waits for Kalman filter convergence before playback
-- Reduced default buffer target from 500ms to 250ms for faster playback start
-- Configurable convergence timeout (default 5s) prevents indefinite waiting
-
-v2.1.1:
-Bug Fixes:
-- Fixed StaticDelayMs not working: TimedAudioBuffer now respects scheduled start times
-  from IClockSynchronizer, enabling the static delay feature to properly delay/advance
-  playback relative to other clients
-
-v2.1.0:
-New Features:
-- Adaptive forgetting factor in KalmanClockSynchronizer for improved clock sync stability
-- New client/sync_offset protocol message support for GroupSync coordination
-- SyncOffsetReceived event on SendSpinClient for handling sync offset messages
-
-Bug Fixes:
-- Fixed position/duration values: now correctly reported in seconds (was milliseconds)
-- Fixed ClientGoodbyeMessage to use proper envelope format with payload
-
-v2.0.0 - Breaking Changes:
-- BREAKING: IClockSynchronizer.HardwareLatencyMs property removed (latency now handled in audio buffer layer)
-- BREAKING: IAudioPipeline now requires SwitchDeviceAsync() method implementation
-- BREAKING: IAudioPlayer now requires SwitchDeviceAsync() method implementation
-- Now multi-targets net8.0 and net10.0
-
-New Features:
-- Audio device hot-switching without stopping playback
-- SendspinHostService: Control mDNS advertising independently (StopAdvertisingAsync/StartAdvertisingAsync)
-- TimedAudioBuffer.ResetSyncTracking() for soft re-anchor after device switches
-- Improved server name display from mDNS discovery (smarter hostname cleanup)
-- Sync timing improvements for better multi-room accuracy
+For older release notes (v5.0.0 and earlier), see https://github.com/chrisuthe/windowsSpin/releases
     </PackageReleaseNotes>
     <Copyright>Copyright © 2024-2026 Sendspin Contributors</Copyright>
 
