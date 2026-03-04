@@ -320,6 +320,13 @@ public sealed class SendspinClientService : ISendspinClient
             StopTimeSyncLoop();
         }
 
+        // Freeze Kalman state on first transition to Reconnecting.
+        // Guard prevents re-freezing on each retry (state stays Reconnecting across retries).
+        if (e.NewState == ConnectionState.Reconnecting && e.OldState != ConnectionState.Reconnecting)
+        {
+            _clockSynchronizer.Freeze();
+        }
+
         // Clean up client state on full disconnection
         if (e.NewState == ConnectionState.Disconnected)
         {
@@ -327,6 +334,7 @@ public sealed class SendspinClientService : ISendspinClient
             ServerId = null;
             ServerName = null;
             ConnectionReason = null;
+            _clockSynchronizer.Reset(); // Discard frozen state on full disconnect
         }
 
         // Re-handshake when WebSocket reconnects successfully
@@ -420,8 +428,11 @@ public sealed class SendspinClientService : ISendspinClient
             incoming.MarkConnected();
         }
 
-        // Reset clock synchronizer for new connection
-        _clockSynchronizer.Reset();
+        // Restore frozen Kalman state (reconnection) or reset (fresh connection)
+        if (!_clockSynchronizer.Thaw())
+        {
+            _clockSynchronizer.Reset();
+        }
 
         // Notify audio pipeline of reconnect to suppress sync corrections
         // while the Kalman filter re-converges (~2 seconds).

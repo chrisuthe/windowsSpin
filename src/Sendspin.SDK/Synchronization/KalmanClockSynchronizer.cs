@@ -41,6 +41,14 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
     private readonly int _minSamplesForForgetting; // Don't adapt until this many samples collected
     private int _adaptiveForgettingTriggerCount;   // Diagnostic counter
 
+    // Frozen state for reconnection (freeze/thaw pattern from Android client)
+    private sealed record FrozenState(
+        double Offset, double Drift,
+        double OffsetVariance, double DriftVariance, double Covariance,
+        int MeasurementCount, int AdaptiveForgettingTriggerCount);
+
+    private FrozenState? _frozenState;
+
     // Convergence tracking
     private const int MinMeasurementsForConvergence = 5;
     private const int MinMeasurementsForPlayback = 2;  // Quick start: 2 measurements like JS/CLI players
@@ -190,9 +198,94 @@ public sealed class KalmanClockSynchronizer : IClockSynchronizer
             _measurementCount = 0;
             _driftReliableLogged = false;
             _adaptiveForgettingTriggerCount = 0;
+            _frozenState = null;
         }
 
         _logger?.LogDebug("Clock synchronizer reset");
+    }
+
+    /// <summary>
+    /// Snapshots the current Kalman state for later restoration via <see cref="Thaw"/>.
+    /// Call on connection drop to preserve learned offset/drift estimates.
+    /// </summary>
+    /// <remarks>
+    /// Skips freezing if fewer than <see cref="MinMeasurementsForPlayback"/> measurements
+    /// have been collected — not enough state to be useful.
+    /// </remarks>
+    public void Freeze()
+    {
+        lock (_lock)
+        {
+            if (_measurementCount < MinMeasurementsForPlayback)
+            {
+                _logger?.LogDebug(
+                    "[ClockSync] Skip freeze: only {Count} measurements (need {Min})",
+                    _measurementCount, MinMeasurementsForPlayback);
+                return;
+            }
+
+            _frozenState = new FrozenState(
+                _offset, _drift,
+                _offsetVariance, _driftVariance, _covariance,
+                _measurementCount, _adaptiveForgettingTriggerCount);
+
+            _logger?.LogInformation(
+                "[ClockSync] State frozen: offset={Offset:F0}μs, drift={Drift:F2}μs/s, " +
+                "offsetUncertainty={OffsetUncertainty:F0}μs, measurements={Count}",
+                _offset, _drift, Math.Sqrt(_offsetVariance), _measurementCount);
+        }
+    }
+
+    /// <summary>
+    /// Restores previously frozen Kalman state with inflated covariance.
+    /// The 10x inflation on diagonal terms and 3x on cross-covariance allows
+    /// the filter to adapt quickly while preserving the learned offset/drift.
+    /// </summary>
+    /// <returns>True if frozen state was restored; false if no frozen state exists.</returns>
+    public bool Thaw()
+    {
+        lock (_lock)
+        {
+            if (_frozenState is not { } frozen)
+                return false;
+
+            // Restore offset and drift estimates
+            _offset = frozen.Offset;
+            _drift = frozen.Drift;
+
+            // Inflate covariance to allow fast adaptation (matching Android client):
+            // - 10x on diagonal (offset/drift variance): sqrt(10) ≈ 3.16x std dev increase
+            // - 3x on off-diagonal (cross-covariance): inflated less since it's coupled
+            _offsetVariance = frozen.OffsetVariance * 10.0;
+            _driftVariance = frozen.DriftVariance * 10.0;
+            _covariance = frozen.Covariance * 3.0;
+
+            // Restore measurement count so HasMinimalSync/IsConverged remain true immediately
+            _measurementCount = frozen.MeasurementCount;
+            _adaptiveForgettingTriggerCount = frozen.AdaptiveForgettingTriggerCount;
+
+            // Reset timing — next ProcessMeasurement will establish fresh timing baseline
+            _lastUpdateTime = 0;
+            _driftReliableLogged = false;
+
+            // One-shot: consume frozen state to prevent stale re-thaw
+            _frozenState = null;
+
+            _logger?.LogInformation(
+                "[ClockSync] State thawed: offset={Offset:F0}μs, drift={Drift:F2}μs/s, " +
+                "inflated offsetUncertainty={OffsetUncertainty:F0}μs, measurements={Count}",
+                _offset, _drift, Math.Sqrt(_offsetVariance), _measurementCount);
+
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Whether a frozen state snapshot exists that can be restored via <see cref="Thaw"/>.
+    /// </summary>
+    public bool IsFrozen
+    {
+        get { lock (_lock) return _frozenState is not null; }
     }
 
     /// <summary>
@@ -491,6 +584,23 @@ public interface IClockSynchronizer
     /// Resets the synchronizer state.
     /// </summary>
     void Reset();
+
+    /// <summary>
+    /// Snapshots the current state for later restoration via <see cref="Thaw"/>.
+    /// Call on connection drop to preserve learned estimates.
+    /// </summary>
+    void Freeze();
+
+    /// <summary>
+    /// Restores previously frozen state with inflated uncertainty.
+    /// </summary>
+    /// <returns>True if frozen state was restored; false if no frozen state exists.</returns>
+    bool Thaw();
+
+    /// <summary>
+    /// Whether a frozen state snapshot exists that can be restored via <see cref="Thaw"/>.
+    /// </summary>
+    bool IsFrozen { get; }
 
     /// <summary>
     /// Gets the current sync status.
