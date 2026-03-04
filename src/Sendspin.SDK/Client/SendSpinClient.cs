@@ -83,6 +83,7 @@ public sealed class SendspinClientService : ISendspinClient
     public event EventHandler<GroupState>? GroupStateChanged;
     public event EventHandler<PlayerState>? PlayerStateChanged;
     public event EventHandler<byte[]>? ArtworkReceived;
+    public event EventHandler? ArtworkCleared;
     public event EventHandler<ClockSyncStatus>? ClockSyncConverged;
     public event EventHandler<SyncOffsetEventArgs>? SyncOffsetApplied;
 
@@ -288,12 +289,13 @@ public sealed class SendspinClientService : ISendspinClient
     }
 
     /// <inheritdoc/>
-    public async Task SendPlayerStateAsync(int volume, bool muted)
+    public async Task SendPlayerStateAsync(int volume, bool muted, double staticDelayMs = 0.0)
     {
         var clampedVolume = Math.Clamp(volume, 0, 100);
-        var stateMessage = ClientStateMessage.CreateSynchronized(clampedVolume, muted);
+        var stateMessage = ClientStateMessage.CreateSynchronized(clampedVolume, muted, staticDelayMs);
 
-        _logger.LogDebug("Sending player state: Volume={Volume}, Muted={Muted}", clampedVolume, muted);
+        _logger.LogDebug("Sending player state: Volume={Volume}, Muted={Muted}, StaticDelay={StaticDelay}ms",
+            clampedVolume, muted, staticDelayMs);
         await _connection.SendMessageAsync(stateMessage);
     }
 
@@ -443,7 +445,8 @@ public sealed class SendspinClientService : ISendspinClient
             // Send the current player state (initialized from capabilities)
             var stateMessage = ClientStateMessage.CreateSynchronized(
                 volume: _playerState.Volume,
-                muted: _playerState.Muted);
+                muted: _playerState.Muted,
+                staticDelayMs: _clockSynchronizer.StaticDelayMs);
             var stateJson = MessageSerializer.Serialize(stateMessage);
             _logger.LogInformation("Sending initial client/state:\n{Json}", stateJson);
             await _connection.SendMessageAsync(stateMessage);
@@ -849,7 +852,7 @@ public sealed class SendspinClientService : ISendspinClient
     /// </summary>
     private async Task SendPlayerStateAckAsync()
     {
-        await SendPlayerStateAsync(_playerState.Volume, _playerState.Muted);
+        await SendPlayerStateAsync(_playerState.Volume, _playerState.Muted, _clockSynchronizer.StaticDelayMs);
     }
 
     /// <summary>
@@ -1030,8 +1033,16 @@ public sealed class SendspinClientService : ISendspinClient
                 var artwork = BinaryMessageParser.ParseArtworkChunk(data.Span);
                 if (artwork is not null)
                 {
-                    _logger.LogDebug("Artwork received: {Length} bytes", artwork.ImageData.Length);
-                    ArtworkReceived?.Invoke(this, artwork.ImageData);
+                    if (artwork.ImageData.Length == 0)
+                    {
+                        _logger.LogDebug("Artwork cleared (empty payload)");
+                        ArtworkCleared?.Invoke(this, EventArgs.Empty);
+                    }
+                    else
+                    {
+                        _logger.LogDebug("Artwork received: {Length} bytes", artwork.ImageData.Length);
+                        ArtworkReceived?.Invoke(this, artwork.ImageData);
+                    }
                 }
                 break;
 

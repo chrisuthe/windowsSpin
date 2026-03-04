@@ -468,6 +468,7 @@ public partial class MainViewModel : ViewModelBase
         _hostService.GroupStateChanged += OnGroupStateChanged;
         _hostService.PlayerStateChanged += OnPlayerStateChanged;
         _hostService.ArtworkReceived += OnArtworkReceived;
+        _hostService.ArtworkCleared += OnArtworkCleared;
         _hostService.LastPlayedServerIdChanged += OnLastPlayedServerIdChanged;
 
         // Subscribe to server discovery events (client-initiated mode - primary)
@@ -691,17 +692,19 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     private async Task SendPlayerStateToActiveClientAsync(int volume, bool muted)
     {
+        var staticDelay = SettingsStaticDelayMs;
+
         // Prefer manual client (discovery/manual connection mode)
         if (_manualClient?.ConnectionState == ConnectionState.Connected)
         {
             _logger.LogDebug("Sending player state via manual client: Volume={Volume}, Muted={Muted}", volume, muted);
-            await _manualClient.SendPlayerStateAsync(volume, muted);
+            await _manualClient.SendPlayerStateAsync(volume, muted, staticDelay);
         }
         // Fall back to host service (server-initiated connection mode)
         else if (ConnectedServers.Count > 0)
         {
             _logger.LogDebug("Sending player state via host service: Volume={Volume}, Muted={Muted}", volume, muted);
-            await _hostService.SendPlayerStateAsync(volume, muted);
+            await _hostService.SendPlayerStateAsync(volume, muted, staticDelay);
         }
         else
         {
@@ -729,6 +732,7 @@ public partial class MainViewModel : ViewModelBase
         _manualClient.GroupStateChanged += OnManualClientGroupStateChanged;
         _manualClient.PlayerStateChanged += OnManualClientPlayerStateChanged;
         _manualClient.ArtworkReceived += OnManualClientArtworkReceived;
+        _manualClient.ArtworkCleared += OnArtworkCleared;
     }
 
     /// <summary>
@@ -852,6 +856,7 @@ public partial class MainViewModel : ViewModelBase
             _manualClient.GroupStateChanged -= OnManualClientGroupStateChanged;
             _manualClient.PlayerStateChanged -= OnManualClientPlayerStateChanged;
             _manualClient.ArtworkReceived -= OnManualClientArtworkReceived;
+            _manualClient.ArtworkCleared -= OnArtworkCleared;
 
             try
             {
@@ -1194,6 +1199,15 @@ public partial class MainViewModel : ViewModelBase
         {
             AlbumArtwork = imageData;
             _logger.LogDebug("Artwork received: {Length} bytes", imageData.Length);
+        });
+    }
+
+    private void OnArtworkCleared(object? sender, EventArgs e)
+    {
+        App.Current.Dispatcher.Invoke(() =>
+        {
+            AlbumArtwork = null;
+            _logger.LogDebug("Artwork cleared (no artwork available)");
         });
     }
 
