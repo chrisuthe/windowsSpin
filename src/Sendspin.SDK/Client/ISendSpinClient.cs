@@ -75,7 +75,8 @@ public interface ISendspinClient : IAsyncDisposable
     /// </summary>
     /// <param name="volume">Current volume level (0-100).</param>
     /// <param name="muted">Current mute state.</param>
-    Task SendPlayerStateAsync(int volume, bool muted);
+    /// <param name="staticDelayMs">Static delay in milliseconds for group sync calibration.</param>
+    Task SendPlayerStateAsync(int volume, bool muted, double staticDelayMs = 0.0);
 
     /// <summary>
     /// Clears the audio buffer, causing the pipeline to restart buffering.
@@ -106,6 +107,12 @@ public interface ISendspinClient : IAsyncDisposable
     /// Event raised when artwork is received.
     /// </summary>
     event EventHandler<byte[]>? ArtworkReceived;
+
+    /// <summary>
+    /// Event raised when artwork is cleared (empty artwork binary message).
+    /// The server sends an empty payload to signal "no artwork available".
+    /// </summary>
+    event EventHandler? ArtworkCleared;
 
     /// <summary>
     /// Event raised when the clock synchronizer first converges to a stable estimate.
