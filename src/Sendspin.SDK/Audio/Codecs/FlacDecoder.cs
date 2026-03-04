@@ -134,6 +134,7 @@ public sealed class FlacDecoder : IAudioDecoder
                     _logger.LogWarning(
                         "FLAC actual bit depth ({ActualBits}) differs from stream/start ({ReportedBits}), using actual",
                         actualBits, Format.BitDepth ?? 16);
+                    Format.BitDepth = actualBits;
                 }
             }
 
