@@ -15,6 +15,7 @@ A cross-platform .NET SDK for the Sendspin synchronized multi-room audio protoco
 - **Server Discovery**: mDNS-based automatic server discovery
 - **Audio Decoding**: Built-in PCM, FLAC, and Opus codec support
 - **Cross-Platform**: Works on Windows, Linux, and macOS (.NET 8.0 / .NET 10.0)
+- **NativeAOT & Trimming**: Fully compatible with `PublishAot` and IL trimming for single-file native executables with no .NET runtime dependency
 - **Audio Device Switching**: Hot-switch audio output devices without interrupting playback
 
 ## Installation
@@ -252,7 +253,40 @@ var capabilities = new ClientCapabilities
 
 All fields are optional and omitted from the protocol if null.
 
+## NativeAOT Support
+
+Since v7.0.0, the SDK is fully compatible with [NativeAOT deployment](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/) and IL trimming. This means you can publish your Sendspin player as a single native executable with no .NET runtime dependency — ideal for embedded devices, containers, or minimal Linux installations.
+
+```xml
+<PropertyGroup>
+  <PublishAot>true</PublishAot>
+</PropertyGroup>
+```
+
+```bash
+dotnet publish -c Release -r linux-x64
+# Produces a single native binary (~15-25MB depending on dependencies)
+```
+
+**How it works**: The SDK uses source-generated `System.Text.Json` serialization (no runtime reflection) and built-in .NET WebSocket APIs. All public types are annotated with `IsAotCompatible` and `IsTrimmable` to ensure the .NET build analyzers catch any regressions.
+
+**Your code**: If your `IAudioPlayer` implementation also avoids reflection, the entire stack will be AOT-safe. Most audio libraries (SDL2, OpenAL, PipeWire bindings) work fine with NativeAOT.
+
 ## Migration Guide
+
+### Upgrading to v7.0.0
+
+**Breaking change**: `SendspinListener.ServerConnected` event parameter type changed.
+
+```csharp
+// Before (v6.x):
+listener.ServerConnected += (sender, fleckConnection) => { /* Fleck.IWebSocketConnection */ };
+
+// After (v7.0+):
+listener.ServerConnected += (sender, wsConnection) => { /* WebSocketClientConnection */ };
+```
+
+No changes needed if you only use `SendspinHostService` or `SendspinClientService` (most consumers).
 
 ### Upgrading to v5.0.0
 
