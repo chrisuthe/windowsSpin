@@ -135,6 +135,23 @@ public sealed class SyncCorrectionOptions
     public long ReanchorThresholdMicroseconds { get; set; } = 500_000;
 
     /// <summary>
+    /// Gets or sets the minimum time between re-anchors (microseconds).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Prevents rapid repeated re-anchors when the clock synchronizer has persistent error
+    /// (e.g., during reconnect re-convergence or network instability). Without a cooldown,
+    /// re-anchors can trigger every ~750ms (500ms grace + 250ms rebuffer), causing audio stuttering.
+    /// </para>
+    /// <para>
+    /// This value matches the Android client's <c>REANCHOR_COOLDOWN_US</c> and the Python CLI's
+    /// <c>_REANCHOR_COOLDOWN_US</c>.
+    /// Default: 5000000 (5 seconds).
+    /// </para>
+    /// </remarks>
+    public long ReanchorCooldownMicroseconds { get; set; } = 5_000_000;
+
+    /// <summary>
     /// Gets or sets the startup grace period (microseconds).
     /// </summary>
     /// <remarks>
@@ -259,6 +276,13 @@ public sealed class SyncCorrectionOptions
                 nameof(ReanchorThresholdMicroseconds));
         }
 
+        if (ReanchorCooldownMicroseconds < 0)
+        {
+            throw new ArgumentException(
+                "ReanchorCooldownMicroseconds must be non-negative.",
+                nameof(ReanchorCooldownMicroseconds));
+        }
+
         if (StartupGracePeriodMicroseconds < 0)
         {
             throw new ArgumentException(
@@ -293,6 +317,7 @@ public sealed class SyncCorrectionOptions
         CorrectionTargetSeconds = CorrectionTargetSeconds,
         ResamplingThresholdMicroseconds = ResamplingThresholdMicroseconds,
         ReanchorThresholdMicroseconds = ReanchorThresholdMicroseconds,
+        ReanchorCooldownMicroseconds = ReanchorCooldownMicroseconds,
         StartupGracePeriodMicroseconds = StartupGracePeriodMicroseconds,
         ScheduledStartGraceWindowMicroseconds = ScheduledStartGraceWindowMicroseconds,
         ReconnectStabilizationMicroseconds = ReconnectStabilizationMicroseconds,
