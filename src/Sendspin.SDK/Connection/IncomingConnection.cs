@@ -1,5 +1,4 @@
 using System.Text;
-using Fleck;
 using Microsoft.Extensions.Logging;
 using Sendspin.SDK.Protocol;
 using Sendspin.SDK.Protocol.Messages;
@@ -7,13 +6,13 @@ using Sendspin.SDK.Protocol.Messages;
 namespace Sendspin.SDK.Connection;
 
 /// <summary>
-/// Wraps an incoming WebSocket connection from a Sendspin server (using Fleck).
+/// Wraps an incoming WebSocket connection from a Sendspin server.
 /// Used for server-initiated connections where the server connects to us.
 /// </summary>
 public sealed class IncomingConnection : ISendspinConnection
 {
     private readonly ILogger<IncomingConnection> _logger;
-    private readonly IWebSocketConnection _socket;
+    private readonly WebSocketClientConnection _socket;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
     private ConnectionState _state = ConnectionState.Disconnected;
@@ -29,17 +28,17 @@ public sealed class IncomingConnection : ISendspinConnection
 
     public IncomingConnection(
         ILogger<IncomingConnection> logger,
-        IWebSocketConnection socket)
+        WebSocketClientConnection socket)
     {
         _logger = logger;
         _socket = socket;
 
         // Get server address from connection info
-        var clientIp = socket.ConnectionInfo.ClientIpAddress;
-        var clientPort = socket.ConnectionInfo.ClientPort;
+        var clientIp = socket.ClientIpAddress;
+        var clientPort = socket.ClientPort;
         ServerUri = new Uri($"ws://{clientIp}:{clientPort}");
 
-        // Wire up Fleck events
+        // Wire up events
         _socket.OnMessage = OnTextMessage;
         _socket.OnBinary = OnBinaryMessage;
         _socket.OnClose = OnClose;
@@ -48,7 +47,7 @@ public sealed class IncomingConnection : ISendspinConnection
 
     /// <summary>
     /// Starts processing messages on this connection.
-    /// For Fleck connections, this just marks the connection as ready.
+    /// For incoming connections, this just marks the connection as ready.
     /// </summary>
     public Task StartAsync(CancellationToken cancellationToken = default)
     {
@@ -91,7 +90,7 @@ public sealed class IncomingConnection : ISendspinConnection
                     var goodbye = ClientGoodbyeMessage.Create(reason);
                     await SendMessageAsync(goodbye, cancellationToken);
 
-                    _socket.Close();
+                    await _socket.CloseAsync(cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -121,7 +120,7 @@ public sealed class IncomingConnection : ISendspinConnection
         try
         {
             _logger.LogDebug("Sending: {Message}", json);
-            await _socket.Send(json).ConfigureAwait(false);
+            await _socket.SendAsync(json).ConfigureAwait(false);
         }
         finally
         {
@@ -141,7 +140,7 @@ public sealed class IncomingConnection : ISendspinConnection
         await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _socket.Send(data.ToArray()).ConfigureAwait(false);
+            await _socket.SendAsync(data.ToArray()).ConfigureAwait(false);
         }
         finally
         {
