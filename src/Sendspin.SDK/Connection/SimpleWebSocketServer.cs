@@ -15,9 +15,11 @@ namespace Sendspin.SDK.Connection;
 public sealed partial class SimpleWebSocketServer : IAsyncDisposable
 {
     /// <summary>
-    /// The WebSocket GUID used in the Sec-WebSocket-Accept computation per RFC 6455.
+    /// The WebSocket GUID used in the Sec-WebSocket-Accept computation per RFC 6455 Section 4.2.2.
+    /// Note: Many online references incorrectly cite this as ending in "5AB0DC85B11C".
+    /// The correct GUID from the RFC is "258EAFA5-E914-47DA-95CA-C5AB0DC85B11".
     /// </summary>
-    private const string WebSocketGuid = "258EAFA5-E914-47DA-95CA-5AB0DC85B11C";
+    private const string WebSocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
     private readonly ILogger? _logger;
     private TcpListener? _listener;
@@ -52,14 +54,16 @@ public sealed partial class SimpleWebSocketServer : IAsyncDisposable
         if (_listener is not null)
             throw new InvalidOperationException("Server is already running");
 
-        Port = port;
         _cts = new CancellationTokenSource();
         _listener = new TcpListener(IPAddress.Any, port);
         _listener.Start();
 
+        // Read the actual bound port (important when port 0 is used for OS-assigned port)
+        Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+
         _acceptLoop = Task.Run(() => AcceptLoopAsync(_cts.Token));
 
-        _logger?.LogInformation("WebSocket server listening on port {Port}", port);
+        _logger?.LogInformation("WebSocket server listening on port {Port}", Port);
     }
 
     /// <summary>
