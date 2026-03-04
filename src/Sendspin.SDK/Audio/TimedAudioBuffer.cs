@@ -62,6 +62,8 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     private long _samplesDroppedForSync;  // Total samples dropped for sync correction
     private long _samplesInsertedForSync; // Total samples inserted for sync correction
     private bool _needsReanchor;          // Flag to trigger re-anchoring
+    private long _lastReanchorTimeMicroseconds; // Local time of last reanchor (persists across Clear)
+    private long _lastReanchorCooldownLogTime;  // Rate-limit cooldown suppression logging
     private int _reanchorEventPending;    // 0 = not pending, 1 = pending (for thread-safe event coalescing)
     private float[]? _lastOutputFrame;    // Last output frame for smooth drop/insert (Python CLI approach)
 
@@ -403,7 +405,18 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 if (elapsedSinceStart >= _syncOptions.StartupGracePeriodMicroseconds
                     && Math.Abs(_currentSyncErrorMicroseconds) > _syncOptions.ReanchorThresholdMicroseconds)
                 {
-                    _needsReanchor = true;
+                    if (currentLocalTime - _lastReanchorTimeMicroseconds >= _syncOptions.ReanchorCooldownMicroseconds)
+                    {
+                        _lastReanchorTimeMicroseconds = currentLocalTime;
+                        _needsReanchor = true;
+                    }
+                    else if (currentLocalTime - _lastReanchorCooldownLogTime >= UnderrunLogIntervalMicroseconds)
+                    {
+                        _lastReanchorCooldownLogTime = currentLocalTime;
+                        _logger.LogWarning(
+                            "[Correction] Reanchor suppressed by cooldown ({CooldownMs}ms remaining)",
+                            (_syncOptions.ReanchorCooldownMicroseconds - (currentLocalTime - _lastReanchorTimeMicroseconds)) / 1000);
+                    }
                 }
             }
 
@@ -521,7 +534,18 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 if (elapsedSinceStart >= _syncOptions.StartupGracePeriodMicroseconds
                     && Math.Abs(_currentSyncErrorMicroseconds) > _syncOptions.ReanchorThresholdMicroseconds)
                 {
-                    _needsReanchor = true;
+                    if (currentLocalTime - _lastReanchorTimeMicroseconds >= _syncOptions.ReanchorCooldownMicroseconds)
+                    {
+                        _lastReanchorTimeMicroseconds = currentLocalTime;
+                        _needsReanchor = true;
+                    }
+                    else if (currentLocalTime - _lastReanchorCooldownLogTime >= UnderrunLogIntervalMicroseconds)
+                    {
+                        _lastReanchorCooldownLogTime = currentLocalTime;
+                        _logger.LogWarning(
+                            "[Correction] Reanchor suppressed by cooldown ({CooldownMs}ms remaining)",
+                            (_syncOptions.ReanchorCooldownMicroseconds - (currentLocalTime - _lastReanchorTimeMicroseconds)) / 1000);
+                    }
                 }
             }
 
@@ -645,6 +669,8 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             _lastOutputFrame = null;
             TargetPlaybackRate = 1.0;
             // Note: Don't reset _samplesDroppedForSync/_samplesInsertedForSync - these are cumulative stats
+            // Note: Don't reset _lastReanchorTimeMicroseconds - reanchor itself calls Clear(),
+            // so resetting the cooldown here would defeat its purpose (matches Android/Python CLI)
 
             // Reset reconnect stabilization state
             _inReconnectStabilization = false;
