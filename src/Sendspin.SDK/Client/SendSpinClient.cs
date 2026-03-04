@@ -910,6 +910,13 @@ public sealed class SendspinClientService : ISendspinClient
             return;
         }
 
+        // stream/start with no "player" key is artwork-only — skip pipeline start
+        if (message.Format is null)
+        {
+            _logger.LogDebug("Stream start is artwork-only (no player key), skipping pipeline start");
+            return;
+        }
+
         _logger.LogInformation("Stream starting: {Format}", message.Format);
 
         // Clear any stale chunks from previous streams
