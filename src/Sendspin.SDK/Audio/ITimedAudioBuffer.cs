@@ -195,6 +195,23 @@ public interface ITimedAudioBuffer : IDisposable
     void NotifyExternalCorrection(int samplesDropped, int samplesInserted);
 
     /// <summary>
+    /// Notifies the buffer that a WebSocket reconnect occurred.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// After reconnect, the clock synchronizer is reset and sync error measurements
+    /// become unreliable. This method resets the smoothed sync error (EMA) and
+    /// suppresses internal sync corrections during the reconnect stabilization period
+    /// configured in <see cref="SyncCorrectionOptions.ReconnectStabilizationMicroseconds"/>.
+    /// </para>
+    /// <para>
+    /// The re-anchor threshold is NOT suppressed — catastrophic drift (&gt;500ms)
+    /// is still handled even during stabilization.
+    /// </para>
+    /// </remarks>
+    void NotifyReconnect();
+
+    /// <summary>
     /// Clears all buffered audio (for seek/stream clear).
     /// </summary>
     void Clear();

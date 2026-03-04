@@ -84,6 +84,17 @@ public interface IAudioPipeline : IAsyncDisposable
     Task StopAsync();
 
     /// <summary>
+    /// Notifies the pipeline that a WebSocket reconnect occurred.
+    /// Suppresses sync corrections during the reconnect stabilization period.
+    /// </summary>
+    /// <remarks>
+    /// Call this after the clock synchronizer is reset on reconnect. The buffer
+    /// and player correction systems will suppress corrections until the Kalman
+    /// filter has had time to re-converge (~2 seconds by default).
+    /// </remarks>
+    void NotifyReconnect();
+
+    /// <summary>
     /// Clears the buffer (for seek).
     /// Called when stream/clear is received.
     /// </summary>

@@ -181,6 +181,15 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         _diagnosticRecorder = diagnosticRecorder;
     }
 
+    /// <summary>
+    /// Notifies the player that a WebSocket reconnect occurred.
+    /// Forwards to the sync correction provider to suppress corrections during Kalman re-convergence.
+    /// </summary>
+    public void NotifyReconnect()
+    {
+        _correctionProvider?.NotifyReconnect();
+    }
+
     /// <inheritdoc/>
     public Task InitializeAsync(AudioFormat format, CancellationToken cancellationToken = default)
     {

@@ -146,6 +146,27 @@ public sealed class SyncCorrectionOptions
     public long StartupGracePeriodMicroseconds { get; set; } = 500_000;
 
     /// <summary>
+    /// Gets or sets the reconnect stabilization period (microseconds).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// After a WebSocket reconnect, the clock synchronizer is reset and needs time to
+    /// re-converge. During this window, sync error measurements are unreliable because
+    /// they are based on a freshly-reset Kalman filter with high uncertainty.
+    /// </para>
+    /// <para>
+    /// Without suppression, the sync correction system reacts to these inaccurate
+    /// measurements, causing erratic drop/insert or resampling corrections that produce
+    /// audible artifacts.
+    /// </para>
+    /// <para>
+    /// This value matches the Android client's <c>RECONNECT_STABILIZATION_US</c>.
+    /// Default: 2000000 (2 seconds).
+    /// </para>
+    /// </remarks>
+    public long ReconnectStabilizationMicroseconds { get; set; } = 2_000_000;
+
+    /// <summary>
     /// Gets or sets the grace window for scheduled start (microseconds).
     /// </summary>
     /// <remarks>
@@ -251,6 +272,13 @@ public sealed class SyncCorrectionOptions
                 "ScheduledStartGraceWindowMicroseconds must be non-negative.",
                 nameof(ScheduledStartGraceWindowMicroseconds));
         }
+
+        if (ReconnectStabilizationMicroseconds < 0)
+        {
+            throw new ArgumentException(
+                "ReconnectStabilizationMicroseconds must be non-negative.",
+                nameof(ReconnectStabilizationMicroseconds));
+        }
     }
 
     /// <summary>
@@ -267,6 +295,7 @@ public sealed class SyncCorrectionOptions
         ReanchorThresholdMicroseconds = ReanchorThresholdMicroseconds,
         StartupGracePeriodMicroseconds = StartupGracePeriodMicroseconds,
         ScheduledStartGraceWindowMicroseconds = ScheduledStartGraceWindowMicroseconds,
+        ReconnectStabilizationMicroseconds = ReconnectStabilizationMicroseconds,
         BypassDeadband = BypassDeadband,
     };
 
