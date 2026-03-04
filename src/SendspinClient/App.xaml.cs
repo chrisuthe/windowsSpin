@@ -210,6 +210,24 @@ public partial class App : Application
 
         Log.Information("Player volume: {Volume}%, Muted: {Muted}", playerVolume, playerMuted);
 
+        // Read buffer capacity early — needed for both ClientCapabilities and AudioPipeline
+        const int minBufferCapacityMs = 60000; // 60s minimum — OPUS bursts can exceed 40s
+        var configuredCapacityMs = _configuration!.GetValue<int>("Audio:Buffer:CapacityMs", 120000);
+        var bufferCapacityMs = Math.Max(configuredCapacityMs, minBufferCapacityMs);
+
+        // Derive compressed-byte buffer capacity from our PCM buffer duration.
+        // The server uses this to limit how much audio it sends ahead.
+        // Use worst-case bitrate (PCM uncompressed) so no codec can overflow our buffer.
+        var maxBytesPerSecond = audioFormats
+            .Select(f => f.Codec == "opus" && f.Bitrate > 0
+                ? f.Bitrate * 1000 / 8  // OPUS: use declared bitrate (kbps → bytes/sec)
+                : f.SampleRate * f.Channels * Math.Max(f.BitDepth ?? 16, 16) / 8)  // PCM/FLAC: raw sample rate
+            .Max();
+        var bufferCapacityBytes = (int)((long)bufferCapacityMs * maxBytesPerSecond / 1000);
+        Log.Information(
+            "Buffer: {CapacityMs}ms PCM → {CapacityMB:F1}MB advertised to server (worst-case {MaxKbps}kbps)",
+            bufferCapacityMs, bufferCapacityBytes / 1024.0 / 1024.0, maxBytesPerSecond * 8 / 1000);
+
         services.AddSingleton(new ClientCapabilities
         {
             ClientId = clientId,
@@ -219,7 +237,8 @@ public partial class App : Application
             SoftwareVersion = appVersion,
             AudioFormats = audioFormats,
             InitialVolume = playerVolume,
-            InitialMuted = playerMuted
+            InitialMuted = playerMuted,
+            BufferCapacity = bufferCapacityBytes
         });
 
         // Clock synchronization for multi-room audio sync
@@ -284,12 +303,14 @@ public partial class App : Application
             var decoderFactory = sp.GetRequiredService<IAudioDecoderFactory>();
             var clockSync = sp.GetRequiredService<IClockSynchronizer>();
 
-            // Read buffer configuration
-            // Capacity must hold the full server burst without overflowing.
-            // We advertise 32MB BufferCapacity (compressed bytes) — for FLAC with ~4:1
-            // compression, that decodes to 30+ seconds of audio. Default 30s matches this.
+            // Buffer capacity (bufferCapacityMs) was computed earlier for ClientCapabilities
             var bufferTargetMs = _configuration!.GetValue<double>("Audio:Buffer:TargetMs", 250);
-            var bufferCapacityMs = _configuration!.GetValue<int>("Audio:Buffer:CapacityMs", 30000);
+            if (configuredCapacityMs < minBufferCapacityMs)
+            {
+                logger.LogWarning(
+                    "Buffer capacity {ConfiguredMs}ms is below minimum {MinMs}ms (stale user config?), using {ActualMs}ms",
+                    configuredCapacityMs, minBufferCapacityMs, bufferCapacityMs);
+            }
 
             // Read clock sync wait configuration
             var waitForConvergence = _configuration!.GetValue<bool>("Audio:ClockSync:WaitForConvergence", true);
