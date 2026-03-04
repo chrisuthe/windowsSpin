@@ -1,4 +1,3 @@
-using Fleck;
 using Microsoft.Extensions.Logging;
 using Sendspin.SDK.Audio;
 using Sendspin.SDK.Connection;
@@ -272,7 +271,7 @@ public sealed class SendspinHostService : IAsyncDisposable
         }
     }
 
-    private async void OnServerConnected(object? sender, IWebSocketConnection webSocket)
+    private async void OnServerConnected(object? sender, WebSocketClientConnection webSocket)
     {
         // All code must be inside try-catch since async void exceptions crash the app
         string? connectionId = null;
@@ -280,7 +279,7 @@ public sealed class SendspinHostService : IAsyncDisposable
         {
             connectionId = Guid.NewGuid().ToString("N")[..8];
             _logger.LogInformation("New server connection: {ConnectionId}", connectionId);
-            // Create connection wrapper for Fleck socket
+            // Create connection wrapper for WebSocket
             var connection = new IncomingConnection(
                 _loggerFactory.CreateLogger<IncomingConnection>(),
                 webSocket);
