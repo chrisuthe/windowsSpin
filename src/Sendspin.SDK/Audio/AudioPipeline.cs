@@ -159,6 +159,14 @@ public sealed class AudioPipeline : IAudioPipeline
 
         SetState(AudioPipelineState.Starting);
 
+        // Reset MonotonicTimer state to avoid stale timing from previous session
+        // Without this, a 30s pause causes MonotonicTimer to be 30s behind real time
+        // (forward jump clamping eats the gap), resulting in a 30s delay on resume
+        if (_precisionTimer is MonotonicTimer mt)
+        {
+            mt.Reset();
+        }
+
         try
         {
             _currentFormat = format;
