@@ -2,6 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Sendspin.SDK.Audio.Codecs;
 using Sendspin.SDK.Models;
 
@@ -12,6 +14,17 @@ namespace Sendspin.SDK.Audio;
 /// </summary>
 public sealed class AudioDecoderFactory : IAudioDecoderFactory
 {
+    private readonly ILoggerFactory _loggerFactory;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="AudioDecoderFactory"/> class.
+    /// </summary>
+    /// <param name="loggerFactory">Optional logger factory for decoder diagnostics.</param>
+    public AudioDecoderFactory(ILoggerFactory? loggerFactory = null)
+    {
+        _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+    }
+
     /// <inheritdoc/>
     public IAudioDecoder Create(AudioFormat format)
     {
@@ -21,7 +34,7 @@ public sealed class AudioDecoderFactory : IAudioDecoderFactory
         {
             AudioCodecs.Opus => new OpusDecoder(format),
             AudioCodecs.Pcm => new PcmDecoder(format),
-            AudioCodecs.Flac => new FlacDecoder(format),
+            AudioCodecs.Flac => new FlacDecoder(format, _loggerFactory.CreateLogger<FlacDecoder>()),
             _ => throw new NotSupportedException($"Unsupported audio codec: {format.Codec}"),
         };
     }
