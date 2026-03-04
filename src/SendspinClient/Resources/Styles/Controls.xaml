@@ -354,6 +354,7 @@
     <!-- Dark ScrollViewer Style -->
     <Style x:Key="DarkScrollViewer" TargetType="ScrollViewer">
         <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="PanningMode" Value="VerticalOnly"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ScrollViewer">
