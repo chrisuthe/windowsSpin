@@ -102,6 +102,10 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     // At ~10ms audio callbacks, this is ~100ms to stabilize after a change.
     private const double SyncErrorSmoothingAlpha = 0.1;
 
+    // Reconnect stabilization: suppress corrections while Kalman filter re-converges
+    private bool _inReconnectStabilization;
+    private long _reconnectStabilizationStartOutput;
+
     private bool _disposed;
 
     /// <inheritdoc/>
@@ -584,6 +588,30 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     }
 
     /// <inheritdoc/>
+    public void NotifyReconnect()
+    {
+        lock (_lock)
+        {
+            // Reset EMA to prevent stale pre-disconnect values from polluting correction decisions
+            // At α=0.1, the EMA takes ~100ms to reach 63% of a step change — without resetting,
+            // old values would linger even after the stabilization period ends
+            _smoothedSyncErrorMicroseconds = 0;
+
+            _inReconnectStabilization = true;
+            _reconnectStabilizationStartOutput = _samplesOutputSinceStart;
+
+            // Reset internal correction state to neutral
+            _dropEveryNFrames = 0;
+            _insertEveryNFrames = 0;
+            _framesSinceLastCorrection = 0;
+            SetTargetPlaybackRate(1.0);
+
+            _logger.LogInformation("[Correction] Reconnect stabilization started (suppressing corrections for {DurationMs}ms)",
+                _syncOptions.ReconnectStabilizationMicroseconds / 1000);
+        }
+    }
+
+    /// <inheritdoc/>
     public void Clear()
     {
         lock (_lock)
@@ -617,6 +645,9 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             _lastOutputFrame = null;
             TargetPlaybackRate = 1.0;
             // Note: Don't reset _samplesDroppedForSync/_samplesInsertedForSync - these are cumulative stats
+
+            // Reset reconnect stabilization state
+            _inReconnectStabilization = false;
 
             // Reset correction mode transition tracking (avoids stale logging after clear)
             _previousCorrectionMode = SyncCorrectionMode.None;
@@ -947,6 +978,25 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             _dropEveryNFrames = 0;
             _insertEveryNFrames = 0;
             return;
+        }
+
+        // Skip correction during reconnect stabilization (Kalman filter re-converging)
+        if (_inReconnectStabilization)
+        {
+            var samplesSinceReconnect = _samplesOutputSinceStart - _reconnectStabilizationStartOutput;
+            var elapsedSinceReconnect = (long)(samplesSinceReconnect * _microsecondsPerSample);
+            if (elapsedSinceReconnect >= _syncOptions.ReconnectStabilizationMicroseconds)
+            {
+                _inReconnectStabilization = false;
+                _logger.LogInformation("[Correction] Reconnect stabilization ended, resuming corrections");
+            }
+            else
+            {
+                SetTargetPlaybackRate(1.0);
+                _dropEveryNFrames = 0;
+                _insertEveryNFrames = 0;
+                return;
+            }
         }
 
         // Use smoothed error for correction decisions (filters measurement jitter)

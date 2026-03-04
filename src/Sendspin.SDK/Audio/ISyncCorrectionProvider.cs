@@ -97,4 +97,20 @@ public interface ISyncCorrectionProvider
     /// stale correction decisions from affecting new playback.
     /// </remarks>
     void Reset();
+
+    /// <summary>
+    /// Notifies the provider that a WebSocket reconnect occurred.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// After a reconnect, the clock synchronizer is reset and needs time to re-converge.
+    /// During this stabilization period, sync error measurements are unreliable.
+    /// Implementations should suppress corrections until the stabilization period elapses.
+    /// </para>
+    /// <para>
+    /// The stabilization duration is configured via
+    /// <see cref="SyncCorrectionOptions.ReconnectStabilizationMicroseconds"/>.
+    /// </para>
+    /// </remarks>
+    void NotifyReconnect() { }
 }

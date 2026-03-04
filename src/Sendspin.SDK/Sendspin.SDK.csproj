@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>7.1.1</Version>
+    <Version>7.2.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,31 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v7.2.0 - Reconnect Stabilization:
+
+New Features:
+- Reconnect stabilization period: Suppresses sync corrections for 2 seconds after
+  WebSocket reconnect while the Kalman clock synchronizer re-converges. Prevents
+  audible artifacts (erratic drop/insert/resampling) caused by unreliable sync error
+  measurements from a freshly-reset Kalman filter. Matches Android client behavior.
+- SyncCorrectionOptions.ReconnectStabilizationMicroseconds: Configurable duration
+  (default: 2,000,000 = 2 seconds)
+- ISyncCorrectionProvider.NotifyReconnect(): Default interface method for reconnect notification
+- IAudioPlayer.NotifyReconnect(): Default interface method for player reconnect notification
+- IAudioPipeline.NotifyReconnect(): Pipeline-level reconnect notification
+- ITimedAudioBuffer.NotifyReconnect(): Buffer-level reconnect notification
+
+BREAKING (minor):
+- ITimedAudioBuffer: Added NotifyReconnect() method (no default implementation).
+  If you implement ITimedAudioBuffer directly (not using TimedAudioBuffer), add this method.
+  Most consumers are unaffected as TimedAudioBuffer is the only known implementation.
+
+Implementation Notes:
+- Both Read() (deprecated) and ReadRaw() correction paths are covered
+- Re-anchor threshold is NOT suppressed during stabilization (catastrophic drift still handled)
+- EMA smoothed sync error is reset on reconnect to prevent stale values from lingering
+- Multiple rapid reconnects restart the stabilization window each time
+
 v7.1.1 - Documentation:
 - Added NativeAOT support section to README with PublishAot usage and guidance
 - Added v7.0.0 migration guide for SendspinListener.ServerConnected breaking change

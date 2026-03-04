@@ -273,6 +273,14 @@ public sealed class AudioPipeline : IAudioPipeline
     }
 
     /// <inheritdoc/>
+    public void NotifyReconnect()
+    {
+        _buffer?.NotifyReconnect();
+        _player?.NotifyReconnect();
+        _logger.LogInformation("[Correction] Pipeline notified of reconnect, stabilization period active");
+    }
+
+    /// <inheritdoc/>
     public void Clear(long? newTargetTimestamp = null)
     {
         _buffer?.Clear();

@@ -94,6 +94,16 @@ public interface IAudioPlayer : IAsyncDisposable
     long? GetAudioClockMicroseconds() => null;
 
     /// <summary>
+    /// Notifies the player that a WebSocket reconnect occurred.
+    /// Implementations should forward this to their sync correction provider.
+    /// </summary>
+    /// <remarks>
+    /// Default implementation is a no-op. Override in platform-specific players
+    /// that use <see cref="ISyncCorrectionProvider"/> for external sync correction.
+    /// </remarks>
+    void NotifyReconnect() { }
+
+    /// <summary>
     /// Initializes the audio output with the specified format.
     /// </summary>
     /// <param name="format">Audio format to use.</param>
