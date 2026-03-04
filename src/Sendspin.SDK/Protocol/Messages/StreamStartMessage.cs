@@ -23,7 +23,7 @@ public sealed class StreamStartMessage : IMessageWithPayload<StreamStartPayload>
 
     // Convenience accessor
     [JsonIgnore]
-    public AudioFormat Format => Payload.Format;
+    public AudioFormat? Format => Payload.Format;
 }
 
 /// <summary>
@@ -34,7 +34,8 @@ public sealed class StreamStartPayload
     /// <summary>
     /// Gets or sets the audio format for the incoming stream.
     /// The "player" object contains codec, channels, sample_rate, bit_depth, and codec_header.
+    /// Null when the stream/start only carries artwork info (no player key).
     /// </summary>
     [JsonPropertyName("player")]
-    public AudioFormat Format { get; set; } = new();
+    public AudioFormat? Format { get; set; }
 }

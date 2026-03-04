@@ -135,6 +135,23 @@ public sealed class SyncCorrectionOptions
     public long ReanchorThresholdMicroseconds { get; set; } = 500_000;
 
     /// <summary>
+    /// Gets or sets the minimum time between re-anchors (microseconds).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Prevents rapid repeated re-anchors when the clock synchronizer has persistent error
+    /// (e.g., during reconnect re-convergence or network instability). Without a cooldown,
+    /// re-anchors can trigger every ~750ms (500ms grace + 250ms rebuffer), causing audio stuttering.
+    /// </para>
+    /// <para>
+    /// This value matches the Android client's <c>REANCHOR_COOLDOWN_US</c> and the Python CLI's
+    /// <c>_REANCHOR_COOLDOWN_US</c>.
+    /// Default: 5000000 (5 seconds).
+    /// </para>
+    /// </remarks>
+    public long ReanchorCooldownMicroseconds { get; set; } = 5_000_000;
+
+    /// <summary>
     /// Gets or sets the startup grace period (microseconds).
     /// </summary>
     /// <remarks>
@@ -144,6 +161,27 @@ public sealed class SyncCorrectionOptions
     /// Default: 500000 (500ms).
     /// </remarks>
     public long StartupGracePeriodMicroseconds { get; set; } = 500_000;
+
+    /// <summary>
+    /// Gets or sets the reconnect stabilization period (microseconds).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// After a WebSocket reconnect, the clock synchronizer is reset and needs time to
+    /// re-converge. During this window, sync error measurements are unreliable because
+    /// they are based on a freshly-reset Kalman filter with high uncertainty.
+    /// </para>
+    /// <para>
+    /// Without suppression, the sync correction system reacts to these inaccurate
+    /// measurements, causing erratic drop/insert or resampling corrections that produce
+    /// audible artifacts.
+    /// </para>
+    /// <para>
+    /// This value matches the Android client's <c>RECONNECT_STABILIZATION_US</c>.
+    /// Default: 2000000 (2 seconds).
+    /// </para>
+    /// </remarks>
+    public long ReconnectStabilizationMicroseconds { get; set; } = 2_000_000;
 
     /// <summary>
     /// Gets or sets the grace window for scheduled start (microseconds).
@@ -238,6 +276,13 @@ public sealed class SyncCorrectionOptions
                 nameof(ReanchorThresholdMicroseconds));
         }
 
+        if (ReanchorCooldownMicroseconds < 0)
+        {
+            throw new ArgumentException(
+                "ReanchorCooldownMicroseconds must be non-negative.",
+                nameof(ReanchorCooldownMicroseconds));
+        }
+
         if (StartupGracePeriodMicroseconds < 0)
         {
             throw new ArgumentException(
@@ -250,6 +295,13 @@ public sealed class SyncCorrectionOptions
             throw new ArgumentException(
                 "ScheduledStartGraceWindowMicroseconds must be non-negative.",
                 nameof(ScheduledStartGraceWindowMicroseconds));
+        }
+
+        if (ReconnectStabilizationMicroseconds < 0)
+        {
+            throw new ArgumentException(
+                "ReconnectStabilizationMicroseconds must be non-negative.",
+                nameof(ReconnectStabilizationMicroseconds));
         }
     }
 
@@ -265,8 +317,10 @@ public sealed class SyncCorrectionOptions
         CorrectionTargetSeconds = CorrectionTargetSeconds,
         ResamplingThresholdMicroseconds = ResamplingThresholdMicroseconds,
         ReanchorThresholdMicroseconds = ReanchorThresholdMicroseconds,
+        ReanchorCooldownMicroseconds = ReanchorCooldownMicroseconds,
         StartupGracePeriodMicroseconds = StartupGracePeriodMicroseconds,
         ScheduledStartGraceWindowMicroseconds = ScheduledStartGraceWindowMicroseconds,
+        ReconnectStabilizationMicroseconds = ReconnectStabilizationMicroseconds,
         BypassDeadband = BypassDeadband,
     };
 

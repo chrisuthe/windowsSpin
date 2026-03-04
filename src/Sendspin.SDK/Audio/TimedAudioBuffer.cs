@@ -62,6 +62,8 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     private long _samplesDroppedForSync;  // Total samples dropped for sync correction
     private long _samplesInsertedForSync; // Total samples inserted for sync correction
     private bool _needsReanchor;          // Flag to trigger re-anchoring
+    private long _lastReanchorTimeMicroseconds; // Local time of last reanchor (persists across Clear)
+    private long _lastReanchorCooldownLogTime;  // Rate-limit cooldown suppression logging
     private int _reanchorEventPending;    // 0 = not pending, 1 = pending (for thread-safe event coalescing)
     private float[]? _lastOutputFrame;    // Last output frame for smooth drop/insert (Python CLI approach)
 
@@ -101,6 +103,10 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     // Alpha of 0.1 means ~10 updates to reach 63% of a step change.
     // At ~10ms audio callbacks, this is ~100ms to stabilize after a change.
     private const double SyncErrorSmoothingAlpha = 0.1;
+
+    // Reconnect stabilization: suppress corrections while Kalman filter re-converges
+    private bool _inReconnectStabilization;
+    private long _reconnectStabilizationStartOutput;
 
     private bool _disposed;
 
@@ -188,7 +194,7 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     /// </summary>
     /// <param name="format">Audio format for samples.</param>
     /// <param name="clockSync">Clock synchronizer for timestamp conversion.</param>
-    /// <param name="bufferCapacityMs">Maximum buffer capacity in milliseconds (default 500ms).</param>
+    /// <param name="bufferCapacityMs">Maximum buffer capacity in milliseconds. Should be large enough to absorb the server's initial burst (typically 30s).</param>
     /// <param name="syncOptions">Optional sync correction options. Uses <see cref="SyncCorrectionOptions.Default"/> if not provided.</param>
     /// <param name="logger">Optional logger for diagnostics (uses NullLogger if not provided).</param>
     public TimedAudioBuffer(
@@ -399,7 +405,18 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 if (elapsedSinceStart >= _syncOptions.StartupGracePeriodMicroseconds
                     && Math.Abs(_currentSyncErrorMicroseconds) > _syncOptions.ReanchorThresholdMicroseconds)
                 {
-                    _needsReanchor = true;
+                    if (currentLocalTime - _lastReanchorTimeMicroseconds >= _syncOptions.ReanchorCooldownMicroseconds)
+                    {
+                        _lastReanchorTimeMicroseconds = currentLocalTime;
+                        _needsReanchor = true;
+                    }
+                    else if (currentLocalTime - _lastReanchorCooldownLogTime >= UnderrunLogIntervalMicroseconds)
+                    {
+                        _lastReanchorCooldownLogTime = currentLocalTime;
+                        _logger.LogWarning(
+                            "[Correction] Reanchor suppressed by cooldown ({CooldownMs}ms remaining)",
+                            (_syncOptions.ReanchorCooldownMicroseconds - (currentLocalTime - _lastReanchorTimeMicroseconds)) / 1000);
+                    }
                 }
             }
 
@@ -517,7 +534,18 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
                 if (elapsedSinceStart >= _syncOptions.StartupGracePeriodMicroseconds
                     && Math.Abs(_currentSyncErrorMicroseconds) > _syncOptions.ReanchorThresholdMicroseconds)
                 {
-                    _needsReanchor = true;
+                    if (currentLocalTime - _lastReanchorTimeMicroseconds >= _syncOptions.ReanchorCooldownMicroseconds)
+                    {
+                        _lastReanchorTimeMicroseconds = currentLocalTime;
+                        _needsReanchor = true;
+                    }
+                    else if (currentLocalTime - _lastReanchorCooldownLogTime >= UnderrunLogIntervalMicroseconds)
+                    {
+                        _lastReanchorCooldownLogTime = currentLocalTime;
+                        _logger.LogWarning(
+                            "[Correction] Reanchor suppressed by cooldown ({CooldownMs}ms remaining)",
+                            (_syncOptions.ReanchorCooldownMicroseconds - (currentLocalTime - _lastReanchorTimeMicroseconds)) / 1000);
+                    }
                 }
             }
 
@@ -584,6 +612,30 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
     }
 
     /// <inheritdoc/>
+    public void NotifyReconnect()
+    {
+        lock (_lock)
+        {
+            // Reset EMA to prevent stale pre-disconnect values from polluting correction decisions
+            // At α=0.1, the EMA takes ~100ms to reach 63% of a step change — without resetting,
+            // old values would linger even after the stabilization period ends
+            _smoothedSyncErrorMicroseconds = 0;
+
+            _inReconnectStabilization = true;
+            _reconnectStabilizationStartOutput = _samplesOutputSinceStart;
+
+            // Reset internal correction state to neutral
+            _dropEveryNFrames = 0;
+            _insertEveryNFrames = 0;
+            _framesSinceLastCorrection = 0;
+            SetTargetPlaybackRate(1.0);
+
+            _logger.LogInformation("[Correction] Reconnect stabilization started (suppressing corrections for {DurationMs}ms)",
+                _syncOptions.ReconnectStabilizationMicroseconds / 1000);
+        }
+    }
+
+    /// <inheritdoc/>
     public void Clear()
     {
         lock (_lock)
@@ -617,6 +669,11 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             _lastOutputFrame = null;
             TargetPlaybackRate = 1.0;
             // Note: Don't reset _samplesDroppedForSync/_samplesInsertedForSync - these are cumulative stats
+            // Note: Don't reset _lastReanchorTimeMicroseconds - reanchor itself calls Clear(),
+            // so resetting the cooldown here would defeat its purpose (matches Android/Python CLI)
+
+            // Reset reconnect stabilization state
+            _inReconnectStabilization = false;
 
             // Reset correction mode transition tracking (avoids stale logging after clear)
             _previousCorrectionMode = SyncCorrectionMode.None;
@@ -947,6 +1004,25 @@ public sealed class TimedAudioBuffer : ITimedAudioBuffer
             _dropEveryNFrames = 0;
             _insertEveryNFrames = 0;
             return;
+        }
+
+        // Skip correction during reconnect stabilization (Kalman filter re-converging)
+        if (_inReconnectStabilization)
+        {
+            var samplesSinceReconnect = _samplesOutputSinceStart - _reconnectStabilizationStartOutput;
+            var elapsedSinceReconnect = (long)(samplesSinceReconnect * _microsecondsPerSample);
+            if (elapsedSinceReconnect >= _syncOptions.ReconnectStabilizationMicroseconds)
+            {
+                _inReconnectStabilization = false;
+                _logger.LogInformation("[Correction] Reconnect stabilization ended, resuming corrections");
+            }
+            else
+            {
+                SetTargetPlaybackRate(1.0);
+                _dropEveryNFrames = 0;
+                _insertEveryNFrames = 0;
+                return;
+            }
         }
 
         // Use smoothed error for correction decisions (filters measurement jitter)

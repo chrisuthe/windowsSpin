@@ -423,6 +423,12 @@ public sealed class SendspinClientService : ISendspinClient
         // Reset clock synchronizer for new connection
         _clockSynchronizer.Reset();
 
+        // Notify audio pipeline of reconnect to suppress sync corrections
+        // while the Kalman filter re-converges (~2 seconds).
+        // Safe to call even on initial connection: _audioPipeline is null before first stream/start,
+        // and NotifyReconnect on null buffer/player is a no-op.
+        _audioPipeline?.NotifyReconnect();
+
         // Send initial client state (required by protocol after server/hello)
         // This tells the server we're synchronized and ready
         SendInitialClientStateAsync().SafeFireAndForget(_logger);
@@ -901,6 +907,13 @@ public sealed class SendspinClientService : ISendspinClient
         var message = MessageSerializer.Deserialize<StreamStartMessage>(json);
         if (message is null)
         {
+            return;
+        }
+
+        // stream/start with no "player" key is artwork-only — skip pipeline start
+        if (message.Format is null)
+        {
+            _logger.LogDebug("Stream start is artwork-only (no player key), skipping pipeline start");
             return;
         }
 

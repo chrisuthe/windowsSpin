@@ -349,7 +349,7 @@ Settings are stored in two locations:
 
 ### Audio Buffer Configuration
 - `Buffer.TargetMs`: Target buffer depth before starting playback (default: 250ms)
-- `Buffer.CapacityMs`: Maximum buffer capacity (default: 8000ms)
+- `Buffer.CapacityMs`: Maximum buffer capacity (default: 30000ms / 30s — sized to absorb server's initial burst)
 
 ### Clock Sync Configuration
 - `ClockSync.WaitForConvergence`: Wait for Kalman filter to converge before playback (default: true)

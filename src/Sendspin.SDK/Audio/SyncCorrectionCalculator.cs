@@ -45,6 +45,10 @@ public sealed class SyncCorrectionCalculator : ISyncCorrectionProvider
     private long _totalSamplesProcessed;
     private bool _inStartupGracePeriod = true;
 
+    // Reconnect stabilization tracking (separate from startup grace to avoid interference)
+    private bool _inReconnectStabilization;
+    private long _reconnectSamplesProcessed;
+
     /// <inheritdoc/>
     public SyncCorrectionMode CurrentMode
     {
@@ -134,6 +138,47 @@ public sealed class SyncCorrectionCalculator : ISyncCorrectionProvider
             _targetPlaybackRate = 1.0;
             _totalSamplesProcessed = 0;
             _inStartupGracePeriod = true;
+            _inReconnectStabilization = false;
+            _reconnectSamplesProcessed = 0;
+        }
+
+        if (changed)
+        {
+            CorrectionChanged?.Invoke(this);
+        }
+    }
+
+    /// <summary>
+    /// Notifies the provider that a WebSocket reconnect occurred.
+    /// Suppresses corrections during the reconnect stabilization period.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// After reconnect, the Kalman clock synchronizer is reset and needs ~2 seconds
+    /// to re-converge. During this window, sync error measurements are unreliable.
+    /// This method sets a stabilization flag that causes <see cref="UpdateFromSyncError"/>
+    /// to return neutral corrections until the period elapses.
+    /// </para>
+    /// <para>
+    /// Multiple rapid reconnects restart the stabilization window each time.
+    /// </para>
+    /// </remarks>
+    public void NotifyReconnect()
+    {
+        bool changed;
+        lock (_lock)
+        {
+            changed = _currentMode != SyncCorrectionMode.None
+                || _dropEveryNFrames != 0
+                || _insertEveryNFrames != 0
+                || Math.Abs(_targetPlaybackRate - 1.0) > 0.0001;
+
+            _inReconnectStabilization = true;
+            _reconnectSamplesProcessed = 0;
+            _currentMode = SyncCorrectionMode.None;
+            _dropEveryNFrames = 0;
+            _insertEveryNFrames = 0;
+            _targetPlaybackRate = 1.0;
         }
 
         if (changed)
@@ -144,7 +189,7 @@ public sealed class SyncCorrectionCalculator : ISyncCorrectionProvider
 
     /// <summary>
     /// Notifies the calculator that samples were processed.
-    /// Call this after applying corrections to track startup grace period.
+    /// Call this after applying corrections to track startup grace period and reconnect stabilization.
     /// </summary>
     /// <param name="samplesProcessed">Number of samples processed.</param>
     public void NotifySamplesProcessed(int samplesProcessed)
@@ -161,6 +206,18 @@ public sealed class SyncCorrectionCalculator : ISyncCorrectionProvider
                 if (elapsedMicroseconds >= _options.StartupGracePeriodMicroseconds)
                 {
                     _inStartupGracePeriod = false;
+                }
+            }
+
+            // Check if we've exited the reconnect stabilization period
+            if (_inReconnectStabilization)
+            {
+                _reconnectSamplesProcessed += samplesProcessed;
+                var microsecondsPerSample = 1_000_000.0 / (_sampleRate * _channels);
+                var elapsedMicroseconds = (long)(_reconnectSamplesProcessed * microsecondsPerSample);
+                if (elapsedMicroseconds >= _options.ReconnectStabilizationMicroseconds)
+                {
+                    _inReconnectStabilization = false;
                 }
             }
         }
@@ -180,6 +237,17 @@ public sealed class SyncCorrectionCalculator : ISyncCorrectionProvider
 
         // During startup grace period, don't apply corrections
         if (_inStartupGracePeriod)
+        {
+            _currentMode = SyncCorrectionMode.None;
+            _targetPlaybackRate = 1.0;
+            _dropEveryNFrames = 0;
+            _insertEveryNFrames = 0;
+            return HasChanged(previousMode, previousDrop, previousInsert, previousRate);
+        }
+
+        // During reconnect stabilization, don't apply corrections
+        // (Kalman filter is re-converging, sync error measurements are unreliable)
+        if (_inReconnectStabilization)
         {
             _currentMode = SyncCorrectionMode.None;
             _targetPlaybackRate = 1.0;
