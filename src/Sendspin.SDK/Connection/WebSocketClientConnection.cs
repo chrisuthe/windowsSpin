@@ -141,6 +141,22 @@ public sealed class WebSocketClientConnection : IAsyncDisposable
 
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
+                        // Complete the close handshake so the client isn't left waiting
+                        if (_webSocket.State == WebSocketState.CloseReceived)
+                        {
+                            try
+                            {
+                                await _webSocket.CloseOutputAsync(
+                                    WebSocketCloseStatus.NormalClosure,
+                                    string.Empty,
+                                    cancellationToken).ConfigureAwait(false);
+                            }
+                            catch (Exception ex) when (ex is WebSocketException or OperationCanceledException)
+                            {
+                                _logger?.LogDebug(ex, "Error completing close handshake");
+                            }
+                        }
+
                         OnClose?.Invoke();
                         return;
                     }
