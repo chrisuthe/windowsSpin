@@ -2,6 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Sendspin.SDK.Audio.Codecs.ThirdParty;
 using Sendspin.SDK.Models;
 
@@ -38,35 +40,51 @@ public sealed class FlacDecoder : IAudioDecoder
     /// </summary>
     private const int HeaderSize = 42;
 
-    private readonly byte[] _syntheticHeader;
-    private readonly float _sampleScaleFactor;
+    private readonly ILogger _logger;
+    private readonly byte[] _header;
+    private float _sampleScaleFactor;
+    private bool _scaleFactorCalibrated;
     private bool _disposed;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FlacDecoder"/> class.
     /// </summary>
     /// <param name="format">Audio format configuration.</param>
+    /// <param name="logger">Optional logger for diagnostic output.</param>
     /// <exception cref="ArgumentException">Thrown when format is not FLAC.</exception>
-    public FlacDecoder(AudioFormat format)
+    public FlacDecoder(AudioFormat format, ILogger<FlacDecoder>? logger = null)
     {
         if (!string.Equals(format.Codec, AudioCodecs.Flac, StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException($"Expected FLAC format, got {format.Codec}", nameof(format));
         }
 
+        _logger = logger ?? NullLogger<FlacDecoder>.Instance;
         Format = format;
         var bitsPerSample = format.BitDepth ?? 16;
 
         // Calculate scale factor for converting to float [-1.0, 1.0]
-        _sampleScaleFactor = 1.0f / (1 << (bitsPerSample - 1));
+        // Use 1L to avoid integer overflow at 32-bit (1 << 31 overflows int, but not long)
+        _sampleScaleFactor = 1.0f / (1L << (bitsPerSample - 1));
 
         // FLAC typically uses 4096 sample blocks, but can go up to 65535
         // We use 8192 as a reasonable max for streaming
         const int maxBlockSize = 8192;
         MaxSamplesPerFrame = maxBlockSize * format.Channels;
 
-        // Build synthetic FLAC header once
-        _syntheticHeader = BuildSyntheticHeader(format, maxBlockSize);
+        // Use server-provided codec_header (real STREAMINFO) when available,
+        // fall back to synthetic header otherwise
+        if (format.CodecHeader is { } codecHeaderBase64)
+        {
+            _header = Convert.FromBase64String(codecHeaderBase64);
+            _logger.LogDebug("FLAC decoder using server codec_header ({Bytes} bytes, {BitDepth}-bit)",
+                _header.Length, bitsPerSample);
+        }
+        else
+        {
+            _header = BuildSyntheticHeader(format, maxBlockSize);
+            _logger.LogDebug("FLAC decoder using synthetic header ({BitDepth}-bit)", bitsPerSample);
+        }
     }
 
     /// <inheritdoc/>
@@ -85,10 +103,10 @@ public sealed class FlacDecoder : IAudioDecoder
             return 0;
         }
 
-        // Create a stream containing synthetic header + FLAC frame data
-        var streamData = new byte[_syntheticHeader.Length + encodedData.Length];
-        _syntheticHeader.CopyTo(streamData, 0);
-        encodedData.CopyTo(streamData.AsSpan(_syntheticHeader.Length));
+        // Create a stream containing header + FLAC frame data
+        var streamData = new byte[_header.Length + encodedData.Length];
+        _header.CopyTo(streamData, 0);
+        encodedData.CopyTo(streamData.AsSpan(_header.Length));
 
         using var stream = new MemoryStream(streamData, writable: false);
 
@@ -101,6 +119,23 @@ public sealed class FlacDecoder : IAudioDecoder
         try
         {
             using var flacDecoder = new ThirdParty.FlacDecoder(stream, options);
+
+            // Calibrate scale factor from actual FLAC STREAMINFO bit depth.
+            // The stream/start message may report a different bit depth (e.g., 32 from PyAV's s32
+            // container) than the actual FLAC encoding (e.g., 24-bit precision).
+            if (!_scaleFactorCalibrated)
+            {
+                var actualBits = flacDecoder.BitsPerSample;
+                _sampleScaleFactor = 1.0f / (1L << (actualBits - 1));
+                _scaleFactorCalibrated = true;
+
+                if (actualBits != (Format.BitDepth ?? 16))
+                {
+                    _logger.LogWarning(
+                        "FLAC actual bit depth ({ActualBits}) differs from stream/start ({ReportedBits}), using actual",
+                        actualBits, Format.BitDepth ?? 16);
+                }
+            }
 
             // Decode frame(s)
             int totalSamplesWritten = 0;
@@ -128,10 +163,10 @@ public sealed class FlacDecoder : IAudioDecoder
 
             return totalSamplesWritten;
         }
-        catch (InvalidDataException)
+        catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
         {
-            // Frame decode error - return 0 samples
-            // This can happen with corrupted network data
+            _logger.LogWarning(ex, "FLAC frame decode failed ({BitDepth}-bit, {DataLen} bytes encoded)",
+                Format.BitDepth ?? 16, encodedData.Length);
             return 0;
         }
     }
