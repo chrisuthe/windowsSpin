@@ -20,30 +20,43 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
-v7.2.0 - Reconnect Stabilization:
+v7.2.0 - Reconnect Resilience, Freeze/Thaw Kalman State, FLAC Fixes:
 
 New Features:
+- IClockSynchronizer.Freeze()/Thaw()/IsFrozen: Snapshot and restore Kalman filter state
+  across reconnects. On disconnect, Freeze() saves converged offset/drift estimates.
+  On reconnect, Thaw() restores them with 10x inflated covariance for fast adaptation.
+  Converges in 1-2 measurements instead of 5+ from scratch. Matches Android client.
 - Reconnect stabilization period: Suppresses sync corrections for 2 seconds after
-  WebSocket reconnect while the Kalman clock synchronizer re-converges. Prevents
-  audible artifacts (erratic drop/insert/resampling) caused by unreliable sync error
-  measurements from a freshly-reset Kalman filter. Matches Android client behavior.
+  WebSocket reconnect while the Kalman filter re-converges. Prevents audible artifacts
+  from unreliable sync error measurements. Matches Android client behavior.
 - SyncCorrectionOptions.ReconnectStabilizationMicroseconds: Configurable duration
   (default: 2,000,000 = 2 seconds)
+- Reanchor cooldown: 5-second minimum between re-anchors, matching Android/Python CLI.
+  Prevents re-anchor loops on track change.
+- SyncCorrectionOptions.ReanchorCooldownMicroseconds: Configurable cooldown duration
+  (default: 5,000,000 = 5 seconds)
 - ISyncCorrectionProvider.NotifyReconnect(): Default interface method for reconnect notification
 - IAudioPlayer.NotifyReconnect(): Default interface method for player reconnect notification
 - IAudioPipeline.NotifyReconnect(): Pipeline-level reconnect notification
 - ITimedAudioBuffer.NotifyReconnect(): Buffer-level reconnect notification
 
+Bug Fixes:
+- Fixed FLAC 32-bit silence: Use actual STREAMINFO bit depth instead of stream/start header.
+  The stream/start message may report incorrect bit depth for FLAC streams; the decoder now
+  reads the true bit depth from the FLAC STREAMINFO metadata block.
+- Fixed AudioFormat.BitDepth not updating from decoded FLAC STREAMINFO.
+- Fixed artwork-only stream/start causing unnecessary pipeline start. stream/start messages
+  with no &quot;player&quot; key are now correctly skipped.
+- Increased default buffer capacity from 8s to 30s to prevent overruns during server's
+  initial audio burst on track start.
+
 BREAKING (minor):
+- IClockSynchronizer: Added Freeze(), Thaw(), IsFrozen members.
+  If you implement IClockSynchronizer directly (not using KalmanClockSynchronizer), add these.
 - ITimedAudioBuffer: Added NotifyReconnect() method (no default implementation).
   If you implement ITimedAudioBuffer directly (not using TimedAudioBuffer), add this method.
-  Most consumers are unaffected as TimedAudioBuffer is the only known implementation.
-
-Implementation Notes:
-- Both Read() (deprecated) and ReadRaw() correction paths are covered
-- Re-anchor threshold is NOT suppressed during stabilization (catastrophic drift still handled)
-- EMA smoothed sync error is reset on reconnect to prevent stale values from lingering
-- Multiple rapid reconnects restart the stabilization window each time
+- Most consumers are unaffected as the built-in implementations are the only known ones.
 
 v7.1.1 - Documentation:
 - Added NativeAOT support section to README with PublishAot usage and guidance
