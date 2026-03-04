@@ -19,7 +19,10 @@ public sealed class ClientStateMessage : IMessageWithPayload<ClientStatePayload>
     /// Creates a synchronized state message with player volume/mute.
     /// This should be sent immediately after receiving server/hello.
     /// </summary>
-    public static ClientStateMessage CreateSynchronized(int volume = 100, bool muted = false)
+    /// <param name="volume">Player volume (0-100).</param>
+    /// <param name="muted">Whether the player is muted.</param>
+    /// <param name="staticDelayMs">Static delay in milliseconds for group sync calibration.</param>
+    public static ClientStateMessage CreateSynchronized(int volume = 100, bool muted = false, double staticDelayMs = 0.0)
     {
         return new ClientStateMessage
         {
@@ -29,7 +32,8 @@ public sealed class ClientStateMessage : IMessageWithPayload<ClientStatePayload>
                 Player = new PlayerStatePayload
                 {
                     Volume = volume,
-                    Muted = muted
+                    Muted = muted,
+                    StaticDelayMs = staticDelayMs
                 }
             }
         };
@@ -115,4 +119,13 @@ public sealed class PlayerStatePayload
     [JsonPropertyName("error")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Error { get; init; }
+
+    /// <summary>
+    /// Static delay in milliseconds configured for this player.
+    /// Used by the server during GroupSync calibration to compensate for
+    /// device audio output latency across the group.
+    /// </summary>
+    [JsonPropertyName("static_delay_ms")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public double StaticDelayMs { get; init; }
 }

@@ -94,6 +94,11 @@ public sealed class SendspinHostService : IAsyncDisposable
     public event EventHandler<byte[]>? ArtworkReceived;
 
     /// <summary>
+    /// Raised when artwork is cleared (empty artwork binary message from server).
+    /// </summary>
+    public event EventHandler? ArtworkCleared;
+
+    /// <summary>
     /// Raised when the last-played server ID changes.
     /// Consumers should persist this value so it survives app restarts.
     /// </summary>
@@ -308,6 +313,7 @@ public sealed class SendspinHostService : IAsyncDisposable
             };
             client.PlayerStateChanged += (s, p) => PlayerStateChanged?.Invoke(this, p);
             client.ArtworkReceived += (s, data) => ArtworkReceived?.Invoke(this, data);
+            client.ArtworkCleared += (s, e) => ArtworkCleared?.Invoke(this, EventArgs.Empty);
 
             // Start the connection (begins receive loop)
             await connection.StartAsync();
@@ -669,7 +675,11 @@ public sealed class SendspinHostService : IAsyncDisposable
     /// <summary>
     /// Sends the current player state (volume, muted) to a specific server or all connected servers.
     /// </summary>
-    public async Task SendPlayerStateAsync(int volume, bool muted, string? serverId = null)
+    /// <param name="volume">Current volume level (0-100).</param>
+    /// <param name="muted">Current mute state.</param>
+    /// <param name="staticDelayMs">Static delay in milliseconds for group sync calibration.</param>
+    /// <param name="serverId">Target server ID, or null for all servers.</param>
+    public async Task SendPlayerStateAsync(int volume, bool muted, double staticDelayMs = 0.0, string? serverId = null)
     {
         List<SendspinClientService> clients;
         lock (_connectionsLock)
@@ -693,7 +703,7 @@ public sealed class SendspinHostService : IAsyncDisposable
 
         foreach (var client in clients)
         {
-            await client.SendPlayerStateAsync(volume, muted);
+            await client.SendPlayerStateAsync(volume, muted, staticDelayMs);
         }
     }
 

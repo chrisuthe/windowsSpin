@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Sendspin.SDK</PackageId>
-    <Version>7.0.0</Version>
+    <Version>7.1.0</Version>
     <Authors>Sendspin Contributors</Authors>
     <Company>Sendspin</Company>
     <Product>Sendspin SDK</Product>
@@ -20,6 +20,21 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
+v7.1.0 - Protocol Compliance (aiosendspin audit):
+
+New Features:
+- PlayerStatePayload.StaticDelayMs: Reports configured static delay to server
+  for GroupSync calibration. Server uses this to compensate for device output
+  latency when calculating group-wide sync offsets.
+- ISendspinClient.ArtworkCleared event: Raised when server sends empty artwork
+  binary payload (type 8-11, 0-byte data) to signal "no artwork available".
+  Previously, empty payloads were passed through as empty byte arrays.
+- SendPlayerStateAsync now accepts optional staticDelayMs parameter (default 0.0)
+- SendspinHostService.ArtworkCleared event: Forwarded from child clients
+
+Bug Fixes:
+- Empty artwork binary messages no longer treated as valid image data
+
 v7.0.0 - NativeAOT Support:
 
 BREAKING CHANGES:

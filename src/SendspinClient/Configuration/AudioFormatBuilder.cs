@@ -32,10 +32,11 @@ public static class AudioFormatBuilder
         var formats = new List<AudioFormat>();
         var sampleRate = capabilities.NativeSampleRate;
 
-        // WASAPI MixFormat reports 32 for 32-bit float (Windows Audio Engine internal format).
-        // Cap at 24-bit since that's the max standard hi-res PCM bit depth.
-        // When WASAPI reports 32-bit, the device can handle any format via Windows resampling.
-        var bitDepth = Math.Min(capabilities.NativeBitDepth, 24);
+        // Use the device's native bit depth as-is. WASAPI MixFormat reports 32 for devices
+        // using 32-bit float internally, but the server sends 32-bit signed integer PCM.
+        // This works because NAudio's WasapiOut handles the conversion internally, and the
+        // SDK's PcmDecoder already reads 32-bit via ReadInt32LittleEndian.
+        var bitDepth = capabilities.NativeBitDepth;
 
         // Preferred codec first at native resolution
         if (preferredCodec == "flac")
