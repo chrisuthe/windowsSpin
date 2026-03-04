@@ -27,6 +27,7 @@ namespace SendspinClient;
 /// </summary>
 public partial class App : Application
 {
+    private SingleInstanceGuard? _singleInstanceGuard;
     private ServiceProvider? _serviceProvider;
     private IConfiguration? _configuration;
     private MainViewModel? _mainViewModel;
@@ -46,6 +47,26 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Single-instance enforcement: if another instance is already running,
+        // signal it to show its window and shut down immediately
+        _singleInstanceGuard = new SingleInstanceGuard();
+        if (!_singleInstanceGuard.TryStart())
+        {
+            Shutdown();
+            return;
+        }
+
+        _singleInstanceGuard.ShowWindowRequested += (_, _) =>
+            Dispatcher.Invoke(() =>
+            {
+                if (MainWindow is { } window)
+                {
+                    window.Show();
+                    window.WindowState = WindowState.Normal;
+                    window.Activate();
+                }
+            });
 
         // Initialize user settings directory (copy defaults on first run)
         AppPaths.InitializeUserSettingsIfNeeded();
@@ -560,6 +581,9 @@ public partial class App : Application
     {
         try
         {
+            // Dispose single-instance guard (releases mutex, stops pipe server)
+            _singleInstanceGuard?.Dispose();
+
             // Dispose tray icon to remove from system tray
             _trayIcon?.Dispose();
 
