@@ -622,7 +622,6 @@ New Features:
 
   <ItemGroup>
     <!-- Core dependencies - all cross-platform -->
-    <PackageReference Include="Fleck" Version="1.2.0" />
     <PackageReference Include="Concentus" Version="2.2.2" />
     <PackageReference Include="Zeroconf" Version="3.7.16" />
     <PackageReference Include="Makaretu.Dns.Multicast" Version="0.27.0" />
