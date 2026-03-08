@@ -35,12 +35,6 @@ public static class AppPaths
     public static string LogDirectory { get; } = Path.Combine(UserDataDirectory, "logs");
 
     /// <summary>
-    /// Gets the diagnostics directory for storing diagnostic audio recordings.
-    /// Located at %LocalAppData%\WindowsSpin\diagnostics\.
-    /// </summary>
-    public static string DiagnosticsDirectory { get; } = Path.Combine(UserDataDirectory, "diagnostics");
-
-    /// <summary>
     /// Gets the installation directory where the application executable is located.
     /// </summary>
     public static string InstallDirectory { get; } = AppDomain.CurrentDomain.BaseDirectory;
@@ -65,14 +59,6 @@ public static class AppPaths
     public static void EnsureLogDirectoryExists()
     {
         Directory.CreateDirectory(LogDirectory);
-    }
-
-    /// <summary>
-    /// Ensures the diagnostics directory exists.
-    /// </summary>
-    public static void EnsureDiagnosticsDirectoryExists()
-    {
-        Directory.CreateDirectory(DiagnosticsDirectory);
     }
 
     /// <summary>

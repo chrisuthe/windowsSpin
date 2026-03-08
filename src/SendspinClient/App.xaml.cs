@@ -12,7 +12,6 @@ using Sendspin.SDK.Discovery;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Synchronization;
 using SendspinClient.Services.Audio;
-using SendspinClient.Services.Diagnostics;
 using SendspinClient.Services.Discord;
 using SendspinClient.Services.Models;
 using SendspinClient.Services.Notifications;
@@ -277,22 +276,10 @@ public partial class App : Application
             ? ResamplerType.SoundTouch
             : ResamplerType.Wdl;
 
-        // Read diagnostics configuration
-        var diagnosticsSettings = new DiagnosticsSettings();
-        _configuration!.GetSection(DiagnosticsSettings.SectionName).Bind(diagnosticsSettings);
-
-        // Diagnostic audio recorder for capturing audio with sync metrics
-        services.AddSingleton<IDiagnosticAudioRecorder>(sp =>
-        {
-            var logger = sp.GetRequiredService<ILogger<DiagnosticAudioRecorder>>();
-            return new DiagnosticAudioRecorder(logger, diagnosticsSettings.BufferSeconds);
-        });
-
         services.AddTransient<IAudioPlayer>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<WasapiAudioPlayer>>();
-            var diagnosticRecorder = sp.GetRequiredService<IDiagnosticAudioRecorder>();
-            return new WasapiAudioPlayer(logger, audioDeviceId, syncStrategy, resamplerType, diagnosticRecorder);
+            return new WasapiAudioPlayer(logger, audioDeviceId, syncStrategy, resamplerType);
         });
 
         // Audio pipeline - orchestrates decoder, buffer, and player

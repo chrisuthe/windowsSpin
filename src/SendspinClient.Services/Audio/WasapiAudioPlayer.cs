@@ -9,7 +9,6 @@ using Sendspin.SDK.Audio;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Synchronization;
 using SendspinClient.Services.Models;
-using SendspinClient.Services.Diagnostics;
 
 namespace SendspinClient.Services.Audio;
 
@@ -52,7 +51,6 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     private readonly ILogger<WasapiAudioPlayer> _logger;
     private readonly SyncCorrectionStrategy _syncStrategy;
     private readonly ResamplerType _resamplerType;
-    private readonly IDiagnosticAudioRecorder? _diagnosticRecorder;
     private string? _deviceId;
     private WasapiOut? _wasapiOut;
     private AudioSampleProviderAdapter? _sampleProvider;
@@ -166,19 +164,16 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// WDL uses sinc interpolation, SoundTouch uses WSOLA algorithm.
     /// Ignored when strategy is DropInsertOnly.
     /// </param>
-    /// <param name="diagnosticRecorder">Optional diagnostic recorder for audio capture.</param>
     public WasapiAudioPlayer(
         ILogger<WasapiAudioPlayer> logger,
         string? deviceId = null,
         SyncCorrectionStrategy syncStrategy = SyncCorrectionStrategy.Combined,
-        ResamplerType resamplerType = ResamplerType.Wdl,
-        IDiagnosticAudioRecorder? diagnosticRecorder = null)
+        ResamplerType resamplerType = ResamplerType.Wdl)
     {
         _logger = logger;
         _deviceId = deviceId;
         _syncStrategy = syncStrategy;
         _resamplerType = resamplerType;
-        _diagnosticRecorder = diagnosticRecorder;
     }
 
     /// <summary>
@@ -382,8 +377,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                 var soundTouch = new SoundTouchSampleProvider(
                     sourceProvider,
                     _correctionProvider,
-                    _logger,
-                    _diagnosticRecorder);
+                    _logger);
                 _resamplerProvider = soundTouch;
                 _resamplerDisposable = soundTouch;
                 break;
@@ -394,8 +388,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                     sourceProvider,
                     _correctionProvider,
                     _deviceNativeSampleRate,
-                    _logger,
-                    _diagnosticRecorder);
+                    _logger);
                 _resamplerProvider = wdl;
                 _resamplerDisposable = wdl;
                 break;

@@ -20,7 +20,6 @@ using Sendspin.SDK.Extensions;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
-using SendspinClient.Services.Diagnostics;
 using SendspinClient.Services.Discord;
 using SendspinClient.Services.Notifications;
 using SendspinClient.Views;
@@ -81,7 +80,6 @@ public partial class MainViewModel : ViewModelBase
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ClientCapabilities _clientCapabilities;
     private readonly IUserSettingsService _settingsService;
-    private readonly IDiagnosticAudioRecorder _diagnosticRecorder;
     private SendspinClientService? _manualClient;
     private ISendspinConnection? _manualConnection;
     private readonly SemaphoreSlim _cleanupLock = new(1, 1);
@@ -442,8 +440,7 @@ public partial class MainViewModel : ViewModelBase
         IDiscordRichPresenceService discordService,
         IHttpClientFactory httpClientFactory,
         ClientCapabilities clientCapabilities,
-        IUserSettingsService settingsService,
-        IDiagnosticAudioRecorder diagnosticRecorder)
+        IUserSettingsService settingsService)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -457,7 +454,6 @@ public partial class MainViewModel : ViewModelBase
         _httpClientFactory = httpClientFactory;
         _clientCapabilities = clientCapabilities;
         _settingsService = settingsService;
-        _diagnosticRecorder = diagnosticRecorder;
 
         // Load current logging settings
         LoadLoggingSettings();
@@ -2340,7 +2336,7 @@ public partial class MainViewModel : ViewModelBase
     {
         try
         {
-            var statsViewModel = new StatsViewModel(_audioPipeline, _clockSynchronizer, _diagnosticRecorder, _clientCapabilities);
+            var statsViewModel = new StatsViewModel(_audioPipeline, _clockSynchronizer, _clientCapabilities);
             var statsWindow = new StatsWindow(statsViewModel)
             {
                 Owner = App.Current.MainWindow,

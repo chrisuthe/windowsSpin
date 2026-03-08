@@ -10,8 +10,6 @@ using Sendspin.SDK.Audio;
 using Sendspin.SDK.Client;
 using Sendspin.SDK.Synchronization;
 using SendspinClient.Configuration;
-using SendspinClient.Services.Diagnostics;
-
 namespace SendspinClient.ViewModels;
 
 /// <summary>
@@ -26,11 +24,9 @@ public partial class StatsViewModel : ViewModelBase
 {
     private readonly IAudioPipeline _audioPipeline;
     private readonly IClockSynchronizer _clockSynchronizer;
-    private readonly IDiagnosticAudioRecorder _diagnosticRecorder;
     private readonly ClientCapabilities _clientCapabilities;
     private readonly DispatcherTimer _updateTimer;
     private const int UpdateIntervalMs = 100; // 10 updates per second
-    private bool _isSaving;
 
     #region Sync Status Properties
 
@@ -312,53 +308,6 @@ public partial class StatsViewModel : ViewModelBase
 
     #endregion
 
-    #region Diagnostic Recording Properties
-
-    /// <summary>
-    /// Gets or sets whether diagnostic recording is enabled.
-    /// When enabled, allocates ~17MB for a 45-second circular buffer.
-    /// </summary>
-    [ObservableProperty]
-    private bool _isDiagnosticRecordingEnabled;
-
-    /// <summary>
-    /// Gets the recording status display string.
-    /// </summary>
-    [ObservableProperty]
-    private string _recordingStatusDisplay = "Off";
-
-    /// <summary>
-    /// Gets the color for the recording status.
-    /// </summary>
-    [ObservableProperty]
-    private Brush _recordingStatusColor = Brushes.Gray;
-
-    /// <summary>
-    /// Gets whether saving is available (recording is enabled and has data).
-    /// </summary>
-    [ObservableProperty]
-    private bool _canSaveRecording;
-
-    /// <summary>
-    /// Gets the buffer duration in seconds for display.
-    /// </summary>
-    [ObservableProperty]
-    private string _bufferDurationDisplay = "45s";
-
-    /// <summary>
-    /// Gets whether a save operation is in progress.
-    /// </summary>
-    [ObservableProperty]
-    private bool _isSavingRecording;
-
-    /// <summary>
-    /// Gets the path to the most recently saved recording.
-    /// </summary>
-    [ObservableProperty]
-    private string? _lastSavedRecordingPath;
-
-    #endregion
-
     /// <summary>
     /// Gets the update rate display string.
     /// </summary>
@@ -370,17 +319,14 @@ public partial class StatsViewModel : ViewModelBase
     /// </summary>
     /// <param name="audioPipeline">The audio pipeline to monitor.</param>
     /// <param name="clockSynchronizer">The clock synchronizer to monitor.</param>
-    /// <param name="diagnosticRecorder">The diagnostic audio recorder.</param>
     /// <param name="clientCapabilities">The client capabilities for advertised format display.</param>
     public StatsViewModel(
         IAudioPipeline audioPipeline,
         IClockSynchronizer clockSynchronizer,
-        IDiagnosticAudioRecorder diagnosticRecorder,
         ClientCapabilities clientCapabilities)
     {
         _audioPipeline = audioPipeline;
         _clockSynchronizer = clockSynchronizer;
-        _diagnosticRecorder = diagnosticRecorder;
         _clientCapabilities = clientCapabilities;
 
         _updateTimer = new DispatcherTimer
@@ -388,10 +334,6 @@ public partial class StatsViewModel : ViewModelBase
             Interval = TimeSpan.FromMilliseconds(UpdateIntervalMs),
         };
         _updateTimer.Tick += OnUpdateTimerTick;
-
-        // Initialize diagnostic recording display
-        BufferDurationDisplay = $"{_diagnosticRecorder.BufferDurationSeconds}s buffer";
-        UpdateRecordingStatus();
 
         // Initialize advertised capabilities display
         UpdateAdvertisedCapabilities();
@@ -424,14 +366,6 @@ public partial class StatsViewModel : ViewModelBase
         UpdateBufferStats();
         UpdateClockSyncStats();
         UpdateAudioFormatStats();
-        UpdateRecordingStatus();
-
-        // Record sync metrics for diagnostic correlation if enabled
-        var stats = _audioPipeline.BufferStats;
-        if (stats != null)
-        {
-            _diagnosticRecorder.RecordMetrics(stats);
-        }
     }
 
     private void UpdateBufferStats()
@@ -725,105 +659,4 @@ public partial class StatsViewModel : ViewModelBase
         return $"PCM {format.SampleRate}Hz {format.Channels}ch 32-bit float";
     }
 
-    #region Diagnostic Recording Methods
-
-    /// <summary>
-    /// Updates the recording status display.
-    /// </summary>
-    private void UpdateRecordingStatus()
-    {
-        if (_isSaving)
-        {
-            RecordingStatusDisplay = "Saving...";
-            RecordingStatusColor = new SolidColorBrush(Color.FromRgb(0x60, 0xa5, 0xfa)); // Blue
-            CanSaveRecording = false;
-            return;
-        }
-
-        if (!_diagnosticRecorder.IsEnabled)
-        {
-            RecordingStatusDisplay = "Off";
-            RecordingStatusColor = Brushes.Gray;
-            CanSaveRecording = false;
-            return;
-        }
-
-        var bufferedSeconds = _diagnosticRecorder.BufferedSeconds;
-        RecordingStatusDisplay = $"Recording ({bufferedSeconds:F0}s)";
-        RecordingStatusColor = new SolidColorBrush(Color.FromRgb(0xf8, 0x71, 0x71)); // Red (recording)
-        CanSaveRecording = bufferedSeconds > 0;
-    }
-
-    /// <summary>
-    /// Called when IsDiagnosticRecordingEnabled changes.
-    /// </summary>
-    /// <param name="value">The new value.</param>
-    partial void OnIsDiagnosticRecordingEnabledChanged(bool value)
-    {
-        if (value)
-        {
-            // Enable recording - need to get format from pipeline
-            var outputFormat = _audioPipeline.OutputFormat;
-            if (outputFormat != null)
-            {
-                _diagnosticRecorder.Enable(outputFormat.SampleRate, outputFormat.Channels);
-            }
-            else
-            {
-                // Default to 48kHz stereo if no format available yet
-                _diagnosticRecorder.Enable(48000, 2);
-            }
-        }
-        else
-        {
-            _diagnosticRecorder.Disable();
-        }
-
-        UpdateRecordingStatus();
-    }
-
-    /// <summary>
-    /// Saves the current diagnostic recording to a WAV file.
-    /// </summary>
-    [RelayCommand]
-    private async Task SaveDiagnosticRecordingAsync()
-    {
-        if (_isSaving || !_diagnosticRecorder.IsEnabled)
-        {
-            return;
-        }
-
-        _isSaving = true;
-        IsSavingRecording = true;
-        UpdateRecordingStatus();
-
-        try
-        {
-            AppPaths.EnsureDiagnosticsDirectoryExists();
-            var path = await _diagnosticRecorder.SaveAsync(AppPaths.DiagnosticsDirectory);
-            LastSavedRecordingPath = path;
-        }
-        finally
-        {
-            _isSaving = false;
-            IsSavingRecording = false;
-            UpdateRecordingStatus();
-        }
-    }
-
-    /// <summary>
-    /// Opens the diagnostics folder in Windows Explorer.
-    /// </summary>
-    [RelayCommand]
-    private void OpenDiagnosticsFolder()
-    {
-        AppPaths.EnsureDiagnosticsDirectoryExists();
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = AppPaths.DiagnosticsDirectory,
-            UseShellExecute = true,
-        });
-    }
-
-    #endregion
 }

@@ -6,8 +6,6 @@ using Microsoft.Extensions.Logging;
 using NAudio.Dsp;
 using NAudio.Wave;
 using Sendspin.SDK.Audio;
-using SendspinClient.Services.Diagnostics;
-
 namespace SendspinClient.Services.Audio;
 
 /// <summary>
@@ -30,7 +28,6 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposabl
     private readonly ISyncCorrectionProvider? _correctionProvider;
     private readonly WdlResampler _resampler;
     private readonly ILogger? _logger;
-    private readonly IDiagnosticAudioRecorder? _diagnosticRecorder;
     private readonly object _rateLock = new();
     private readonly int _targetSampleRate;
 
@@ -135,20 +132,17 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposabl
     /// Pass 0 or the source sample rate to perform only sync correction.
     /// </param>
     /// <param name="logger">Optional logger for debugging.</param>
-    /// <param name="diagnosticRecorder">Optional diagnostic recorder for audio capture.</param>
     public DynamicResamplerSampleProvider(
         ISampleProvider source,
         ISyncCorrectionProvider? correctionProvider = null,
         int targetSampleRate = 0,
-        ILogger? logger = null,
-        IDiagnosticAudioRecorder? diagnosticRecorder = null)
+        ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(source);
 
         _source = source;
         _correctionProvider = correctionProvider;
         _logger = logger;
-        _diagnosticRecorder = diagnosticRecorder;
 
         // Determine target sample rate - use source rate if not specified
         _targetSampleRate = targetSampleRate > 0 ? targetSampleRate : source.WaveFormat.SampleRate;
@@ -261,10 +255,6 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposabl
 
         // Resample
         var outputGenerated = Resample(_sourceBuffer, inputRead, buffer, offset, count);
-
-        // Capture audio for diagnostic recording if enabled
-        // Zero overhead when disabled - null check is branch-predicted away
-        _diagnosticRecorder?.CaptureIfEnabled(buffer.AsSpan(offset, outputGenerated));
 
         // If we didn't generate enough output, pad with silence and track underrun
         if (outputGenerated < count)
