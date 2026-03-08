@@ -18,18 +18,10 @@ A Windows desktop application for synchronized multi-room audio playback using t
 
 ## Architecture
 
-### Three-Tier Project Structure
+### Project Structure
 
 ```
 src/
-├── Sendspin.SDK/                # Cross-platform protocol SDK (NuGet package)
-│   ├── Audio/                   # Decoding, buffering, and pipeline orchestration
-│   ├── Client/                  # Protocol client and host services
-│   ├── Connection/              # WebSocket transport layer
-│   ├── Discovery/               # mDNS service discovery and advertisement
-│   ├── Protocol/                # Message serialization and types
-│   └── Synchronization/         # Clock sync (Kalman filter)
-│
 ├── SendspinClient.Services/     # Windows-specific service implementations
 │   ├── Audio/                   # WASAPI player via NAudio
 │   ├── Discord/                 # Discord Rich Presence integration
@@ -41,16 +33,15 @@ src/
     └── Views/                   # XAML views
 ```
 
-> **Historical Note**: Prior to v2.0.0, the core protocol implementation was in `SendspinClient.Core`. This was renamed to `Sendspin.SDK` to support NuGet packaging and cross-platform use.
+### External Dependencies
+- **[Sendspin.SDK](https://www.nuget.org/packages/Sendspin.SDK)** (NuGet package) — Cross-platform protocol SDK providing audio pipeline, clock sync, protocol messages, mDNS discovery, and codec decoding. Source lives at [Sendspin/sendspin-dotnet](https://github.com/Sendspin/sendspin-dotnet).
 
 ### Dependency Flow
 ```
 SendspinClient (WPF)
     └─▶ SendspinClient.Services (Windows-specific)
-    └─▶ Sendspin.SDK (Cross-platform)
+    └─▶ Sendspin.SDK (NuGet package)
 ```
-
-The SDK contains no Windows dependencies—it can be used to build players for other platforms.
 
 ---
 
@@ -113,7 +104,7 @@ Both modes use the same protocol and can be used simultaneously.
 
 The Kalman filter synchronizes local time with server time for sample-accurate multi-room sync.
 
-**Key file**: `src/Sendspin.SDK/Synchronization/KalmanClockSynchronizer.cs`
+**SDK class**: `KalmanClockSynchronizer` (in Sendspin.SDK — [source](https://github.com/Sendspin/sendspin-dotnet))
 
 ```
 Server sends: server timestamp (monotonic, near 0)
@@ -142,7 +133,7 @@ The `IClockSynchronizer` interface provides:
 
 The pipeline orchestrates audio from network to speakers:
 
-**Key file**: `src/Sendspin.SDK/Audio/AudioPipeline.cs`
+**SDK class**: `AudioPipeline` (in Sendspin.SDK)
 
 ```
 Network → Decoder → TimedAudioBuffer → SampleSource → WASAPI
@@ -160,7 +151,7 @@ Network → Decoder → TimedAudioBuffer → SampleSource → WASAPI
 
 ### TimedAudioBuffer & Sync Correction
 
-**Key file**: `src/Sendspin.SDK/Audio/TimedAudioBuffer.cs`
+**SDK class**: `TimedAudioBuffer` (in Sendspin.SDK)
 
 The buffer handles:
 1. Storing PCM samples with server timestamps
@@ -195,8 +186,7 @@ syncError = elapsedTime - samplesReadTime - outputLatency
 
 **Sync Correction Constants** (default values):
 ```csharp
-EntryDeadbandMicroseconds = 2_000;            // 2ms - start correcting when error exceeds this
-ExitDeadbandMicroseconds = 500;               // 0.5ms - stop correcting when below (hysteresis)
+DeadbandMicroseconds = 2_000;                 // 2ms - start correcting when error exceeds this
 ResamplingThresholdMicroseconds = 15_000;     // 15ms - resampling vs drop/insert boundary
 ReanchorThresholdMicroseconds = 500_000;      // 500ms - clear buffer and restart
 MaxSpeedCorrection = 0.02;                    // 2% max correction rate (Windows default)
@@ -228,7 +218,7 @@ var buffer = new TimedAudioBuffer(format, clockSync, capacityMs, options, logger
 
 ### Clock Sync Gating
 
-**Key file**: `src/Sendspin.SDK/Audio/AudioPipeline.cs`
+**SDK class**: `AudioPipeline` (in Sendspin.SDK)
 
 The pipeline waits for `IClockSynchronizer.IsConverged` before starting playback. This ensures the Kalman filter has enough measurements to provide accurate timestamp conversion.
 
@@ -252,7 +242,7 @@ Configuration via `appsettings.json`:
 
 ### High-Precision Timer
 
-**Key file**: `src/Sendspin.SDK/Synchronization/HighPrecisionTimer.cs`
+**SDK class**: `HighPrecisionTimer` (in Sendspin.SDK)
 
 Windows `DateTime` only has ~15ms resolution. For microsecond-accurate sync, we use `Stopwatch.GetTimestamp()` which uses hardware performance counters (~100ns resolution).
 
@@ -561,54 +551,11 @@ Enable verbose logging in appsettings.json:
 
 ---
 
-## NuGet Package: Sendspin.SDK
+## Sendspin.SDK (External Dependency)
 
-> **Important**: The `src/Sendspin.SDK/` project in this repository is the source for the [Sendspin.SDK NuGet package](https://www.nuget.org/packages/Sendspin.SDK). Changes to this project affect external consumers who depend on the NuGet package.
+The SDK is consumed as a NuGet package. Source and publishing are managed in [Sendspin/sendspin-dotnet](https://github.com/Sendspin/sendspin-dotnet).
 
-### When to Publish to NuGet
-
-Publish a new version when SDK changes include:
-- **Bug fixes** that affect SDK consumers (bump patch: 2.1.0 → 2.1.1)
-- **New features** like new protocol messages, events, or public APIs (bump minor: 2.1.0 → 2.2.0)
-- **Breaking changes** to interfaces or behavior (bump major: 2.x → 3.0.0)
-
-Do NOT publish for:
-- Changes only to `SendspinClient` or `SendspinClient.Services` (Windows app only)
-- Internal refactoring that doesn't change public API
-- Documentation-only changes
-
-### Publishing Checklist
-
-1. **Update version** in `src/Sendspin.SDK/Sendspin.SDK.csproj`:
-   ```xml
-   <Version>X.Y.Z</Version>
-   ```
-
-2. **Update release notes** in the same file:
-   ```xml
-   <PackageReleaseNotes>
-   vX.Y.Z:
-   - Description of changes
-   ...
-   </PackageReleaseNotes>
-   ```
-
-3. **Build and pack**:
-   ```bash
-   dotnet pack src/Sendspin.SDK/Sendspin.SDK.csproj -c Release
-   ```
-
-4. **Publish to NuGet**:
-   ```bash
-   dotnet nuget push src/Sendspin.SDK/bin/Release/Sendspin.SDK.X.Y.Z.nupkg --api-key YOUR_KEY --source https://api.nuget.org/v3/index.json
-   ```
-
-### Semantic Versioning
-
-Follow [SemVer](https://semver.org/):
-- **MAJOR** (3.0.0): Breaking changes to public interfaces
-- **MINOR** (2.1.0): New features, backward compatible
-- **PATCH** (2.0.1): Bug fixes, backward compatible
+To update the SDK version, change the `Version` in the `<PackageReference Include="Sendspin.SDK">` entries in both `SendspinClient.csproj` and `SendspinClient.Services.csproj`.
 
 ---
 
@@ -663,18 +610,18 @@ Follow [SemVer](https://semver.org/):
 |------|---------|
 | `src/SendspinClient/App.xaml.cs` | DI setup, startup, shutdown |
 | `src/SendspinClient/ViewModels/MainViewModel.cs` | Primary UI state and commands |
-| `src/Sendspin.SDK/Audio/AudioPipeline.cs` | Audio flow orchestration |
-| `src/Sendspin.SDK/Audio/TimedAudioBuffer.cs` | Sync-aware sample buffer |
-| `src/Sendspin.SDK/Synchronization/KalmanClockSynchronizer.cs` | Clock sync algorithm |
-| `src/Sendspin.SDK/Synchronization/HighPrecisionTimer.cs` | Microsecond-precision timing |
-| `src/Sendspin.SDK/Client/SendSpinHostService.cs` | Server-initiated connection mode |
-| `src/Sendspin.SDK/Client/SendSpinClient.cs` | Client-initiated connection mode |
 | `src/SendspinClient.Services/Audio/WasapiAudioPlayer.cs` | Windows audio output |
 | `src/SendspinClient.Services/Audio/DynamicResamplerSampleProvider.cs` | Playback rate resampling for sync |
-| `src/Sendspin.SDK/Protocol/Messages/MessageTypes.cs` | Protocol message definitions |
-| `src/Sendspin.SDK/Protocol/Optional.cs` | Optional<T> for JSON absent vs null distinction |
-| `src/Sendspin.SDK/Protocol/OptionalJsonConverter.cs` | JSON converter for Optional<T> |
-| `src/Sendspin.SDK/Audio/SyncCorrectionOptions.cs` | Configurable sync correction parameters |
+| `src/SendspinClient.Services/Audio/BufferedAudioSampleSource.cs` | Bridges SDK buffer to NAudio |
+
+SDK classes (in NuGet package — source at [sendspin-dotnet](https://github.com/Sendspin/sendspin-dotnet)):
+- `AudioPipeline` — Audio flow orchestration
+- `TimedAudioBuffer` — Sync-aware sample buffer
+- `KalmanClockSynchronizer` — Clock sync algorithm
+- `HighPrecisionTimer` — Microsecond-precision timing
+- `SendSpinHostService` / `SendSpinClient` — Connection modes
+- `SyncCorrectionOptions` — Configurable sync correction parameters
+- `Optional<T>` — JSON absent vs null distinction
 
 ---
 
