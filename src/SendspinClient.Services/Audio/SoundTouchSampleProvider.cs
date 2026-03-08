@@ -6,8 +6,6 @@ using Microsoft.Extensions.Logging;
 using NAudio.Wave;
 using Sendspin.SDK.Audio;
 using SoundTouch;
-using SendspinClient.Services.Diagnostics;
-
 namespace SendspinClient.Services.Audio;
 
 /// <summary>
@@ -31,7 +29,6 @@ public sealed class SoundTouchSampleProvider : ISampleProvider, IDisposable
     private readonly ISyncCorrectionProvider? _correctionProvider;
     private readonly SoundTouchProcessor _processor;
     private readonly ILogger? _logger;
-    private readonly IDiagnosticAudioRecorder? _diagnosticRecorder;
     private readonly object _rateLock = new();
     private readonly int _channels;
 
@@ -128,19 +125,16 @@ public sealed class SoundTouchSampleProvider : ISampleProvider, IDisposable
     /// <param name="source">The upstream sample provider to read from.</param>
     /// <param name="correctionProvider">Optional sync correction provider to subscribe to for rate change events.</param>
     /// <param name="logger">Optional logger for debugging.</param>
-    /// <param name="diagnosticRecorder">Optional diagnostic recorder for audio capture.</param>
     public SoundTouchSampleProvider(
         ISampleProvider source,
         ISyncCorrectionProvider? correctionProvider = null,
-        ILogger? logger = null,
-        IDiagnosticAudioRecorder? diagnosticRecorder = null)
+        ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(source);
 
         _source = source;
         _correctionProvider = correctionProvider;
         _logger = logger;
-        _diagnosticRecorder = diagnosticRecorder;
         _channels = source.WaveFormat.Channels;
 
         // Output format matches input (SoundTouch doesn't change sample rate, just playback rate)
@@ -283,9 +277,6 @@ public sealed class SoundTouchSampleProvider : ISampleProvider, IDisposable
             LogUnderrunIfNeeded($"processor short: got {totalSamplesOutput}, needed {count}");
             Array.Fill(buffer, 0f, offset + totalSamplesOutput, count - totalSamplesOutput);
         }
-
-        // Capture audio for diagnostic recording if enabled
-        _diagnosticRecorder?.CaptureIfEnabled(buffer.AsSpan(offset, count));
 
         return count;
     }
