@@ -287,7 +287,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
             // Create correction options for drop/insert only (no resampling tier)
             // Set resampling threshold equal to deadband so it jumps straight to drop/insert
             var dropInsertOptions = _buffer.SyncOptions.Clone();
-            dropInsertOptions.ResamplingThresholdMicroseconds = dropInsertOptions.EntryDeadbandMicroseconds;
+            dropInsertOptions.ResamplingThresholdMicroseconds = dropInsertOptions.DeadbandMicroseconds;
 
             // Create correction provider for external sync correction
             var calculator = new SyncCorrectionCalculator(

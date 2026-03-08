@@ -53,7 +53,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Sendspin.SDK\Sendspin.SDK.csproj" />
+    <PackageReference Include="Sendspin.SDK" Version="7.3.0" />
     <ProjectReference Include="..\SendspinClient.Services\SendspinClient.Services.csproj" />
   </ItemGroup>
 
