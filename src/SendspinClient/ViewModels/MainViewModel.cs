@@ -715,7 +715,8 @@ public partial class MainViewModel : ViewModelBase
     private void CreateAndConfigureManualClient()
     {
         _manualConnection = new SendspinConnection(
-            _loggerFactory.CreateLogger<SendspinConnection>());
+            _loggerFactory.CreateLogger<SendspinConnection>(),
+            new ConnectionOptions { AutoReconnect = false });
 
         _manualClient = new SendspinClientService(
             _loggerFactory.CreateLogger<SendspinClientService>(),
@@ -757,10 +758,18 @@ public partial class MainViewModel : ViewModelBase
 
         try
         {
-            // Normalize the URL - auto-prepend ws:// if no scheme provided
+            // Normalize the URL - convert http(s):// to ws(s):// or auto-prepend ws://
             var urlToParse = ManualServerUrl.Trim();
-            if (!urlToParse.StartsWith("ws://", StringComparison.OrdinalIgnoreCase) &&
-                !urlToParse.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
+            if (urlToParse.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            {
+                urlToParse = "ws://" + urlToParse[7..];
+            }
+            else if (urlToParse.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                urlToParse = "wss://" + urlToParse[8..];
+            }
+            else if (!urlToParse.StartsWith("ws://", StringComparison.OrdinalIgnoreCase) &&
+                     !urlToParse.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
             {
                 urlToParse = "ws://" + urlToParse;
             }
@@ -768,7 +777,7 @@ public partial class MainViewModel : ViewModelBase
             // Parse the URL
             if (!Uri.TryCreate(urlToParse, UriKind.Absolute, out var serverUri))
             {
-                StatusMessage = "Invalid URL format. Example: 10.0.2.8:8927";
+                StatusMessage = "Invalid URL format. Example: ws://10.0.2.8:8927";
                 IsConnecting = false;
                 return;
             }
