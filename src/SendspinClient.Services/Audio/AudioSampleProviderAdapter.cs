@@ -69,21 +69,17 @@ internal sealed class AudioSampleProviderAdapter : ISampleProvider
     /// <returns>Number of samples written.</returns>
     public int Read(float[] buffer, int offset, int count)
     {
-        if (IsMuted)
-        {
-            // Fill with silence when muted
-            Array.Fill(buffer, 0f, offset, count);
-            return count;
-        }
-
         var samplesRead = _source.Read(buffer, offset, count);
 
-        // Apply volume if not at full (avoid unnecessary multiply operations)
+        if (IsMuted)
+        {
+            Array.Fill(buffer, 0f, offset, samplesRead);
+            return samplesRead;
+        }
+
         var volume = Volume;
         if (volume < 0.999f)
         {
-            // Power curve for perceived loudness (matches CLI reference implementation)
-            // amplitude = volume^1.5 provides natural-sounding volume control
             var amplitude = (float)Math.Pow(volume, 1.5);
 
             var span = buffer.AsSpan(offset, samplesRead);
