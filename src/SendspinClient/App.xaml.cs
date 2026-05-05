@@ -246,8 +246,8 @@ public partial class App : Application
             var logger = sp.GetRequiredService<ILogger<KalmanClockSynchronizer>>();
 
             // Read Kalman filter configuration (all have sensible defaults)
-            var forgetFactor = _configuration!.GetValue<double>("Audio:ClockSync:ForgetFactor", 1.001);
-            var adaptiveCutoff = _configuration!.GetValue<double>("Audio:ClockSync:AdaptiveCutoff", 0.75);
+            var forgetFactor = _configuration!.GetValue<double>("Audio:ClockSync:ForgetFactor", 2.0);
+            var adaptiveCutoff = _configuration!.GetValue<double>("Audio:ClockSync:AdaptiveCutoff", 3.0);
             var minSamplesForForgetting = _configuration!.GetValue<int>("Audio:ClockSync:MinSamplesForForgetting", 100);
 
             var clockSync = new KalmanClockSynchronizer(

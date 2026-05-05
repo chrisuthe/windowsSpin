@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Sendspin.SDK" Version="7.3.0" />
+    <PackageReference Include="Sendspin.SDK" Version="8.0.0" />
   </ItemGroup>
 
 </Project>

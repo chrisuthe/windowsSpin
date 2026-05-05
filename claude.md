@@ -121,8 +121,8 @@ The `IClockSynchronizer` interface provides:
 {
   "Audio": {
     "ClockSync": {
-      "ForgetFactor": 1.001,
-      "AdaptiveCutoff": 0.75,
+      "ForgetFactor": 2.0,
+      "AdaptiveCutoff": 3.0,
       "MinSamplesForForgetting": 100
     }
   }
@@ -303,15 +303,15 @@ Settings are stored in two locations:
     "RetainedFileCount": 5
   },
   "Audio": {
-    "StaticDelayMs": 200,
+    "StaticDelayMs": 0,
     "DeviceId": null,
     "Buffer": {
       "TargetMs": 250,
       "CapacityMs": 8000
     },
     "ClockSync": {
-      "ForgetFactor": 1.001,
-      "AdaptiveCutoff": 0.75,
+      "ForgetFactor": 2.0,
+      "AdaptiveCutoff": 3.0,
       "MinSamplesForForgetting": 100,
       "WaitForConvergence": true,
       "ConvergenceTimeoutMs": 5000
@@ -350,10 +350,15 @@ Settings are stored in two locations:
 - `SyncCorrection.ResamplingThresholdMs`: Error threshold for resampling vs drop/insert (default: 15ms)
 
 ### Static Delay Tuning
-If this player consistently plays behind/ahead of others:
-- **Positive values**: Play later (if this player is ahead of others)
-- **Negative values**: Play earlier (if this player is behind others)
+Per the Sendspin spec (v8.0.0+), positive `StaticDelayMs` compensates for downstream
+hardware delay (Bluetooth, AV receivers, external amps) by scheduling audio earlier
+from the digital pipeline. The value is SUBTRACTED from converted server timestamps.
+- **Positive values**: Play earlier (if this player is behind others — speaker hardware adds latency)
+- **Negative values**: Play later (if this player is ahead of others)
 - Typical range: -500ms to +500ms
+
+Sign convention flipped in SDK 8.0.0. If you see a "Positive = play later" reference
+anywhere in the codebase, it's stale — the v7 semantic was non-spec.
 
 ---
 

@@ -776,7 +776,7 @@
                             <!-- Static Delay -->
                             <StackPanel Margin="0,0,0,16">
                                 <TextBlock Text="Static Delay" Style="{StaticResource BodyText}"/>
-                                <TextBlock Text="Adjust timing to sync with other players. Positive = play later."
+                                <TextBlock Text="Compensate for downstream hardware delay (e.g. Bluetooth, AV receivers). Positive = play earlier."
                                            Style="{StaticResource CaptionText}"
                                            Foreground="{StaticResource TextMutedBrush}"
                                            Margin="0,2,0,0"
