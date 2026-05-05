@@ -279,7 +279,8 @@ public partial class App : Application
         services.AddTransient<IAudioPlayer>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<WasapiAudioPlayer>>();
-            return new WasapiAudioPlayer(logger, audioDeviceId, syncStrategy, resamplerType);
+            var currentDeviceId = _configuration!.GetValue<string?>("Audio:DeviceId");
+            return new WasapiAudioPlayer(logger, currentDeviceId, syncStrategy, resamplerType);
         });
 
         // Audio pipeline - orchestrates decoder, buffer, and player
