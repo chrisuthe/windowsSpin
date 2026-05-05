@@ -275,7 +275,7 @@
                     <Expander Header="Advanced: Connect by URL"
                               Style="{StaticResource CollapsibleSectionStyle}">
                         <StackPanel>
-                            <TextBlock Text="For cross-subnet connections, enter the server URL directly:"
+                            <TextBlock Text="For cross-subnet connections, enter the server URL directly (e.g. ws://10.0.2.8:8927):"
                                        Style="{StaticResource BodyText}"
                                        TextWrapping="Wrap"
                                        Opacity="0.7"
