@@ -264,6 +264,9 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     private bool _settingsShowDiscordPresence;
 
+    [ObservableProperty]
+    private bool _settingsStartMinimized = true;
+
     /// <summary>
     /// Gets or sets the player name shown to servers.
     /// Defaults to the computer name.
@@ -2009,6 +2012,8 @@ public partial class MainViewModel : ViewModelBase
             _discordService.Enable();
         }
 
+        SettingsStartMinimized = _configuration.GetValue<bool>("App:StartMinimized", true);
+
         // Load player name (default to computer name)
         SettingsPlayerName = _configuration.GetValue<string>("Player:Name", Environment.MachineName) ?? Environment.MachineName;
 
@@ -2249,6 +2254,10 @@ public partial class MainViewModel : ViewModelBase
             discordSection["Enabled"] = SettingsShowDiscordPresence;
             root["Discord"] = discordSection;
 
+            var appSection = root["App"]?.AsObject() ?? new JsonObject();
+            appSection["StartMinimized"] = SettingsStartMinimized;
+            root["App"] = appSection;
+
             // Update player section
             var playerSection = root["Player"]?.AsObject() ?? new JsonObject();
             playerSection["Name"] = SettingsPlayerName;
@@ -2273,8 +2282,8 @@ public partial class MainViewModel : ViewModelBase
                 _logger.LogInformation("Player name changed to: {PlayerName}", SettingsPlayerName);
             }
 
-            _logger.LogInformation("Settings saved: LogLevel={LogLevel}, FileLogging={FileLogging}, ConsoleLogging={ConsoleLogging}, StaticDelayMs={StaticDelayMs}, Notifications={Notifications}, Discord={Discord}, PlayerName={PlayerName}, DeviceId={DeviceId}",
-                SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging, SettingsStaticDelayMs, SettingsShowNotifications, SettingsShowDiscordPresence, SettingsPlayerName, SettingsSelectedAudioDevice?.DeviceId ?? "default");
+            _logger.LogInformation("Settings saved: LogLevel={LogLevel}, FileLogging={FileLogging}, ConsoleLogging={ConsoleLogging}, StaticDelayMs={StaticDelayMs}, Notifications={Notifications}, Discord={Discord}, PlayerName={PlayerName}, DeviceId={DeviceId}, StartMinimized={StartMinimized}",
+                SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging, SettingsStaticDelayMs, SettingsShowNotifications, SettingsShowDiscordPresence, SettingsPlayerName, SettingsSelectedAudioDevice?.DeviceId ?? "default", SettingsStartMinimized);
 
             // Close settings panel first
             IsSettingsOpen = false;

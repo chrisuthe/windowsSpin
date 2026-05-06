@@ -599,6 +599,24 @@
                                           VerticalAlignment="Center"/>
                             </Grid>
 
+                            <Grid Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Start Minimized to Tray" Style="{StaticResource BodyText}"/>
+                                    <TextBlock Text="Keep the window hidden in the system tray on launch (e.g. when starting with Windows)"
+                                               Style="{StaticResource CaptionText}"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               Margin="0,2,0,0"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <CheckBox Grid.Column="1"
+                                          IsChecked="{Binding SettingsStartMinimized}"
+                                          VerticalAlignment="Center"/>
+                            </Grid>
+
                             <!-- Player Name -->
                             <StackPanel Margin="0,0,0,16">
                                 <TextBlock Text="Player Name" Style="{StaticResource BodyText}"/>
