@@ -114,7 +114,10 @@ public partial class App : Application
             // Mark as launched (save immediately to prevent showing again if app crashes)
             _ = SaveFirstLaunchFlagAsync();
         }
-        // else: stays hidden in system tray (normal behavior)
+        else if (!_configuration!.GetValue<bool>("App:StartMinimized", true))
+        {
+            mainWindow.Show();
+        }
 
         // Initialize the view model
         _ = _mainViewModel.InitializeAsync();
