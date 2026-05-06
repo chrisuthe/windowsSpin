@@ -21,6 +21,7 @@ using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
 using SendspinClient.Services.Discord;
+using SendspinClient.Services.MediaControls;
 using SendspinClient.Services.Notifications;
 using SendspinClient.Views;
 
@@ -77,6 +78,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly IClockSynchronizer _clockSynchronizer;
     private readonly INotificationService _notificationService;
     private readonly IDiscordRichPresenceService _discordService;
+    private readonly IMediaTransportControlsService _mediaControlsService;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ClientCapabilities _clientCapabilities;
     private readonly IUserSettingsService _settingsService;
@@ -441,6 +443,7 @@ public partial class MainViewModel : ViewModelBase
         IClockSynchronizer clockSynchronizer,
         INotificationService notificationService,
         IDiscordRichPresenceService discordService,
+        IMediaTransportControlsService mediaControlsService,
         IHttpClientFactory httpClientFactory,
         ClientCapabilities clientCapabilities,
         IUserSettingsService settingsService)
@@ -454,9 +457,17 @@ public partial class MainViewModel : ViewModelBase
         _clockSynchronizer = clockSynchronizer;
         _notificationService = notificationService;
         _discordService = discordService;
+        _mediaControlsService = mediaControlsService;
         _httpClientFactory = httpClientFactory;
         _clientCapabilities = clientCapabilities;
         _settingsService = settingsService;
+
+        _mediaControlsService.PlayPauseRequested += (_, _) =>
+            App.Current.Dispatcher.InvokeAsync(() => PlayPauseCommand.Execute(null));
+        _mediaControlsService.NextRequested += (_, _) =>
+            App.Current.Dispatcher.InvokeAsync(() => NextTrackCommand.Execute(null));
+        _mediaControlsService.PreviousRequested += (_, _) =>
+            App.Current.Dispatcher.InvokeAsync(() => PreviousTrackCommand.Execute(null));
 
         // Load current logging settings
         LoadLoggingSettings();
@@ -1447,6 +1458,8 @@ public partial class MainViewModel : ViewModelBase
             _discordService.ClearPresence();
         }
 
+        _mediaControlsService.UpdateState(value);
+
         // Reset position interpolation anchor when playback stops
         if (value != PlaybackState.Playing)
         {
@@ -1479,12 +1492,19 @@ public partial class MainViewModel : ViewModelBase
     /// Detects actual track changes (vs. metadata updates) and shows notifications.
     /// </summary>
     /// <param name="value">The new track metadata.</param>
+    partial void OnAlbumArtworkChanged(byte[]? value)
+    {
+        _mediaControlsService.UpdateThumbnail(value);
+    }
+
     partial void OnCurrentTrackChanged(TrackMetadata? value)
     {
         OnPropertyChanged(nameof(DisplayTitle));
         OnPropertyChanged(nameof(DisplayArtist));
         OnPropertyChanged(nameof(DisplayAlbum));
         UpdateTrayToolTip();
+
+        _mediaControlsService.UpdateMetadata(value);
 
         // Only show notification if this is actually a different track
         // Use title+artist+album as unique track identifier
