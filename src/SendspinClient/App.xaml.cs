@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Interop;
 using Hardcodet.Wpf.TaskbarNotification;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,6 +14,7 @@ using Sendspin.SDK.Models;
 using Sendspin.SDK.Synchronization;
 using SendspinClient.Services.Audio;
 using SendspinClient.Services.Discord;
+using SendspinClient.Services.MediaControls;
 using SendspinClient.Services.Models;
 using SendspinClient.Services.Notifications;
 using SendspinClient.ViewModels;
@@ -99,6 +101,9 @@ public partial class App : Application
         _mainViewModel = _serviceProvider.GetRequiredService<MainViewModel>();
         mainWindow.DataContext = _mainViewModel;
         MainWindow = mainWindow;
+
+        var mainWindowHandle = new WindowInteropHelper(mainWindow).EnsureHandle();
+        _serviceProvider.GetRequiredService<IMediaTransportControlsService>().Initialize(mainWindowHandle);
 
         // Set up system tray icon
         _trayIcon = (TaskbarIcon)FindResource("TrayIcon");
@@ -388,6 +393,8 @@ public partial class App : Application
             var logger = sp.GetRequiredService<ILogger<DiscordRichPresenceService>>();
             return new DiscordRichPresenceService(logger, discordAppId);
         });
+
+        services.AddSingleton<IMediaTransportControlsService, MediaTransportControlsService>();
 
         // User settings service for persisting runtime configuration changes
         services.AddSingleton<IUserSettingsService, UserSettingsService>();
