@@ -599,6 +599,25 @@
                                           VerticalAlignment="Center"/>
                             </Grid>
 
+                            <!-- Hardware Media Keys / SMTC -->
+                            <Grid Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Hardware Media Keys" Style="{StaticResource BodyText}"/>
+                                    <TextBlock Text="Allow keyboard play/pause keys, Bluetooth headset buttons, and the Windows volume-flyout media tile to control playback"
+                                               Style="{StaticResource CaptionText}"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               Margin="0,2,0,0"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <CheckBox Grid.Column="1"
+                                          IsChecked="{Binding SettingsEnableMediaKeys}"
+                                          VerticalAlignment="Center"/>
+                            </Grid>
+
                             <Grid Margin="0,0,0,16">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>

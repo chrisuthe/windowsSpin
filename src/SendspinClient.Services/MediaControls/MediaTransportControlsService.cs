@@ -10,11 +10,32 @@ public sealed class MediaTransportControlsService : IMediaTransportControlsServi
     private readonly ILogger<MediaTransportControlsService> _logger;
     private SystemMediaTransportControls? _smtc;
     private SystemMediaTransportControlsDisplayUpdater? _displayUpdater;
+    private bool _isEnabled = true;
     private bool _disposed;
 
     public MediaTransportControlsService(ILogger<MediaTransportControlsService> logger)
     {
         _logger = logger;
+    }
+
+    public bool IsEnabled
+    {
+        get => _isEnabled;
+        set
+        {
+            if (_isEnabled == value)
+            {
+                return;
+            }
+
+            _isEnabled = value;
+            if (_smtc != null)
+            {
+                _smtc.IsEnabled = value;
+            }
+
+            _logger.LogInformation("SMTC integration toggled: {Enabled}", value);
+        }
     }
 
     public event EventHandler? PlayPauseRequested;
@@ -33,7 +54,7 @@ public sealed class MediaTransportControlsService : IMediaTransportControlsServi
         try
         {
             _smtc = SystemMediaTransportControlsInterop.GetForWindow(windowHandle);
-            _smtc.IsEnabled = true;
+            _smtc.IsEnabled = _isEnabled;
             _smtc.IsPlayEnabled = true;
             _smtc.IsPauseEnabled = true;
             _smtc.IsNextEnabled = true;
@@ -62,12 +83,23 @@ public sealed class MediaTransportControlsService : IMediaTransportControlsServi
             return;
         }
 
-        _smtc.PlaybackStatus = state switch
+        var newStatus = state switch
         {
             PlaybackState.Playing => MediaPlaybackStatus.Playing,
             PlaybackState.Paused => MediaPlaybackStatus.Paused,
             _ => MediaPlaybackStatus.Stopped,
         };
+
+        var oldStatus = _smtc.PlaybackStatus;
+        if (oldStatus != newStatus)
+        {
+            _logger.LogInformation(
+                "SMTC PlaybackStatus: {Old} -> {New} (PlaybackState={State})",
+                oldStatus,
+                newStatus,
+                state);
+            _smtc.PlaybackStatus = newStatus;
+        }
     }
 
     public void UpdateMetadata(TrackMetadata? track)
@@ -133,6 +165,17 @@ public sealed class MediaTransportControlsService : IMediaTransportControlsServi
 
     private void OnButtonPressed(SystemMediaTransportControls sender, SystemMediaTransportControlsButtonPressedEventArgs args)
     {
+        _logger.LogInformation(
+            "SMTC button pressed: {Button} (current SMTC PlaybackStatus={Status}, IsEnabled={Enabled})",
+            args.Button,
+            sender.PlaybackStatus,
+            _isEnabled);
+
+        if (!_isEnabled)
+        {
+            return;
+        }
+
         switch (args.Button)
         {
             case SystemMediaTransportControlsButton.Play:
