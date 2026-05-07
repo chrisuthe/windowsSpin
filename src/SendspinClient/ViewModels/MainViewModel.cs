@@ -266,6 +266,13 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     private bool _settingsShowDiscordPresence;
 
+    /// <summary>
+    /// Gets or sets whether System Media Transport Controls (Windows media keys, lockscreen,
+    /// volume-flyout media tile) are wired to playback commands.
+    /// </summary>
+    [ObservableProperty]
+    private bool _settingsEnableMediaKeys = true;
+
     [ObservableProperty]
     private bool _settingsStartMinimized = true;
 
@@ -463,7 +470,13 @@ public partial class MainViewModel : ViewModelBase
         _settingsService = settingsService;
 
         _mediaControlsService.PlayPauseRequested += (_, _) =>
-            App.Current.Dispatcher.InvokeAsync(() => PlayPauseCommand.Execute(null));
+            App.Current.Dispatcher.InvokeAsync(() =>
+            {
+                _logger.LogInformation(
+                    "SMTC PlayPauseRequested received: PlaybackState={State}, IsConnected={Connected}, IsMuted={Muted}",
+                    PlaybackState, IsConnected, IsMuted);
+                PlayPauseCommand.Execute(null);
+            });
         _mediaControlsService.NextRequested += (_, _) =>
             App.Current.Dispatcher.InvokeAsync(() => NextTrackCommand.Execute(null));
         _mediaControlsService.PreviousRequested += (_, _) =>
@@ -584,6 +597,9 @@ public partial class MainViewModel : ViewModelBase
             var command = PlaybackState == PlaybackState.Playing
                 ? Commands.Pause
                 : Commands.Play;
+            _logger.LogInformation(
+                "PlayPause -> sending {Command} (PlaybackState was {State}, IsMuted={Muted})",
+                command, PlaybackState, IsMuted);
             await SendCommandToActiveClientAsync(command);
         }
         catch (Exception ex)
@@ -629,7 +645,9 @@ public partial class MainViewModel : ViewModelBase
         {
             // Toggle the mute state
             var newMutedState = !IsMuted;
-            _logger.LogDebug("Toggling mute: {Muted}", newMutedState);
+            _logger.LogInformation(
+                "ToggleMute (local): {Old} -> {New}, PlaybackState={State}, IsConnected={Connected}",
+                IsMuted, newMutedState, PlaybackState, IsConnected);
 
             // Apply locally FIRST for instant feedback (even when disconnected)
             _audioPipeline?.SetMuted(newMutedState);
@@ -1241,10 +1259,22 @@ public partial class MainViewModel : ViewModelBase
             _isUpdatingFromServer = true;
             try
             {
+                var muteChanged = IsMuted != state.Muted;
+                if (muteChanged)
+                {
+                    _logger.LogInformation(
+                        "Server mute change (host): {Old} -> {New}, Volume {OldVol}->{NewVol}, PlaybackState={State}",
+                        IsMuted, state.Muted, Volume, state.Volume, PlaybackState);
+                }
+
                 Volume = state.Volume;
                 IsMuted = state.Muted;
-                _logger.LogDebug("Player state updated (host): Volume={Volume}, Muted={Muted}",
-                    state.Volume, state.Muted);
+
+                if (!muteChanged)
+                {
+                    _logger.LogDebug("Player state updated (host): Volume={Volume}, Muted={Muted}",
+                        state.Volume, state.Muted);
+                }
             }
             finally
             {
@@ -1264,10 +1294,22 @@ public partial class MainViewModel : ViewModelBase
             _isUpdatingFromServer = true;
             try
             {
+                var muteChanged = IsMuted != state.Muted;
+                if (muteChanged)
+                {
+                    _logger.LogInformation(
+                        "Server mute change (manual): {Old} -> {New}, Volume {OldVol}->{NewVol}, PlaybackState={State}",
+                        IsMuted, state.Muted, Volume, state.Volume, PlaybackState);
+                }
+
                 Volume = state.Volume;
                 IsMuted = state.Muted;
-                _logger.LogDebug("Player state updated (manual): Volume={Volume}, Muted={Muted}",
-                    state.Volume, state.Muted);
+
+                if (!muteChanged)
+                {
+                    _logger.LogDebug("Player state updated (manual): Volume={Volume}, Muted={Muted}",
+                        state.Volume, state.Muted);
+                }
             }
             finally
             {
@@ -1786,6 +1828,11 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
+    partial void OnSettingsEnableMediaKeysChanged(bool value)
+    {
+        _mediaControlsService.IsEnabled = value;
+    }
+
     partial void OnSettingsConnectionModeChanged(string value)
     {
         // Convert display name to config value
@@ -2032,6 +2079,10 @@ public partial class MainViewModel : ViewModelBase
             _discordService.Enable();
         }
 
+        // Load SMTC (Windows media key) integration setting and apply immediately
+        SettingsEnableMediaKeys = _configuration.GetValue<bool>("MediaControls:Enabled", true);
+        _mediaControlsService.IsEnabled = SettingsEnableMediaKeys;
+
         SettingsStartMinimized = _configuration.GetValue<bool>("App:StartMinimized", true);
 
         // Load player name (default to computer name)
@@ -2274,6 +2325,11 @@ public partial class MainViewModel : ViewModelBase
             discordSection["Enabled"] = SettingsShowDiscordPresence;
             root["Discord"] = discordSection;
 
+            // Update MediaControls section
+            var mediaControlsSection = root["MediaControls"]?.AsObject() ?? new JsonObject();
+            mediaControlsSection["Enabled"] = SettingsEnableMediaKeys;
+            root["MediaControls"] = mediaControlsSection;
+
             var appSection = root["App"]?.AsObject() ?? new JsonObject();
             appSection["StartMinimized"] = SettingsStartMinimized;
             root["App"] = appSection;
@@ -2302,8 +2358,8 @@ public partial class MainViewModel : ViewModelBase
                 _logger.LogInformation("Player name changed to: {PlayerName}", SettingsPlayerName);
             }
 
-            _logger.LogInformation("Settings saved: LogLevel={LogLevel}, FileLogging={FileLogging}, ConsoleLogging={ConsoleLogging}, StaticDelayMs={StaticDelayMs}, Notifications={Notifications}, Discord={Discord}, PlayerName={PlayerName}, DeviceId={DeviceId}, StartMinimized={StartMinimized}",
-                SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging, SettingsStaticDelayMs, SettingsShowNotifications, SettingsShowDiscordPresence, SettingsPlayerName, SettingsSelectedAudioDevice?.DeviceId ?? "default", SettingsStartMinimized);
+            _logger.LogInformation("Settings saved: LogLevel={LogLevel}, FileLogging={FileLogging}, ConsoleLogging={ConsoleLogging}, StaticDelayMs={StaticDelayMs}, Notifications={Notifications}, Discord={Discord}, MediaKeys={MediaKeys}, PlayerName={PlayerName}, DeviceId={DeviceId}, StartMinimized={StartMinimized}",
+                SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging, SettingsStaticDelayMs, SettingsShowNotifications, SettingsShowDiscordPresence, SettingsEnableMediaKeys, SettingsPlayerName, SettingsSelectedAudioDevice?.DeviceId ?? "default", SettingsStartMinimized);
 
             // Close settings panel first
             IsSettingsOpen = false;
