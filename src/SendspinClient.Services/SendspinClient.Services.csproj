@@ -16,8 +16,17 @@
     <PackageReference Include="SoundTouch.Net.NAudioSupport" Version="2.3.2" />
   </ItemGroup>
 
-  <ItemGroup>
+  <!--
+    SDK reference: the published NuGet package by default. When built with
+    -p:UseSdkSource=true -p:SdkSourcePath=<path>, reference the checked-out SDK
+    source instead (used by .github/workflows/ci-sdk-dev.yml to test against the
+    SDK's dev branch). Unset property => NuGet path, so normal builds are unaffected.
+  -->
+  <ItemGroup Condition="'$(UseSdkSource)' != 'true'">
     <PackageReference Include="Sendspin.SDK" Version="8.0.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseSdkSource)' == 'true'">
+    <ProjectReference Include="$(SdkSourcePath)\src\Sendspin.SDK\Sendspin.SDK.csproj" />
   </ItemGroup>
 
 </Project>

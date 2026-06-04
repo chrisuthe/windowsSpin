@@ -1,0 +1,196 @@
+name: CI (SDK dev source)
+
+# Manually-triggered build of WindowsSpin against the Sendspin SDK *source*
+# (default: the SDK's `dev` branch) instead of the published NuGet package.
+# Produces signed installers + a prerelease so in-flight SDK changes can be tested.
+# Normal CI (ci.yml) and releases are unaffected.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdk_ref:
+        description: 'SDK branch / tag / SHA to build against'
+        required: true
+        default: 'dev'
+      sdk_repo:
+        description: 'SDK repository (escape hatch for forks)'
+        required: true
+        default: 'Sendspin/sendspin-dotnet'
+
+permissions:
+  contents: write  # Required for creating prereleases
+  id-token: write  # Required for Azure OIDC authentication
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  PROJECT_PATH: 'src/SendspinClient/SendspinClient.csproj'
+
+jobs:
+  sdk-dev-build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout WindowsSpin
+        uses: actions/checkout@v4
+
+      - name: Checkout SDK source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.sdk_repo }}
+          ref: ${{ inputs.sdk_ref }}
+          path: sdk-src
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Resolve SDK SHA
+        id: sdk
+        working-directory: sdk-src
+        run: |
+          $sdkSha = (git rev-parse --short HEAD)
+          echo "SHORT_SHA=$sdkSha" >> $env:GITHUB_OUTPUT
+          echo "SDK source: ${{ inputs.sdk_repo }}@${{ inputs.sdk_ref }} ($sdkSha)"
+
+      - name: Generate dev version
+        id: version
+        run: |
+          $appShortSha = "${{ github.sha }}".Substring(0, 7)
+          $sdkShortSha = "${{ steps.sdk.outputs.SHORT_SHA }}"
+          $version = "0.0.0-sdkdev.$sdkShortSha"
+          # AssemblyVersion and FileVersion must be purely numeric
+          $numericVersion = "0.0.0.0"
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "NUMERIC_VERSION=$numericVersion" >> $env:GITHUB_OUTPUT
+          echo "APP_SHORT_SHA=$appShortSha" >> $env:GITHUB_OUTPUT
+          echo "SDK_SHORT_SHA=$sdkShortSha" >> $env:GITHUB_OUTPUT
+          echo "Version: $version (app $appShortSha / sdk $sdkShortSha)"
+
+      # Build flags that swap the Sendspin.SDK PackageReference for a ProjectReference
+      # into the checked-out SDK source. See the conditional ItemGroups in the csproj files.
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.PROJECT_PATH }} -p:UseSdkSource=true -p:SdkSourcePath=${{ github.workspace }}/sdk-src
+
+      - name: Build Release
+        run: dotnet build ${{ env.PROJECT_PATH }} -c Release --no-restore -p:UseSdkSource=true -p:SdkSourcePath=${{ github.workspace }}/sdk-src -p:Version=${{ steps.version.outputs.VERSION }} -p:AssemblyVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -p:FileVersion=${{ steps.version.outputs.NUMERIC_VERSION }}
+
+      - name: Publish win-x64 (framework-dependent)
+        run: |
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained false -p:UseSdkSource=true -p:SdkSourcePath=${{ github.workspace }}/sdk-src -p:Version=${{ steps.version.outputs.VERSION }} -p:AssemblyVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -p:FileVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -o src/SendspinClient/bin/publish/win-x64-framework
+
+      - name: Publish win-x64 (self-contained)
+        run: |
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:UseSdkSource=true -p:SdkSourcePath=${{ github.workspace }}/sdk-src -p:Version=${{ steps.version.outputs.VERSION }} -p:AssemblyVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -p:FileVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -o src/SendspinClient/bin/publish/win-x64-selfcontained
+
+      # Sign the main application EXEs before creating installers
+      - name: Sign Application EXEs (framework-dependent)
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          files-folder: src/SendspinClient/bin/publish/win-x64-framework
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Sign Application EXEs (self-contained)
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          files-folder: src/SendspinClient/bin/publish/win-x64-selfcontained
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Create dist directory
+        run: New-Item -ItemType Directory -Force -Path dist
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Build Installer (framework-dependent)
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} /DBuildType=framework installer/SendspinClient.iss
+
+      - name: Build Installer (self-contained)
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} /DBuildType=selfcontained installer/SendspinClient.iss
+          # List output to verify
+          Get-ChildItem -Path dist -Recurse
+
+      # Sign the installer EXEs
+      - name: Sign Installer EXEs
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          files-folder: dist
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Create portable ZIPs
+        run: |
+          Compress-Archive -Path src/SendspinClient/bin/publish/win-x64-framework/* -DestinationPath dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+          Compress-Archive -Path src/SendspinClient/bin/publish/win-x64-selfcontained/* -DestinationPath dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-selfcontained-win-x64.zip
+
+      # Clean up old SDK-dev prereleases (keep last 5). Disjoint tag pattern from
+      # ci.yml's v0.0.0-dev cleanup, so the two never delete each other's builds.
+      - name: Clean up old SDK-dev prereleases
+        uses: dev-drprasad/delete-older-releases@v0.3.4
+        with:
+          keep_latest: 5
+          delete_tag_pattern: v0.0.0-sdkdev
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create SDK-Dev Prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          name: SDK-Dev Build — app ${{ steps.version.outputs.APP_SHORT_SHA }} / sdk ${{ inputs.sdk_ref }}@${{ steps.version.outputs.SDK_SHORT_SHA }}
+          body: |
+            ⚠️ **SDK-Source Development Build** - Not for production use
+
+            This build links WindowsSpin against the **Sendspin SDK source**, not the
+            published NuGet package.
+
+            | Component | Source |
+            |-----------|--------|
+            | WindowsSpin | [`${{ steps.version.outputs.APP_SHORT_SHA }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }}) |
+            | Sendspin SDK | `${{ inputs.sdk_repo }}` @ `${{ inputs.sdk_ref }}` ([`${{ steps.version.outputs.SDK_SHORT_SHA }}`](https://github.com/${{ inputs.sdk_repo }}/commit/${{ steps.version.outputs.SDK_SHORT_SHA }})) |
+
+            ---
+            📦 **Downloads:**
+            - `WindowsSpin-...-Setup.exe` - Requires [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
+            - `WindowsSpin-...-Setup-SelfContained.exe` - Standalone (no .NET required)
+            - Portable ZIPs also available
+
+            🔐 All executables are code-signed.
+          draft: false
+          prerelease: true
+          files: |
+            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-Setup.exe
+            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-Setup-SelfContained.exe
+            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-selfcontained-win-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
