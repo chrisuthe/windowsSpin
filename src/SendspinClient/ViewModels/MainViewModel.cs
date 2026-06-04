@@ -1088,12 +1088,12 @@ public partial class MainViewModel : ViewModelBase
         return true;
     }
 
-    private void OnManualClientArtworkReceived(object? sender, byte[] imageData)
+    private void OnManualClientArtworkReceived(object? sender, ArtworkReceivedEventArgs e)
     {
         App.Current.Dispatcher.Invoke(() =>
         {
-            AlbumArtwork = imageData;
-            _logger.LogDebug("Manual client artwork received: {Length} bytes", imageData.Length);
+            AlbumArtwork = e.ImageData;
+            _logger.LogDebug("Manual client artwork received: channel {Channel}, {Length} bytes", e.Channel, e.ImageData.Length);
         });
     }
 
@@ -1230,21 +1230,21 @@ public partial class MainViewModel : ViewModelBase
         });
     }
 
-    private void OnArtworkReceived(object? sender, byte[] imageData)
+    private void OnArtworkReceived(object? sender, ArtworkReceivedEventArgs e)
     {
         App.Current.Dispatcher.Invoke(() =>
         {
-            AlbumArtwork = imageData;
-            _logger.LogDebug("Artwork received: {Length} bytes", imageData.Length);
+            AlbumArtwork = e.ImageData;
+            _logger.LogDebug("Artwork received: channel {Channel}, {Length} bytes", e.Channel, e.ImageData.Length);
         });
     }
 
-    private void OnArtworkCleared(object? sender, EventArgs e)
+    private void OnArtworkCleared(object? sender, ArtworkClearedEventArgs e)
     {
         App.Current.Dispatcher.Invoke(() =>
         {
             AlbumArtwork = null;
-            _logger.LogDebug("Artwork cleared (no artwork available)");
+            _logger.LogDebug("Artwork cleared on channel {Channel} (no artwork available)", e.Channel);
         });
     }
 
