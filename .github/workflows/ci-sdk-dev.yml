@@ -9,21 +9,22 @@ on:
   workflow_dispatch:
     inputs:
       sdk_ref:
-        description: 'SDK branch / tag / SHA to build against'
+        description: 'SDK branch / tag / SHA to build against (within Sendspin/sendspin-dotnet)'
         required: true
         default: 'dev'
-      sdk_repo:
-        description: 'SDK repository (escape hatch for forks)'
-        required: true
-        default: 'Sendspin/sendspin-dotnet'
 
 permissions:
   contents: write  # Required for creating prereleases
-  id-token: write  # Required for Azure OIDC authentication
 
+# SDK_REPO is hard-coded to the canonical repo. This workflow builds the
+# checked-out SDK with MSBuild (arbitrary build code) and then signs the result
+# with the production code-signing cert, so the source must be a repo we control.
+# Branches/PRs on Sendspin/sendspin-dotnet require push access; that is the trust
+# boundary. Do not turn this into a configurable repository input.
 env:
   DOTNET_VERSION: '10.0.x'
   PROJECT_PATH: 'src/SendspinClient/SendspinClient.csproj'
+  SDK_REPO: 'Sendspin/sendspin-dotnet'
 
 jobs:
   sdk-dev-build:
@@ -36,7 +37,7 @@ jobs:
       - name: Checkout SDK source
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.sdk_repo }}
+          repository: ${{ env.SDK_REPO }}
           ref: ${{ inputs.sdk_ref }}
           path: sdk-src
 
@@ -48,10 +49,12 @@ jobs:
       - name: Resolve SDK SHA
         id: sdk
         working-directory: sdk-src
+        env:
+          SDK_REF: ${{ inputs.sdk_ref }}
         run: |
           $sdkSha = (git rev-parse --short HEAD)
-          echo "SHORT_SHA=$sdkSha" >> $env:GITHUB_OUTPUT
-          echo "SDK source: ${{ inputs.sdk_repo }}@${{ inputs.sdk_ref }} ($sdkSha)"
+          "SHORT_SHA=$sdkSha" | Out-File -Append $env:GITHUB_OUTPUT
+          Write-Host "SDK source: $env:SDK_REPO@$env:SDK_REF ($sdkSha)"
 
       - name: Generate dev version
         id: version
@@ -176,7 +179,7 @@ jobs:
             | Component | Source |
             |-----------|--------|
             | WindowsSpin | [`${{ steps.version.outputs.APP_SHORT_SHA }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }}) |
-            | Sendspin SDK | `${{ inputs.sdk_repo }}` @ `${{ inputs.sdk_ref }}` ([`${{ steps.version.outputs.SDK_SHORT_SHA }}`](https://github.com/${{ inputs.sdk_repo }}/commit/${{ steps.version.outputs.SDK_SHORT_SHA }})) |
+            | Sendspin SDK | `${{ env.SDK_REPO }}` @ `${{ inputs.sdk_ref }}` ([`${{ steps.version.outputs.SDK_SHORT_SHA }}`](https://github.com/${{ env.SDK_REPO }}/commit/${{ steps.version.outputs.SDK_SHORT_SHA }})) |
 
             ---
             📦 **Downloads:**
