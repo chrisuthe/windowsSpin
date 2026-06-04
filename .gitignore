@@ -4,6 +4,10 @@
 [Ll]og/
 [Ll]ogs/
 
+# Superpowers brainstorming companion (local mockups/state)
+.superpowers/
+.sdk-dev/
+
 # Visual Studio files
 .vs/
 *.suo
