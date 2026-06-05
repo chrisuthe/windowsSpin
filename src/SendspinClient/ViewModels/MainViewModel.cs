@@ -272,6 +272,12 @@ public partial class MainViewModel : ViewModelBase
     private bool _settingsShowDiscordPresence;
 
     /// <summary>
+    /// Gets or sets whether the Ambient Glow reactive backdrop is enabled.
+    /// </summary>
+    [ObservableProperty]
+    private bool _settingsEnableAmbientBackdrop = true;
+
+    /// <summary>
     /// Gets or sets whether System Media Transport Controls (Windows media keys, lockscreen,
     /// volume-flyout media tile) are wired to playback commands.
     /// </summary>
@@ -1858,6 +1864,11 @@ public partial class MainViewModel : ViewModelBase
         _mediaControlsService.IsEnabled = value;
     }
 
+    partial void OnSettingsEnableAmbientBackdropChanged(bool value)
+    {
+        _ambient.SetEnabled(value);
+    }
+
     partial void OnSettingsConnectionModeChanged(string value)
     {
         // Convert display name to config value
@@ -2104,6 +2115,10 @@ public partial class MainViewModel : ViewModelBase
             _discordService.Enable();
         }
 
+        // Load Ambient Glow backdrop setting and apply immediately
+        SettingsEnableAmbientBackdrop = _configuration.GetValue<bool>("Visualizer:Enabled", true);
+        _ambient.SetEnabled(SettingsEnableAmbientBackdrop);
+
         // Load SMTC (Windows media key) integration setting and apply immediately
         SettingsEnableMediaKeys = _configuration.GetValue<bool>("MediaControls:Enabled", true);
         _mediaControlsService.IsEnabled = SettingsEnableMediaKeys;
@@ -2349,6 +2364,11 @@ public partial class MainViewModel : ViewModelBase
             var discordSection = root["Discord"]?.AsObject() ?? new JsonObject();
             discordSection["Enabled"] = SettingsShowDiscordPresence;
             root["Discord"] = discordSection;
+
+            // Update Visualizer section
+            var visualizerSection = root["Visualizer"]?.AsObject() ?? new JsonObject();
+            visualizerSection["Enabled"] = SettingsEnableAmbientBackdrop;
+            root["Visualizer"] = visualizerSection;
 
             // Update MediaControls section
             var mediaControlsSection = root["MediaControls"]?.AsObject() ?? new JsonObject();
