@@ -81,6 +81,11 @@ public partial class MainViewModel : ViewModelBase
     private readonly IMediaTransportControlsService _mediaControlsService;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ClientCapabilities _clientCapabilities;
+    private readonly AmbientBackdropViewModel _ambient;
+
+    /// <summary>Ambient Glow backdrop state, bound by the backdrop view in MainWindow.</summary>
+    public AmbientBackdropViewModel Ambient => _ambient;
+
     private readonly IUserSettingsService _settingsService;
     private SendspinClientService? _manualClient;
     private ISendspinConnection? _manualConnection;
@@ -453,6 +458,7 @@ public partial class MainViewModel : ViewModelBase
         IMediaTransportControlsService mediaControlsService,
         IHttpClientFactory httpClientFactory,
         ClientCapabilities clientCapabilities,
+        AmbientBackdropViewModel ambient,
         IUserSettingsService settingsService)
     {
         _logger = logger;
@@ -467,6 +473,7 @@ public partial class MainViewModel : ViewModelBase
         _mediaControlsService = mediaControlsService;
         _httpClientFactory = httpClientFactory;
         _clientCapabilities = clientCapabilities;
+        _ambient = ambient;
         _settingsService = settingsService;
 
         _mediaControlsService.PlayPauseRequested += (_, _) =>
@@ -492,6 +499,8 @@ public partial class MainViewModel : ViewModelBase
         _hostService.PlayerStateChanged += OnPlayerStateChanged;
         _hostService.ArtworkReceived += OnArtworkReceived;
         _hostService.ArtworkCleared += OnArtworkCleared;
+        _hostService.ColorChanged += OnColorChanged;
+        _hostService.VisualizationReceived += OnVisualizationReceived;
         _hostService.LastPlayedServerIdChanged += OnLastPlayedServerIdChanged;
 
         // Subscribe to server discovery events (client-initiated mode - primary)
@@ -762,6 +771,8 @@ public partial class MainViewModel : ViewModelBase
         _manualClient.PlayerStateChanged += OnManualClientPlayerStateChanged;
         _manualClient.ArtworkReceived += OnManualClientArtworkReceived;
         _manualClient.ArtworkCleared += OnArtworkCleared;
+        _manualClient.ColorChanged += OnColorChanged;
+        _manualClient.VisualizationReceived += OnVisualizationReceived;
     }
 
     /// <summary>
@@ -894,6 +905,9 @@ public partial class MainViewModel : ViewModelBase
             _manualClient.PlayerStateChanged -= OnManualClientPlayerStateChanged;
             _manualClient.ArtworkReceived -= OnManualClientArtworkReceived;
             _manualClient.ArtworkCleared -= OnArtworkCleared;
+            _manualClient.ColorChanged -= OnColorChanged;
+            _manualClient.VisualizationReceived -= OnVisualizationReceived;
+            _ambient.Reset();
 
             try
             {
@@ -1143,6 +1157,7 @@ public partial class MainViewModel : ViewModelBase
                 CurrentTrack = null;
                 PlaybackState = PlaybackState.Idle;
                 StatusMessage = $"Waiting for connections...\nClient ID: {ClientId}";
+                _ambient.Reset();
 
                 // Show toast notification for disconnection
                 if (!string.IsNullOrEmpty(disconnectedServerName))
@@ -1246,6 +1261,16 @@ public partial class MainViewModel : ViewModelBase
             AlbumArtwork = null;
             _logger.LogDebug("Artwork cleared on channel {Channel} (no artwork available)", e.Channel);
         });
+    }
+
+    private void OnColorChanged(object? sender, ColorPalette palette)
+    {
+        App.Current.Dispatcher.Invoke(() => _ambient.ApplyColorPalette(palette));
+    }
+
+    private void OnVisualizationReceived(object? sender, VisualizerFrame frame)
+    {
+        App.Current.Dispatcher.Invoke(() => _ambient.ApplyVisualizerFrame(frame));
     }
 
     /// <summary>
