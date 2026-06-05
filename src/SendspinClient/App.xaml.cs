@@ -259,7 +259,8 @@ public partial class App : Application
             },
         };
 
-        // Advertise the visualizer role (color@v1 is already in the SDK default roles).
+        // Add the visualizer@v1 role so the server streams loudness/beat frames.
+        // (color@v1 is included in the SDK's default roles and needs no explicit add.)
         if (!clientCapabilities.Roles.Contains("visualizer@v1"))
         {
             clientCapabilities.Roles.Add("visualizer@v1");

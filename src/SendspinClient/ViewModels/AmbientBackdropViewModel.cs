@@ -47,6 +47,13 @@ public partial class AmbientBackdropViewModel : ObservableObject
         _hasPalette = palette.Primary is not null || palette.Accent is not null || palette.OnDark is not null
             || palette.BackgroundDark is not null;
 
+        if (!_hasPalette)
+        {
+            // All-null palette = "clear": deactivate and leave the eased colors where they are.
+            UpdateActive();
+            return;
+        }
+
         BaseColor = ToColor(palette.BackgroundDark, FallbackBase);
         BlobColor1 = ToColor(palette.Primary, FallbackBlob1);
         BlobColor2 = ToColor(palette.Accent, FallbackBlob2);

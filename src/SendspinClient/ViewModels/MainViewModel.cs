@@ -891,6 +891,7 @@ public partial class MainViewModel : ViewModelBase
         PlaybackState = PlaybackState.Idle;
         AlbumArtwork = null;
         _lastArtworkUrl = null;
+        _ambient.Reset();
         StatusMessage = $"Disconnected. Waiting for connections...\nClient ID: {ClientId}";
         OnPropertyChanged(nameof(IsConnected));
     }

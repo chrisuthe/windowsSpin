@@ -130,8 +130,10 @@ public partial class AmbientBackdropView : UserControl
         ApplyBlob(Blob2Scale, Blob2, scale * 0.95, opacity * 0.9);
         ApplyBlob(Blob3Scale, Blob3, scale * 1.05, opacity * 0.8);
 
-        // Idle drift: slow sinusoidal motion so the scene is alive at low energy.
-        var t = now / (double)Stopwatch.Frequency;
+        // Idle drift: slow sinusoidal motion so the scene is alive at low energy. Use a monotonic
+        // timestamp (not the restartable _clock) so the drift phase is continuous across
+        // Loaded/Unloaded cycles and does not snap on re-show.
+        var t = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
         Blob1Translate.X = Math.Sin(t * 0.13) * 40.0;
         Blob1Translate.Y = Math.Cos(t * 0.11) * 30.0;
         Blob2Translate.X = Math.Sin(t * 0.09 + 2.0) * 50.0;
