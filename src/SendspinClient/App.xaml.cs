@@ -419,6 +419,7 @@ public partial class App : Application
         services.AddSingleton<IUserSettingsService, UserSettingsService>();
 
         // ViewModels
+        services.AddSingleton<AmbientBackdropViewModel>();
         services.AddSingleton<MainViewModel>();
     }
 
