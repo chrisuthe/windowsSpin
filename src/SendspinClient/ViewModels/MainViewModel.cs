@@ -83,6 +83,13 @@ public partial class MainViewModel : ViewModelBase
     private readonly ClientCapabilities _clientCapabilities;
     private readonly AmbientBackdropViewModel _ambient;
 
+    // Ambient Glow diagnostics: rate-limited Debug logging of the visualizer data path.
+    private int _vizFrames;
+    private int _vizLoudFrames;
+    private int _vizBeats;
+    private int _vizLoudMin = int.MaxValue;
+    private int _vizLoudMax = int.MinValue;
+
     /// <summary>Ambient Glow backdrop state, bound by the backdrop view in MainWindow.</summary>
     public AmbientBackdropViewModel Ambient => _ambient;
 
@@ -1272,12 +1279,63 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnColorChanged(object? sender, ColorPalette palette)
     {
-        App.Current.Dispatcher.Invoke(() => _ambient.ApplyColorPalette(palette));
+        App.Current.Dispatcher.Invoke(() =>
+        {
+            _ambient.ApplyColorPalette(palette);
+            _logger.LogDebug(
+                "Ambient color: base={Base} primary={Primary} accent={Accent} onDark={OnDark}, active={Active}",
+                palette.BackgroundDark, palette.Primary, palette.Accent, palette.OnDark, _ambient.IsActive);
+        });
     }
 
     private void OnVisualizationReceived(object? sender, VisualizerFrame frame)
     {
-        App.Current.Dispatcher.Invoke(() => _ambient.ApplyVisualizerFrame(frame));
+        App.Current.Dispatcher.Invoke(() =>
+        {
+            _ambient.ApplyVisualizerFrame(frame);
+            LogVisualizationDiagnostics(frame);
+        });
+    }
+
+    /// <summary>
+    /// Rate-limited Debug logging of the visualizer feed (loudness range/rate + beat count) so the
+    /// ambient backdrop can be calibrated against real data. No-op unless Debug logging is enabled.
+    /// </summary>
+    private void LogVisualizationDiagnostics(VisualizerFrame frame)
+    {
+        if (!_logger.IsEnabled(LogLevel.Debug))
+        {
+            return;
+        }
+
+        _vizFrames++;
+        if (frame.Loudness is { } loud)
+        {
+            _vizLoudFrames++;
+            _vizLoudMin = Math.Min(_vizLoudMin, loud);
+            _vizLoudMax = Math.Max(_vizLoudMax, loud);
+        }
+
+        if (frame.IsDownbeat is not null)
+        {
+            _vizBeats++;
+        }
+
+        if (_vizFrames >= 90)
+        {
+            _logger.LogDebug(
+                "Ambient viz/~3s: {Frames} frames, {LoudFrames} loudness [{Min}..{Max} of 65535], {Beats} beats; energy={Energy:F2}, active={Active}",
+                _vizFrames, _vizLoudFrames,
+                _vizLoudMin == int.MaxValue ? 0 : _vizLoudMin,
+                _vizLoudMax == int.MinValue ? 0 : _vizLoudMax,
+                _vizBeats, _ambient.TargetEnergy, _ambient.IsActive);
+
+            _vizFrames = 0;
+            _vizLoudFrames = 0;
+            _vizBeats = 0;
+            _vizLoudMin = int.MaxValue;
+            _vizLoudMax = int.MinValue;
+        }
     }
 
     /// <summary>
