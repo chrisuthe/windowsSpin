@@ -11,6 +11,7 @@ using Sendspin.SDK.Audio;
 using Sendspin.SDK.Client;
 using Sendspin.SDK.Discovery;
 using Sendspin.SDK.Models;
+using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
 using SendspinClient.Services.Audio;
 using SendspinClient.Services.Discord;
@@ -235,7 +236,11 @@ public partial class App : Application
             "Buffer: {CapacityMs}ms PCM → {CapacityMB:F1}MB advertised to server (worst-case {MaxKbps}kbps)",
             bufferCapacityMs, bufferCapacityBytes / 1024.0 / 1024.0, maxBytesPerSecond * 8 / 1000);
 
-        services.AddSingleton(new ClientCapabilities
+        // Visualizer (ambient glow) capability — request only loudness + beat features.
+        var visualizerRateMax = _configuration!.GetValue<int>("Visualizer:RateMax", 30);
+        var visualizerBufferCapacity = _configuration!.GetValue<int>("Visualizer:BufferCapacity", 4096);
+
+        var clientCapabilities = new ClientCapabilities
         {
             ClientId = clientId,
             ClientName = playerName,
@@ -245,8 +250,22 @@ public partial class App : Application
             AudioFormats = audioFormats,
             InitialVolume = playerVolume,
             InitialMuted = playerMuted,
-            BufferCapacity = bufferCapacityBytes
-        });
+            BufferCapacity = bufferCapacityBytes,
+            VisualizerSupport = new VisualizerSupport
+            {
+                Types = new List<string> { VisualizerTypes.Loudness, VisualizerTypes.Beat },
+                RateMax = visualizerRateMax,
+                BufferCapacity = visualizerBufferCapacity,
+            },
+        };
+
+        // Advertise the visualizer role (color@v1 is already in the SDK default roles).
+        if (!clientCapabilities.Roles.Contains("visualizer@v1"))
+        {
+            clientCapabilities.Roles.Add("visualizer@v1");
+        }
+
+        services.AddSingleton(clientCapabilities);
 
         // Clock synchronization for multi-room audio sync
         services.AddSingleton<IClockSynchronizer>(sp =>
