@@ -119,7 +119,7 @@ public class AmbientMathTests
     }
 
     [Theory]
-    [InlineData(1.0, 0.0, 0.0, 0.82)]   // intensity 0 -> floor at ScaleMin
+    [InlineData(1.0, 0.0, 0.0, 0.82)]   // intensity 0 -> only ScaleMin remains (no IntensityFloor here)
     [InlineData(1.0, 0.0, 1.0, 1.32)]   // intensity 1 -> identity (ScaleMin + 0.50)
     [InlineData(1.0, 0.0, 2.0, 1.82)]   // intensity 2 -> doubled energy span (ScaleMin + 1.00)
     [InlineData(1.0, 1.0, 2.0, 2.52)]   // intensity 2 with full pulse: 0.82 + 2*(0.50+0.35)
@@ -142,6 +142,12 @@ public class AmbientMathTests
     public void BlobScale_NegativeIntensity_ClampsToZeroReactivity()
     {
         Assert.Equal(0.82, AmbientMath.BlobScale(1.0, 1.0, -5.0), 0.0001);
+    }
+
+    [Fact]
+    public void BlobOpacity_NegativeIntensity_ClampsToInvisible()
+    {
+        Assert.Equal(0.0, AmbientMath.BlobOpacity(1.0, -5.0), 0.0001);
     }
 
     [Fact]
