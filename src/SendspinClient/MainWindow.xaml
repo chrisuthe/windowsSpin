@@ -405,48 +405,57 @@
                 </Grid.Style>
 
                 <StackPanel HorizontalAlignment="Center" Margin="24">
-                    <!-- Large Album Art with Shadow (280x280) -->
-                    <Border Width="280" Height="280"
-                            CornerRadius="12"
+                    <!-- Large Album Art with Shadow (280x280); outer wrapper carries the Breathing Art transform + glow -->
+                    <Border x:Name="AlbumArtBreath"
                             HorizontalAlignment="Center"
-                            Margin="0,0,0,24">
+                            Margin="0,0,0,24"
+                            RenderTransformOrigin="0.5,0.5">
+                        <Border.RenderTransform>
+                            <ScaleTransform x:Name="AlbumArtScale"/>
+                        </Border.RenderTransform>
                         <Border.Effect>
-                            <DropShadowEffect Color="Black" BlurRadius="40" ShadowDepth="8" Opacity="0.6"/>
+                            <DropShadowEffect x:Name="AlbumArtGlow" ShadowDepth="0" BlurRadius="0" Opacity="0"/>
                         </Border.Effect>
-                        <Grid>
-                            <!-- Actual artwork with clipped corners -->
-                            <Border CornerRadius="12" ClipToBounds="True">
-                                <Border.Style>
-                                    <Style TargetType="Border">
-                                        <Setter Property="Visibility" Value="Visible"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding AlbumArtwork}" Value="{x:Null}">
-                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Border.Style>
-                                <Image Source="{Binding AlbumArtwork, Converter={StaticResource ByteArrayToImageConverter}}"
-                                       Stretch="UniformToFill"/>
-                            </Border>
-                            <!-- Placeholder when no artwork -->
-                            <Border Background="{StaticResource SurfaceLightBrush}" CornerRadius="12">
-                                <Border.Style>
-                                    <Style TargetType="Border">
-                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding AlbumArtwork}" Value="{x:Null}">
-                                                <Setter Property="Visibility" Value="Visible"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Border.Style>
-                                <TextBlock Text="&#x1F3B5;"
-                                           FontSize="96"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"/>
-                            </Border>
-                        </Grid>
+                        <Border Width="280" Height="280"
+                                CornerRadius="12">
+                            <Border.Effect>
+                                <DropShadowEffect Color="Black" BlurRadius="40" ShadowDepth="8" Opacity="0.6"/>
+                            </Border.Effect>
+                            <Grid>
+                                <!-- Actual artwork with clipped corners -->
+                                <Border CornerRadius="12" ClipToBounds="True">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding AlbumArtwork}" Value="{x:Null}">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <Image Source="{Binding AlbumArtwork, Converter={StaticResource ByteArrayToImageConverter}}"
+                                           Stretch="UniformToFill"/>
+                                </Border>
+                                <!-- Placeholder when no artwork -->
+                                <Border Background="{StaticResource SurfaceLightBrush}" CornerRadius="12">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding AlbumArtwork}" Value="{x:Null}">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock Text="&#x1F3B5;"
+                                               FontSize="96"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Border>
+                            </Grid>
+                        </Border>
                     </Border>
 
                     <!-- Track Title -->

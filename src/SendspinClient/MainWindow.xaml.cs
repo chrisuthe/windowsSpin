@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Input;
 using Sendspin.SDK.Discovery;
 using SendspinClient.ViewModels;
+using SendspinClient.Views;
 
 namespace SendspinClient;
 
@@ -13,6 +14,7 @@ public partial class MainWindow : Window
 {
     private const double DefaultWidth = 400;
     private const double DefaultHeight = 780;
+    private BreathingArtAnimator? _breathingAnimator;
 
     public MainWindow()
     {
@@ -37,6 +39,11 @@ public partial class MainWindow : Window
         if (e.NewValue is INotifyPropertyChanged newVm)
         {
             newVm.PropertyChanged += OnViewModelPropertyChanged;
+        }
+
+        if (_breathingAnimator is null && e.NewValue is MainViewModel mainVm)
+        {
+            _breathingAnimator = new BreathingArtAnimator(AlbumArtScale, AlbumArtGlow, mainVm.Ambient);
         }
     }
 
