@@ -36,6 +36,18 @@ public partial class AmbientBackdropViewModel : ObservableObject
     public Color BlobColor2 { get; private set; } = FallbackBlob2;
     public Color BlobColor3 { get; private set; } = FallbackBlob3;
 
+    private double _intensity = 1.0;
+
+    /// <summary>
+    /// Effective intensity (<c>IntensityFloor</c>..2.0) consumed by the renderer. The raw 0
+    /// setting is floored so the backdrop never goes fully dark via the slider; use
+    /// <see cref="SetEnabled"/> to disable entirely.
+    /// </summary>
+    public double Intensity => Math.Max(AmbientMath.IntensityFloor, _intensity);
+
+    /// <summary>Sets the raw intensity (0..2) from the settings slider. Does not affect IsActive.</summary>
+    public void SetIntensity(double raw) => _intensity = Math.Clamp(raw, 0.0, 2.0);
+
     /// <summary>Raised when a beat frame arrives; strength is ~0.6 for a beat, 1.0 for a downbeat.</summary>
     public event EventHandler<double>? BeatTriggered;
 

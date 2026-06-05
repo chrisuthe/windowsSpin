@@ -26,6 +26,11 @@ public partial class AmbientBackdropView : UserControl
     private double _pulse;
     private double _pulseTarget;
 
+    // Accumulated drift phase (replaces raw monotonic time). Scaled by intensity each frame so
+    // drift speed tracks the slider; accumulating keeps phase continuous when intensity changes
+    // and across Loaded/Unloaded cycles (persists for the life of the view instance).
+    private double _driftPhase;
+
     // Eased colors (R,G,B as doubles for smooth interpolation).
     private double _b1r, _b1g, _b1b, _b2r, _b2g, _b2b, _b3r, _b3g, _b3b;
     private double _baseR, _baseG, _baseB;
@@ -127,17 +132,19 @@ public partial class AmbientBackdropView : UserControl
         _pulseTarget = AmbientMath.Decay(_pulseTarget, dt, BeatHalfLife);
         _pulse = AmbientMath.Ease(_pulse, _pulseTarget, dt, BeatAttack);
 
-        var scale = AmbientMath.BlobScale(_energy, _pulse);
-        var opacity = AmbientMath.BlobOpacity(_energy);
+        var intensity = _vm.Intensity;
+        var scale = AmbientMath.BlobScale(_energy, _pulse, intensity);
+        var opacity = AmbientMath.BlobOpacity(_energy, intensity);
 
         ApplyBlob(Blob1Scale, Blob1, scale, opacity);
         ApplyBlob(Blob2Scale, Blob2, scale * 0.95, opacity * 0.9);
         ApplyBlob(Blob3Scale, Blob3, scale * 1.05, opacity * 0.8);
 
-        // Idle drift: slow sinusoidal motion so the scene is alive at low energy. Use a monotonic
-        // timestamp (not the restartable _clock) so the drift phase is continuous across
-        // Loaded/Unloaded cycles and does not snap on re-show.
-        var t = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+        // Idle drift: slow sinusoidal motion so the scene is alive at low energy. Accumulate a
+        // phase scaled by intensity so drift SPEED tracks the slider; accumulation keeps the phase
+        // continuous across intensity changes and Loaded/Unloaded cycles (no snap on re-show).
+        _driftPhase += dt * intensity;
+        var t = _driftPhase;
         // Blob centers sit in the interior (base offsets) so the window edges only ever see the
         // soft, faded part of each gradient — never a hard-clipped bright core. Drift is gentle.
         Blob1Translate.X = -110.0 + (Math.Sin(t * 0.13) * 55.0);

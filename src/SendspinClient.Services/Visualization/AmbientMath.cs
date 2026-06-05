@@ -81,20 +81,34 @@ public static class AmbientMath
     public const double OpacityEnergySpan = 0.42;
 
     /// <summary>
-    /// Blob render scale from eased energy and the current beat pulse. Energy and pulse are each
-    /// clamped to [0,1], so the result is bounded to [ScaleMin, ScaleMin+ScaleEnergySpan+ScalePulseSpan].
+    /// Minimum effective intensity. The 0% slider position floors to this so the backdrop
+    /// stays faintly alive (subtle, slow, dim) rather than going fully dark. Use the enable
+    /// toggle to disable the effect entirely. Applied at the ViewModel boundary, not here.
     /// </summary>
-    public static double BlobScale(double energy, double pulse)
+    public const double IntensityFloor = 0.15;
+
+    /// <summary>
+    /// Blob render scale from eased energy and the current beat pulse, scaled by
+    /// <paramref name="intensity"/> (1.0 = default). Energy and pulse are clamped to [0,1];
+    /// intensity is clamped to be non-negative. <c>ScaleMin</c> is never scaled, so blobs keep
+    /// their minimum size at intensity 0.
+    /// </summary>
+    public static double BlobScale(double energy, double pulse, double intensity = 1.0)
     {
         var e = Math.Clamp(energy, 0.0, 1.0);
         var p = Math.Clamp(pulse, 0.0, 1.0);
-        return ScaleMin + (e * ScaleEnergySpan) + (p * ScalePulseSpan);
+        var i = Math.Max(0.0, intensity);
+        return ScaleMin + (i * ((e * ScaleEnergySpan) + (p * ScalePulseSpan)));
     }
 
-    /// <summary>Blob opacity from eased energy.</summary>
-    public static double BlobOpacity(double energy)
+    /// <summary>
+    /// Blob opacity from eased energy, scaled by <paramref name="intensity"/> (1.0 = default).
+    /// The whole opacity scales, so intensity 0 is invisible; the result is clamped to [0,1].
+    /// </summary>
+    public static double BlobOpacity(double energy, double intensity = 1.0)
     {
         var e = Math.Clamp(energy, 0.0, 1.0);
-        return OpacityMin + (e * OpacityEnergySpan);
+        var i = Math.Max(0.0, intensity);
+        return Math.Clamp(i * (OpacityMin + (e * OpacityEnergySpan)), 0.0, 1.0);
     }
 }

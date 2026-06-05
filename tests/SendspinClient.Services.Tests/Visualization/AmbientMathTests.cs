@@ -117,4 +117,42 @@ public class AmbientMathTests
         Assert.Equal(0.55, AmbientMath.BlobOpacity(-1.0), 0.0001);
         Assert.Equal(0.97, AmbientMath.BlobOpacity(2.0), 0.0001);
     }
+
+    [Theory]
+    [InlineData(1.0, 0.0, 0.0, 0.82)]   // intensity 0 -> only ScaleMin remains (no IntensityFloor here)
+    [InlineData(1.0, 0.0, 1.0, 1.32)]   // intensity 1 -> identity (ScaleMin + 0.50)
+    [InlineData(1.0, 0.0, 2.0, 1.82)]   // intensity 2 -> doubled energy span (ScaleMin + 1.00)
+    [InlineData(1.0, 1.0, 2.0, 2.52)]   // intensity 2 with full pulse: 0.82 + 2*(0.50+0.35)
+    public void BlobScale_ScalesReactivityByIntensity(double energy, double pulse, double intensity, double expected)
+    {
+        Assert.Equal(expected, AmbientMath.BlobScale(energy, pulse, intensity), 0.0001);
+    }
+
+    [Theory]
+    [InlineData(0.0, 0.0, 0.0)]    // intensity 0 -> invisible
+    [InlineData(0.0, 1.0, 0.55)]   // intensity 1 -> identity
+    [InlineData(0.0, 2.0, 1.0)]    // intensity 2 -> 2*0.55 = 1.10 clamped to 1.0
+    [InlineData(1.0, 2.0, 1.0)]    // energy 1, intensity 2 -> clamped to 1.0
+    public void BlobOpacity_ScalesPresenceByIntensity(double energy, double intensity, double expected)
+    {
+        Assert.Equal(expected, AmbientMath.BlobOpacity(energy, intensity), 0.0001);
+    }
+
+    [Fact]
+    public void BlobScale_NegativeIntensity_ClampsToZeroReactivity()
+    {
+        Assert.Equal(0.82, AmbientMath.BlobScale(1.0, 1.0, -5.0), 0.0001);
+    }
+
+    [Fact]
+    public void BlobOpacity_NegativeIntensity_ClampsToInvisible()
+    {
+        Assert.Equal(0.0, AmbientMath.BlobOpacity(1.0, -5.0), 0.0001);
+    }
+
+    [Fact]
+    public void IntensityFloor_IsFaintButNonZero()
+    {
+        Assert.InRange(AmbientMath.IntensityFloor, 0.05, 0.30);
+    }
 }

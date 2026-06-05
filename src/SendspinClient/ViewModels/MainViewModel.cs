@@ -285,6 +285,13 @@ public partial class MainViewModel : ViewModelBase
     private bool _settingsEnableAmbientBackdrop = true;
 
     /// <summary>
+    /// Gets or sets the Ambient Glow backdrop intensity (0.0–2.0, 1.0 = default look).
+    /// Scales reactivity, presence, and drift speed together.
+    /// </summary>
+    [ObservableProperty]
+    private double _settingsAmbientBackdropIntensity = 1.0;
+
+    /// <summary>
     /// Gets or sets whether System Media Transport Controls (Windows media keys, lockscreen,
     /// volume-flyout media tile) are wired to playback commands.
     /// </summary>
@@ -1928,6 +1935,11 @@ public partial class MainViewModel : ViewModelBase
         _ambient.SetEnabled(value);
     }
 
+    partial void OnSettingsAmbientBackdropIntensityChanged(double value)
+    {
+        _ambient.SetIntensity(value);
+    }
+
     partial void OnSettingsConnectionModeChanged(string value)
     {
         // Convert display name to config value
@@ -2177,6 +2189,8 @@ public partial class MainViewModel : ViewModelBase
         // Load Ambient Glow backdrop setting and apply immediately
         SettingsEnableAmbientBackdrop = _configuration.GetValue<bool>("Visualizer:Enabled", true);
         _ambient.SetEnabled(SettingsEnableAmbientBackdrop);
+        SettingsAmbientBackdropIntensity = _configuration.GetValue<double>("Visualizer:Intensity", 1.0);
+        _ambient.SetIntensity(SettingsAmbientBackdropIntensity);
 
         // Load SMTC (Windows media key) integration setting and apply immediately
         SettingsEnableMediaKeys = _configuration.GetValue<bool>("MediaControls:Enabled", true);
@@ -2427,6 +2441,7 @@ public partial class MainViewModel : ViewModelBase
             // Update Visualizer section
             var visualizerSection = root["Visualizer"]?.AsObject() ?? new JsonObject();
             visualizerSection["Enabled"] = SettingsEnableAmbientBackdrop;
+            visualizerSection["Intensity"] = SettingsAmbientBackdropIntensity;
             root["Visualizer"] = visualizerSection;
 
             // Update MediaControls section
