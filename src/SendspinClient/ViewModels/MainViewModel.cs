@@ -1586,6 +1586,10 @@ public partial class MainViewModel : ViewModelBase
     /// <param name="value">The new playback state.</param>
     partial void OnPlaybackStateChanged(PlaybackState value)
     {
+        // Breathing Art breathes only while playing (the visualizer signal doesn't reliably
+        // resume on a same-track pause/resume, which ends the stream and drops to Idle).
+        _ambient.SetPlaying(value == PlaybackState.Playing);
+
         OnPropertyChanged(nameof(IsPlaying));
         OnPropertyChanged(nameof(DisplayTitle));
         OnPropertyChanged(nameof(DisplayArtist));

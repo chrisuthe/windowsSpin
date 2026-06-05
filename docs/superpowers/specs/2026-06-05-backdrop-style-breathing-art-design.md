@@ -116,11 +116,22 @@ easing in `AmbientBackdropView`:
 - Per frame: ease energy toward `vm.TargetEnergy`; decay+ease the beat pulse (same constants
   as `AmbientBackdropView`: energy τ≈0.45, beat half-life 0.30, attack 0.06). Read
   `intensity = vm.Intensity` (already floored).
-- Apply `scale = AmbientMath.BreathScale(energy, pulse, intensity)` to the `ScaleTransform`
-  (X and Y); compute `g = AmbientMath.BreathGlow(energy, intensity)` and map to the glow:
-  `BlurRadius = g * MaxGlowBlur` (≈40), `Opacity = g * MaxGlowOpacity` (≈0.85), `Color` eased
-  toward `vm.BlobColor2`.
-- At rest: scale 1.0, glow opacity 0.
+- **Breathe only while playing.** The Sendspin server ends the stream on pause (playback drops
+  to `Idle`) and the visualizer loudness signal does not reliably resume on a same-track resume —
+  it only re-flows on a track change. So the renderer gates liveness on `vm.IsPlaying`
+  (`PlaybackState == Playing`, pushed from `MainViewModel.OnPlaybackStateChanged`) rather than on
+  the energy signal: a `_playLevel` eases toward 1 while playing / 0 otherwise, and the energy
+  easing target is `vm.TargetEnergy` while playing / `0` otherwise, so the art settles to a clean
+  rest when paused/stopped.
+- **Continuous idle breath** so the art stays gently alive while playing even when no loudness
+  frames arrive: a slow time-based oscillation `idle = intensity * IdleBreathSpan *
+  sin(idlePhase * IdleBreathSpeed) * playLevel` (≈±2% scale at intensity 1, ~5s cycle). The music
+  energy/beat reactivity from `BreathScale` adds on top.
+- Apply `scale = AmbientMath.BreathScale(energy, pulse, intensity) + idle` to the `ScaleTransform`
+  (X and Y); compute `g = AmbientMath.BreathGlow(energy, intensity) * playLevel` and map to the
+  glow: `BlurRadius = g * MaxGlowBlur` (≈40), `Opacity = g * MaxGlowOpacity` (≈0.85), `Color`
+  eased toward `vm.BlobColor2`.
+- At rest (paused/stopped, or Off/Glow modes): scale 1.0, glow opacity 0.
 
 The mapping constants (`MaxGlowBlur`, `MaxGlowOpacity`, easing τ) live in the animator (view
 concern); `AmbientMath` returns only normalized 0..1 / scale values.

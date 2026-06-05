@@ -50,6 +50,16 @@ public partial class AmbientBackdropViewModel : ObservableObject
     /// <summary>Sets the raw intensity (0..2) from the settings slider. Does not affect IsActive.</summary>
     public void SetIntensity(double raw) => _intensity = Math.Clamp(raw, 0.0, 2.0);
 
+    /// <summary>
+    /// Whether playback is currently active. Breathing Art breathes only while playing; the
+    /// visualizer signal does not reliably resume on a same-track pause/resume, so the renderer
+    /// relies on this rather than energy alone to decide when to be alive.
+    /// </summary>
+    public bool IsPlaying { get; private set; }
+
+    /// <summary>Sets whether playback is active (from MainViewModel's PlaybackState). Polled by the renderer.</summary>
+    public void SetPlaying(bool playing) => IsPlaying = playing;
+
     /// <summary>Raised when a beat frame arrives; strength is ~0.6 for a beat, 1.0 for a downbeat.</summary>
     public event EventHandler<double>? BeatTriggered;
 

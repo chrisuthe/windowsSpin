@@ -25,6 +25,12 @@ public sealed class BreathingArtAnimator
     private const double MaxGlowBlur = 40.0;
     private const double MaxGlowOpacity = 0.85;
 
+    // Continuous idle breath so the art stays alive while playing even when no loudness frames
+    // arrive (e.g. after a same-track resume). Energy/beats add reactivity on top.
+    private const double IdleBreathSpan = 0.02;   // +/- 2% scale at intensity 1
+    private const double IdleBreathSpeed = 1.25;  // rad/s -> ~5s breath cycle
+    private const double PlayLevelTimeConstant = 0.45; // ease in/out of the "alive" level on play/pause
+
     private readonly ScaleTransform _scale;
     private readonly DropShadowEffect _glow;
     private readonly AmbientBackdropViewModel _vm;
@@ -35,6 +41,8 @@ public sealed class BreathingArtAnimator
     private double _energy;
     private double _pulse;
     private double _pulseTarget;
+    private double _idlePhase;
+    private double _playLevel;
 
     private double _glowR, _glowG, _glowB;
     private bool _glowColorInitialized;
@@ -109,6 +117,7 @@ public sealed class BreathingArtAnimator
         _energy = 0.0;
         _pulse = 0.0;
         _pulseTarget = 0.0;
+        _playLevel = 0.0;
         _scale.ScaleX = 1.0;
         _scale.ScaleY = 1.0;
         _glow.BlurRadius = 0.0;
@@ -125,16 +134,26 @@ public sealed class BreathingArtAnimator
             return;
         }
 
-        _energy = AmbientMath.Ease(_energy, _vm.TargetEnergy, dt, EnergyTimeConstant);
+        // Breathe only while playing. When paused/stopped, ease the play-level and the energy
+        // target to zero so the art settles to a clean rest — the visualizer signal does not
+        // reliably resume on a same-track resume, so liveness is gated on playback, not energy.
+        _playLevel = AmbientMath.Ease(_playLevel, _vm.IsPlaying ? 1.0 : 0.0, dt, PlayLevelTimeConstant);
+        var energyTarget = _vm.IsPlaying ? _vm.TargetEnergy : 0.0;
+        _energy = AmbientMath.Ease(_energy, energyTarget, dt, EnergyTimeConstant);
         _pulseTarget = AmbientMath.Decay(_pulseTarget, dt, BeatHalfLife);
         _pulse = AmbientMath.Ease(_pulse, _pulseTarget, dt, BeatAttack);
 
         var intensity = _vm.Intensity;
-        var scale = AmbientMath.BreathScale(_energy, _pulse, intensity);
+
+        // Continuous idle breath (energy-independent), faded by the play-level so it only breathes
+        // while playing; the eased energy/beat reactivity from BreathScale adds on top.
+        _idlePhase += dt;
+        var idle = intensity * IdleBreathSpan * Math.Sin(_idlePhase * IdleBreathSpeed) * _playLevel;
+        var scale = AmbientMath.BreathScale(_energy, _pulse, intensity) + idle;
         _scale.ScaleX = scale;
         _scale.ScaleY = scale;
 
-        var g = AmbientMath.BreathGlow(_energy, intensity);
+        var g = AmbientMath.BreathGlow(_energy, intensity) * _playLevel;
         _glow.BlurRadius = g * MaxGlowBlur;
         _glow.Opacity = g * MaxGlowOpacity;
 
