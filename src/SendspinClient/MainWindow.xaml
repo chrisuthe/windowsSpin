@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:SendspinClient"
         xmlns:vm="clr-namespace:SendspinClient.ViewModels"
+        xmlns:views="clr-namespace:SendspinClient.Views"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="WindowsSpin"
@@ -28,6 +29,9 @@
                         <DataTrigger Binding="{Binding IsConnected}" Value="False">
                             <Setter Property="Visibility" Value="Collapsed"/>
                         </DataTrigger>
+                        <DataTrigger Binding="{Binding Ambient.IsActive}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
                     </Style.Triggers>
                 </Style>
             </Border.Style>
@@ -36,6 +40,24 @@
                             Stretch="UniformToFill"/>
             </Border.Background>
         </Border>
+
+        <!-- Layer 0b: Ambient Glow reactive backdrop (shown when a palette is active) -->
+        <views:AmbientBackdropView DataContext="{Binding Ambient}">
+            <views:AmbientBackdropView.Style>
+                <Style TargetType="UserControl">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Style.Triggers>
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding DataContext.IsConnected, RelativeSource={RelativeSource AncestorType=Window}}" Value="True"/>
+                                <Condition Binding="{Binding IsActive}" Value="True"/>
+                            </MultiDataTrigger.Conditions>
+                            <Setter Property="Visibility" Value="Visible"/>
+                        </MultiDataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </views:AmbientBackdropView.Style>
+        </views:AmbientBackdropView>
 
         <!-- Layer 1: Dark gradient overlay for readability -->
         <Border>
@@ -596,6 +618,24 @@
                                 </StackPanel>
                                 <CheckBox Grid.Column="1"
                                           IsChecked="{Binding SettingsShowDiscordPresence}"
+                                          VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <!-- Ambient Glow reactive backdrop -->
+                            <Grid Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Reactive backdrop (Ambient Glow)" Style="{StaticResource BodyText}"/>
+                                    <TextBlock Text="Animate the background with colors and energy from the music"
+                                               Style="{StaticResource CaptionText}"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <CheckBox Grid.Column="1"
+                                          IsChecked="{Binding SettingsEnableAmbientBackdrop}"
                                           VerticalAlignment="Center"/>
                             </Grid>
 
