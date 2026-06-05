@@ -278,11 +278,20 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     private bool _settingsShowDiscordPresence;
 
-    /// <summary>
-    /// Gets or sets whether the Ambient Glow reactive backdrop is enabled.
-    /// </summary>
+    /// <summary>Available backdrop style options for the settings dropdown.</summary>
+    public string[] AvailableBackdropStyles { get; } = new[]
+    {
+        "Off",
+        "Ambient Glow",
+        "Breathing Art",
+    };
+
+    /// <summary>Gets or sets the selected backdrop style (display string, bound to the dropdown).</summary>
     [ObservableProperty]
-    private bool _settingsEnableAmbientBackdrop = true;
+    private string _settingsBackdropStyle = "Ambient Glow";
+
+    /// <summary>True when a style other than Off is selected (drives the intensity slider's visibility).</summary>
+    public bool IsBackdropEnabled => SettingsBackdropStyle != "Off";
 
     /// <summary>
     /// Gets or sets the Ambient Glow backdrop intensity (0.0–2.0, 1.0 = default look).
@@ -1930,10 +1939,32 @@ public partial class MainViewModel : ViewModelBase
         _mediaControlsService.IsEnabled = value;
     }
 
-    partial void OnSettingsEnableAmbientBackdropChanged(bool value)
+    partial void OnSettingsBackdropStyleChanged(string value)
     {
-        _ambient.SetEnabled(value);
+        _ambient.SetMode(StyleToMode(value));
+        OnPropertyChanged(nameof(IsBackdropEnabled));
     }
+
+    private static BackdropMode StyleToMode(string style) => style switch
+    {
+        "Off" => BackdropMode.Off,
+        "Breathing Art" => BackdropMode.BreathingArt,
+        _ => BackdropMode.AmbientGlow,
+    };
+
+    private static string StyleToToken(string style) => style switch
+    {
+        "Off" => "Off",
+        "Breathing Art" => "BreathingArt",
+        _ => "AmbientGlow",
+    };
+
+    private static string TokenToStyle(string token) => token switch
+    {
+        "Off" => "Off",
+        "BreathingArt" => "Breathing Art",
+        _ => "Ambient Glow",
+    };
 
     partial void OnSettingsAmbientBackdropIntensityChanged(double value)
     {
@@ -2186,9 +2217,14 @@ public partial class MainViewModel : ViewModelBase
             _discordService.Enable();
         }
 
-        // Load Ambient Glow backdrop setting and apply immediately
-        SettingsEnableAmbientBackdrop = _configuration.GetValue<bool>("Visualizer:Enabled", true);
-        _ambient.SetEnabled(SettingsEnableAmbientBackdrop);
+        // Load backdrop style (migrating from the legacy Visualizer:Enabled bool) and apply immediately
+        var backdropModeToken = _configuration.GetValue<string?>("Visualizer:Mode", null);
+        if (string.IsNullOrEmpty(backdropModeToken))
+        {
+            backdropModeToken = _configuration.GetValue<bool>("Visualizer:Enabled", true) ? "AmbientGlow" : "Off";
+        }
+        SettingsBackdropStyle = TokenToStyle(backdropModeToken);
+        _ambient.SetMode(StyleToMode(SettingsBackdropStyle));
         SettingsAmbientBackdropIntensity = _configuration.GetValue<double>("Visualizer:Intensity", 1.0);
         _ambient.SetIntensity(SettingsAmbientBackdropIntensity);
 
@@ -2440,7 +2476,8 @@ public partial class MainViewModel : ViewModelBase
 
             // Update Visualizer section
             var visualizerSection = root["Visualizer"]?.AsObject() ?? new JsonObject();
-            visualizerSection["Enabled"] = SettingsEnableAmbientBackdrop;
+            visualizerSection["Mode"] = StyleToToken(SettingsBackdropStyle);
+            visualizerSection["Enabled"] = SettingsBackdropStyle != "Off";
             visualizerSection["Intensity"] = SettingsAmbientBackdropIntensity;
             root["Visualizer"] = visualizerSection;
 
