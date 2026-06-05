@@ -55,4 +55,23 @@ public class AmbientMathTests
     {
         Assert.Equal(1.0, AmbientMath.Ease(0.0, 1.0, dtSeconds: 0.016, timeConstantSeconds: 0.0));
     }
+
+    [Fact]
+    public void Decay_AfterOneHalfLife_IsHalf()
+    {
+        var v = AmbientMath.Decay(1.0, dtSeconds: 0.25, halfLifeSeconds: 0.25);
+        Assert.Equal(0.5, v, 0.001);
+    }
+
+    [Fact]
+    public void Decay_ZeroDt_ReturnsCurrent()
+    {
+        Assert.Equal(0.8, AmbientMath.Decay(0.8, dtSeconds: 0.0, halfLifeSeconds: 0.3));
+    }
+
+    [Fact]
+    public void Decay_NonPositiveHalfLife_ReturnsZero()
+    {
+        Assert.Equal(0.0, AmbientMath.Decay(1.0, dtSeconds: 0.016, halfLifeSeconds: 0.0));
+    }
 }

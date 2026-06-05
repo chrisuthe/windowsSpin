@@ -44,4 +44,24 @@ public static class AmbientMath
         var alpha = 1.0 - Math.Exp(-dtSeconds / timeConstantSeconds);
         return current + ((target - current) * alpha);
     }
+
+    /// <summary>
+    /// Decays <paramref name="current"/> toward zero with the given <paramref name="halfLifeSeconds"/>
+    /// over a frame of <paramref name="dtSeconds"/>. Used for the additive beat-pulse envelope: the
+    /// caller adds an impulse on a beat, then calls this each frame. Non-positive half-life returns 0.
+    /// </summary>
+    public static double Decay(double current, double dtSeconds, double halfLifeSeconds)
+    {
+        if (dtSeconds <= 0.0)
+        {
+            return current;
+        }
+
+        if (halfLifeSeconds <= 0.0)
+        {
+            return 0.0;
+        }
+
+        return current * Math.Pow(0.5, dtSeconds / halfLifeSeconds);
+    }
 }
