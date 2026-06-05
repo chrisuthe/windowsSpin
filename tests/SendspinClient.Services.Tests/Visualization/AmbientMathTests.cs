@@ -28,4 +28,31 @@ public class AmbientMathTests
         var v = AmbientMath.NormalizeLoudness(raw);
         Assert.InRange(v, 0.0, 1.0);
     }
+
+    [Fact]
+    public void Ease_ZeroDt_ReturnsCurrent()
+    {
+        Assert.Equal(0.2, AmbientMath.Ease(0.2, 1.0, dtSeconds: 0.0, timeConstantSeconds: 0.5));
+    }
+
+    [Fact]
+    public void Ease_MovesTowardTarget()
+    {
+        var next = AmbientMath.Ease(0.0, 1.0, dtSeconds: 0.1, timeConstantSeconds: 0.5);
+        Assert.InRange(next, 0.0, 1.0);
+        Assert.True(next > 0.0, "should move toward target");
+    }
+
+    [Fact]
+    public void Ease_LargeDt_ApproachesTarget()
+    {
+        var next = AmbientMath.Ease(0.0, 1.0, dtSeconds: 10.0, timeConstantSeconds: 0.5);
+        Assert.True(next > 0.99, "after many time constants it should be near target");
+    }
+
+    [Fact]
+    public void Ease_ZeroTimeConstant_SnapsToTarget()
+    {
+        Assert.Equal(1.0, AmbientMath.Ease(0.0, 1.0, dtSeconds: 0.016, timeConstantSeconds: 0.0));
+    }
 }

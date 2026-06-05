@@ -22,4 +22,26 @@ public static class AmbientMath
 
         return Math.Clamp(raw / (double)LoudnessMax, 0.0, 1.0);
     }
+
+    /// <summary>
+    /// Exponentially eases <paramref name="current"/> toward <paramref name="target"/> for a frame
+    /// of <paramref name="dtSeconds"/>. <paramref name="timeConstantSeconds"/> is the e-folding time
+    /// (smaller = snappier). A non-positive time constant snaps to the target; dt &lt;= 0 is a no-op.
+    /// Frame-rate independent.
+    /// </summary>
+    public static double Ease(double current, double target, double dtSeconds, double timeConstantSeconds)
+    {
+        if (dtSeconds <= 0.0)
+        {
+            return current;
+        }
+
+        if (timeConstantSeconds <= 0.0)
+        {
+            return target;
+        }
+
+        var alpha = 1.0 - Math.Exp(-dtSeconds / timeConstantSeconds);
+        return current + ((target - current) * alpha);
+    }
 }
