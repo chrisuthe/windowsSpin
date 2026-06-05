@@ -155,4 +155,31 @@ public class AmbientMathTests
     {
         Assert.InRange(AmbientMath.IntensityFloor, 0.05, 0.30);
     }
+
+    [Theory]
+    [InlineData(0.0, 0.0, 1.0, 1.0)]    // rest = 1.0 (art never shrinks)
+    [InlineData(1.0, 0.0, 1.0, 1.06)]   // +6% energy span at intensity 1
+    [InlineData(1.0, 1.0, 1.0, 1.10)]   // +6% energy +4% pulse
+    [InlineData(1.0, 1.0, 2.0, 1.20)]   // intensity 2 doubles the reactive part
+    [InlineData(1.0, 1.0, 0.0, 1.0)]    // intensity 0 -> rest
+    public void BreathScale_RestsAtOneAndScalesByIntensity(double energy, double pulse, double intensity, double expected)
+    {
+        Assert.Equal(expected, AmbientMath.BreathScale(energy, pulse, intensity), 0.0001);
+    }
+
+    [Theory]
+    [InlineData(0.0, 1.0, 0.15)]   // quiet -> faint base aura at intensity 1
+    [InlineData(1.0, 1.0, 1.0)]    // full energy -> clamp to 1
+    [InlineData(1.0, 2.0, 1.0)]    // intensity 2 -> clamp to 1
+    [InlineData(0.0, 0.0, 0.0)]    // intensity 0 -> no glow
+    public void BreathGlow_BaseAuraScalesAndClamps(double energy, double intensity, double expected)
+    {
+        Assert.Equal(expected, AmbientMath.BreathGlow(energy, intensity), 0.0001);
+    }
+
+    [Fact]
+    public void BreathScale_NegativeIntensity_RestsAtOne()
+    {
+        Assert.Equal(1.0, AmbientMath.BreathScale(1.0, 1.0, -3.0), 0.0001);
+    }
 }
