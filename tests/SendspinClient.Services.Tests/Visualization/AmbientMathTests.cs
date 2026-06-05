@@ -74,4 +74,27 @@ public class AmbientMathTests
     {
         Assert.Equal(0.0, AmbientMath.Decay(1.0, dtSeconds: 0.016, halfLifeSeconds: 0.0));
     }
+
+    [Theory]
+    [InlineData(0.0, 0.0, 0.85)]
+    [InlineData(1.0, 0.0, 1.15)]
+    [InlineData(1.0, 1.0, 1.30)]
+    public void BlobScale_MapsEnergyAndPulse(double energy, double pulse, double expected)
+    {
+        Assert.Equal(expected, AmbientMath.BlobScale(energy, pulse), 0.0001);
+    }
+
+    [Theory]
+    [InlineData(0.0, 0.45)]
+    [InlineData(1.0, 0.85)]
+    public void BlobOpacity_MapsEnergy(double energy, double expected)
+    {
+        Assert.Equal(expected, AmbientMath.BlobOpacity(energy), 0.0001);
+    }
+
+    [Fact]
+    public void BlobScale_ClampsNegativeInputs()
+    {
+        Assert.Equal(0.85, AmbientMath.BlobScale(-1.0, -1.0), 0.0001);
+    }
 }

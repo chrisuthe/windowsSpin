@@ -64,4 +64,34 @@ public static class AmbientMath
 
         return current * Math.Pow(0.5, dtSeconds / halfLifeSeconds);
     }
+
+    /// <summary>Minimum blob scale (at zero energy).</summary>
+    public const double ScaleMin = 0.85;
+
+    /// <summary>Blob scale span contributed by energy (0..1).</summary>
+    public const double ScaleEnergySpan = 0.30;
+
+    /// <summary>Additional blob scale contributed by a full (1.0) beat pulse.</summary>
+    public const double ScalePulseSpan = 0.15;
+
+    /// <summary>Minimum blob opacity (at zero energy).</summary>
+    public const double OpacityMin = 0.45;
+
+    /// <summary>Blob opacity span contributed by energy (0..1).</summary>
+    public const double OpacityEnergySpan = 0.40;
+
+    /// <summary>Blob render scale from eased energy and the current beat pulse.</summary>
+    public static double BlobScale(double energy, double pulse)
+    {
+        var e = Math.Clamp(energy, 0.0, 1.0);
+        var p = Math.Max(pulse, 0.0);
+        return ScaleMin + (e * ScaleEnergySpan) + (p * ScalePulseSpan);
+    }
+
+    /// <summary>Blob opacity from eased energy.</summary>
+    public static double BlobOpacity(double energy)
+    {
+        var e = Math.Clamp(energy, 0.0, 1.0);
+        return OpacityMin + (e * OpacityEnergySpan);
+    }
 }
