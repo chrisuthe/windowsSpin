@@ -66,19 +66,19 @@ public static class AmbientMath
     }
 
     /// <summary>Minimum blob scale (at zero energy).</summary>
-    public const double ScaleMin = 0.85;
+    public const double ScaleMin = 0.82;
 
     /// <summary>Blob scale span contributed by energy (0..1).</summary>
-    public const double ScaleEnergySpan = 0.30;
+    public const double ScaleEnergySpan = 0.50;
 
     /// <summary>Additional blob scale contributed by a full (1.0) beat pulse.</summary>
-    public const double ScalePulseSpan = 0.15;
+    public const double ScalePulseSpan = 0.35;
 
-    /// <summary>Minimum blob opacity (at zero energy).</summary>
-    public const double OpacityMin = 0.45;
+    /// <summary>Minimum blob opacity (at zero energy). Blobs stay clearly present even when quiet.</summary>
+    public const double OpacityMin = 0.55;
 
     /// <summary>Blob opacity span contributed by energy (0..1).</summary>
-    public const double OpacityEnergySpan = 0.40;
+    public const double OpacityEnergySpan = 0.42;
 
     /// <summary>
     /// Blob render scale from eased energy and the current beat pulse. Energy and pulse are each

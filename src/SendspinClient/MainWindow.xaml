@@ -64,9 +64,15 @@
             <Border.Style>
                 <Style TargetType="Border">
                     <Setter Property="Visibility" Value="Visible"/>
+                    <Setter Property="Opacity" Value="1"/>
                     <Style.Triggers>
                         <DataTrigger Binding="{Binding IsConnected}" Value="False">
                             <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                        <!-- When the ambient backdrop is active, lighten this veil so the glow
+                             fills the window instead of being squeezed to the edges. -->
+                        <DataTrigger Binding="{Binding Ambient.IsActive}" Value="True">
+                            <Setter Property="Opacity" Value="0.5"/>
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>

@@ -72,7 +72,7 @@ public partial class AmbientBackdropViewModel : ObservableObject
 
         if (frame.IsDownbeat is { } downbeat)
         {
-            BeatTriggered?.Invoke(this, downbeat ? 1.0 : 0.6);
+            BeatTriggered?.Invoke(this, downbeat ? 1.0 : 0.85);
         }
     }
 

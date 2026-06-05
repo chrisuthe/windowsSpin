@@ -14,15 +14,17 @@ namespace SendspinClient.Views;
 public partial class AmbientBackdropView : UserControl
 {
     // Easing time constants (seconds).
-    private const double EnergyTimeConstant = 0.35;
+    private const double EnergyTimeConstant = 0.45;
     private const double ColorTimeConstant = 0.8;
-    private const double BeatHalfLife = 0.18;
+    private const double BeatHalfLife = 0.30;
+    private const double BeatAttack = 0.06;
 
     private readonly Stopwatch _clock = new();
     private long _lastTicks;
 
     private double _energy;
     private double _pulse;
+    private double _pulseTarget;
 
     // Eased colors (R,G,B as doubles for smooth interpolation).
     private double _b1r, _b1g, _b1b, _b2r, _b2g, _b2b, _b3r, _b3g, _b3b;
@@ -102,7 +104,7 @@ public partial class AmbientBackdropView : UserControl
         }
     }
 
-    private void OnBeat(object? sender, double strength) => _pulse += strength;
+    private void OnBeat(object? sender, double strength) => _pulseTarget += strength;
 
     private void OnRendering(object? sender, EventArgs e)
     {
@@ -119,9 +121,11 @@ public partial class AmbientBackdropView : UserControl
             return;
         }
 
-        // Ease energy toward the VM target; decay the beat pulse.
+        // Ease energy toward the VM target. The beat pulse eases (fast attack) toward a decaying
+        // target so beats swell in smoothly instead of popping (an instant jump reads as "blocky").
         _energy = AmbientMath.Ease(_energy, _vm.TargetEnergy, dt, EnergyTimeConstant);
-        _pulse = AmbientMath.Decay(_pulse, dt, BeatHalfLife);
+        _pulseTarget = AmbientMath.Decay(_pulseTarget, dt, BeatHalfLife);
+        _pulse = AmbientMath.Ease(_pulse, _pulseTarget, dt, BeatAttack);
 
         var scale = AmbientMath.BlobScale(_energy, _pulse);
         var opacity = AmbientMath.BlobOpacity(_energy);
@@ -134,12 +138,14 @@ public partial class AmbientBackdropView : UserControl
         // timestamp (not the restartable _clock) so the drift phase is continuous across
         // Loaded/Unloaded cycles and does not snap on re-show.
         var t = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
-        Blob1Translate.X = Math.Sin(t * 0.13) * 40.0;
-        Blob1Translate.Y = Math.Cos(t * 0.11) * 30.0;
-        Blob2Translate.X = Math.Sin(t * 0.09 + 2.0) * 50.0;
-        Blob2Translate.Y = Math.Cos(t * 0.15 + 1.0) * 35.0;
-        Blob3Translate.X = Math.Sin(t * 0.17 + 4.0) * 30.0;
-        Blob3Translate.Y = Math.Cos(t * 0.08 + 3.0) * 45.0;
+        // Blob centers sit in the interior (base offsets) so the window edges only ever see the
+        // soft, faded part of each gradient — never a hard-clipped bright core. Drift is gentle.
+        Blob1Translate.X = -110.0 + (Math.Sin(t * 0.13) * 55.0);
+        Blob1Translate.Y = -150.0 + (Math.Cos(t * 0.11) * 45.0);
+        Blob2Translate.X = 120.0 + (Math.Sin(t * 0.09 + 2.0) * 60.0);
+        Blob2Translate.Y = 150.0 + (Math.Cos(t * 0.15 + 1.0) * 50.0);
+        Blob3Translate.X = Math.Sin(t * 0.17 + 4.0) * 45.0;
+        Blob3Translate.Y = Math.Cos(t * 0.08 + 3.0) * 55.0;
 
         EaseColors(dt);
     }

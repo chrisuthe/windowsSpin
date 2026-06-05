@@ -76,18 +76,18 @@ public class AmbientMathTests
     }
 
     [Theory]
-    [InlineData(0.0, 0.0, 0.85)]
-    [InlineData(1.0, 0.0, 1.15)]
-    [InlineData(1.0, 1.0, 1.30)]
-    [InlineData(1.0, 2.0, 1.30)]
+    [InlineData(0.0, 0.0, 0.82)]
+    [InlineData(1.0, 0.0, 1.32)]
+    [InlineData(1.0, 1.0, 1.67)]
+    [InlineData(1.0, 2.0, 1.67)]
     public void BlobScale_MapsEnergyAndPulse(double energy, double pulse, double expected)
     {
         Assert.Equal(expected, AmbientMath.BlobScale(energy, pulse), 0.0001);
     }
 
     [Theory]
-    [InlineData(0.0, 0.45)]
-    [InlineData(1.0, 0.85)]
+    [InlineData(0.0, 0.55)]
+    [InlineData(1.0, 0.97)]
     public void BlobOpacity_MapsEnergy(double energy, double expected)
     {
         Assert.Equal(expected, AmbientMath.BlobOpacity(energy), 0.0001);
@@ -96,7 +96,7 @@ public class AmbientMathTests
     [Fact]
     public void BlobScale_ClampsNegativeInputs()
     {
-        Assert.Equal(0.85, AmbientMath.BlobScale(-1.0, -1.0), 0.0001);
+        Assert.Equal(0.82, AmbientMath.BlobScale(-1.0, -1.0), 0.0001);
     }
 
     [Fact]
@@ -114,7 +114,7 @@ public class AmbientMathTests
     [Fact]
     public void BlobOpacity_ClampsOutOfRange()
     {
-        Assert.Equal(0.45, AmbientMath.BlobOpacity(-1.0), 0.0001);
-        Assert.Equal(0.85, AmbientMath.BlobOpacity(2.0), 0.0001);
+        Assert.Equal(0.55, AmbientMath.BlobOpacity(-1.0), 0.0001);
+        Assert.Equal(0.97, AmbientMath.BlobOpacity(2.0), 0.0001);
     }
 }

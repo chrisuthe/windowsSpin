@@ -9,7 +9,7 @@
 
         <!-- Three soft color blobs (RadialGradientBrush = soft glow, no BlurEffect) -->
         <Ellipse x:Name="Blob1" Width="520" Height="520"
-                 HorizontalAlignment="Left" VerticalAlignment="Top"
+                 HorizontalAlignment="Center" VerticalAlignment="Center"
                  RenderTransformOrigin="0.5,0.5">
             <Ellipse.Fill>
                 <RadialGradientBrush x:Name="Brush1" GradientOrigin="0.5,0.5">
@@ -26,7 +26,7 @@
         </Ellipse>
 
         <Ellipse x:Name="Blob2" Width="460" Height="460"
-                 HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                 HorizontalAlignment="Center" VerticalAlignment="Center"
                  RenderTransformOrigin="0.5,0.5">
             <Ellipse.Fill>
                 <RadialGradientBrush x:Name="Brush2" GradientOrigin="0.5,0.5">
