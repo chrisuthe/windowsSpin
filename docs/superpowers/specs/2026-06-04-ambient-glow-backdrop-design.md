@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-04
 **Status:** Approved (design)
-**Depends on:** Sendspin.SDK **8.1.0** (currently dev branch / PR #37) — uses the new `visualizer@v1` and `color@v1` roles. Ships only when 8.1.0 is published to NuGet and pinned.
+**Depends on:** Sendspin.SDK **9.0.0** — uses the new `visualizer@v1` and `color@v1` roles. (Originally designed against the dev branch / PR #37 as "8.1.0 prep"; the breaking changes — artwork event signatures, sync-offset removal, repeat/shuffle relocation — warranted a major bump, so it shipped as **9.0.0**, now on NuGet and pinned. The app builds locally; the dev-source-CI workaround is no longer needed.)
 
 ---
 
@@ -149,4 +149,4 @@ Smooth motion between sparse feature frames comes from the easing loop, not from
 
 ## 10. Release sequencing
 
-This feature compiles only against SDK 8.1.0 APIs. Develop and verify on this branch via `ci-sdk-dev.yml`. **Do not merge to `master` until 8.1.0 is published to NuGet**, then pin `8.1.0` and merge (the artwork-event migration in this branch is part of the same 8.1.0 cutover).
+This feature compiles only against the new SDK APIs, now released as **9.0.0** and pinned in both csproj files. The app builds and the Services tests run locally, so verification no longer depends on `ci-sdk-dev.yml`. The branch is free to merge to `master` once implementation completes (the artwork-event migration in this branch is part of the same 9.0.0 cutover).

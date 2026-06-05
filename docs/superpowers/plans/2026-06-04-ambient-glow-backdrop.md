@@ -6,7 +6,7 @@
 
 **Architecture:** Pure-WPF renderer (RadialGradientBrush ellipses + a `CompositionTarget.Rendering` easing loop) behind a clean seam. SDK-version-independent math lives in `SendspinClient.Services` (unit-tested locally); the SDK-coupled ViewModel/View are verified by the dev-source CI build. When no palette is present the existing blurred-art layer shows through (XAML visibility only).
 
-**Tech Stack:** .NET 10, WPF, CommunityToolkit.Mvvm, Sendspin.SDK 8.1.0 (dev branch until released), xUnit (new test project).
+**Tech Stack:** .NET 10, WPF, CommunityToolkit.Mvvm, Sendspin.SDK 9.0.0, xUnit (new test project).
 
 **Spec:** `docs/superpowers/specs/2026-06-04-ambient-glow-backdrop-design.md`
 
@@ -14,8 +14,7 @@
 
 ## Important constraints
 
-- **Do NOT merge to `master` until Sendspin.SDK 8.1.0 is published to NuGet.** This branch already contains the 8.1.0 artwork-event migration; pin `8.1.0` at release time.
-- **Local builds of `SendspinClient` (the app) will not compile** because they restore stable NuGet `8.0.0`, which lacks the 8.1.0 APIs. Verify the app/VM/View by dispatching the `ci-sdk-dev.yml` workflow (builds against the SDK dev branch). Only the `SendspinClient.Services` project and its tests build/run locally.
+- **UPDATE (2026-06-04): the SDK shipped as `9.0.0`** (the breaking changes warranted a major bump, not `8.1.0`). Both csproj files are pinned to `9.0.0`, the whole solution **builds locally**, and the Services tests run locally. The original "can't build locally / verify via `ci-sdk-dev.yml`" constraints below are **superseded** — verify each task with a local `dotnet build SendspinClient.sln` (and `dotnet test` for the Services tests). The branch is free to merge to `master` once complete.
 - All ViewModel state mutation happens on the UI thread (SDK events are marshaled via `Dispatcher`), so the math and View need no locks.
 
 ---
@@ -1230,12 +1229,10 @@ In `src/SendspinClient/appsettings.json`, add a top-level `Visualizer` section (
 Run: `dotnet test tests/SendspinClient.Services.Tests/SendspinClient.Services.Tests.csproj`
 Expected: PASS (all `AmbientMath` tests).
 
-- [ ] **Step 3: Verify the app compiles against the SDK dev source**
+- [ ] **Step 3: Verify the whole solution builds locally against SDK 9.0.0**
 
-Push the branch, then dispatch the dev-source build:
-Run: `gh workflow run ci-sdk-dev.yml --ref feat/ambient-glow-backdrop -f sdk_ref=dev`
-Then watch: `gh run list --workflow ci-sdk-dev.yml --branch feat/ambient-glow-backdrop --limit 1`
-Expected: the run completes successfully (compiles WindowsSpin against the SDK dev branch and produces signed prerelease artifacts).
+Run: `dotnet build SendspinClient.sln -c Debug`
+Expected: `Build succeeded`, 0 errors. (SDK 9.0.0 is on NuGet and pinned, so the app compiles locally — no dev-source CI needed.)
 
 - [ ] **Step 4: Manual visual check**
 
