@@ -26,6 +26,12 @@ public partial class StatsViewModel : ViewModelBase
     private readonly IClockSynchronizer _clockSynchronizer;
     private readonly ClientCapabilities _clientCapabilities;
     private readonly DispatcherTimer _updateTimer;
+
+    // Previous sync drop/insert counts, so Correction Mode can show the tier actually acting this
+    // tick (counters advancing = drop/insert; otherwise playback rate off 1.0 = resampling).
+    // Null while the pipeline is idle so the first tick after (re)start never sees a false delta.
+    private long? _lastSyncDroppedForSync;
+    private long? _lastSyncInsertedForSync;
     private const int UpdateIntervalMs = 100; // 10 updates per second
 
     #region Sync Status Properties
@@ -381,6 +387,8 @@ public partial class StatsViewModel : ViewModelBase
             IsPlaybackActive = "No";
             BufferedMsDisplay = "-- ms";
             TargetMsDisplay = "-- ms";
+            _lastSyncDroppedForSync = null;
+            _lastSyncInsertedForSync = null;
             return;
         }
 
@@ -402,32 +410,41 @@ public partial class StatsViewModel : ViewModelBase
             SyncErrorColor = new SolidColorBrush(Color.FromRgb(0xf8, 0x71, 0x71)); // Red
         }
 
-        // Correction Mode - infer from smoothed error magnitude
-        // Using DropInsertOnly strategy - no resampling, just drop/insert based on error
-        // TODO: Make deadband configurable via appsettings
-        const long DeadbandMicroseconds = 2_000; // 2ms deadband
-        var absSmoothedError = Math.Abs(stats.SmoothedSyncErrorMicroseconds);
-        string correctionModeText;
-        Brush correctionColor;
+        // Correction Mode - show the tier actually acting this tick. The shipped strategy is
+        // "Combined": small errors are trimmed by smooth resampling (playback-rate adjust), and
+        // only larger errors fall back to dropping/inserting frames. Detect drop/insert by the
+        // counters advancing since the last tick, and resampling by the playback rate being off 1.0.
+        var droppedDelta = _lastSyncDroppedForSync is { } lastDropped
+            ? Math.Max(0, stats.SamplesDroppedForSync - lastDropped)
+            : 0;
+        var insertedDelta = _lastSyncInsertedForSync is { } lastInserted
+            ? Math.Max(0, stats.SamplesInsertedForSync - lastInserted)
+            : 0;
+        _lastSyncDroppedForSync = stats.SamplesDroppedForSync;
+        _lastSyncInsertedForSync = stats.SamplesInsertedForSync;
 
-        if (absSmoothedError < DeadbandMicroseconds)
+        var resamplingActive = Math.Abs(stats.TargetPlaybackRate - 1.0) > 0.001;
+
+        if (droppedDelta > 0)
         {
-            correctionModeText = "None";
-            correctionColor = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)); // Green
+            CorrectionModeDisplay = "Dropping";
+            CorrectionModeColor = new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
         }
-        else if (stats.SmoothedSyncErrorMicroseconds > 0)
+        else if (insertedDelta > 0)
         {
-            correctionModeText = "Dropping";
-            correctionColor = new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
+            CorrectionModeDisplay = "Inserting";
+            CorrectionModeColor = new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
+        }
+        else if (resamplingActive)
+        {
+            CorrectionModeDisplay = "Resampling";
+            CorrectionModeColor = new SolidColorBrush(Color.FromRgb(0x60, 0xa5, 0xfa)); // Blue
         }
         else
         {
-            correctionModeText = "Inserting";
-            correctionColor = new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
+            CorrectionModeDisplay = "None";
+            CorrectionModeColor = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)); // Green
         }
-
-        CorrectionModeDisplay = correctionModeText;
-        CorrectionModeColor = correctionColor;
 
         // Playback Rate (for resampling-based sync correction)
         var rate = stats.TargetPlaybackRate;
