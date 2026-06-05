@@ -24,15 +24,26 @@ public partial class AmbientBackdropView : UserControl
     private double _energy;
     private double _pulse;
 
-    // Eased blob colors (R,G,B as doubles for smooth interpolation).
+    // Eased colors (R,G,B as doubles for smooth interpolation).
     private double _b1r, _b1g, _b1b, _b2r, _b2g, _b2b, _b3r, _b3g, _b3b;
+    private double _baseR, _baseG, _baseB;
+
+    // Stays true across Loaded/Unloaded cycles; eased values carry over intentionally so the
+    // effect resumes smoothly rather than snapping from black on re-show.
     private bool _colorsInitialized;
+
+    // The base-fill brush is created once and mutated in place to avoid per-frame allocations.
+    private readonly SolidColorBrush _baseBrush = new(Colors.Transparent);
+
+    private bool _renderingHooked;
+    private bool _beatSubscribed;
 
     private AmbientBackdropViewModel? _vm;
 
     public AmbientBackdropView()
     {
         InitializeComponent();
+        BaseFill.Fill = _baseBrush;
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
         DataContextChanged += OnDataContextChanged;
@@ -40,15 +51,11 @@ public partial class AmbientBackdropView : UserControl
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (_vm is not null)
-        {
-            _vm.BeatTriggered -= OnBeat;
-        }
-
+        UnsubscribeBeat();
         _vm = e.NewValue as AmbientBackdropViewModel;
-        if (_vm is not null)
+        if (IsLoaded)
         {
-            _vm.BeatTriggered += OnBeat;
+            SubscribeBeat();
         }
     }
 
@@ -56,13 +63,43 @@ public partial class AmbientBackdropView : UserControl
     {
         _clock.Restart();
         _lastTicks = _clock.ElapsedTicks;
-        CompositionTarget.Rendering += OnRendering;
+        if (!_renderingHooked)
+        {
+            CompositionTarget.Rendering += OnRendering;
+            _renderingHooked = true;
+        }
+
+        SubscribeBeat();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
-        CompositionTarget.Rendering -= OnRendering;
+        if (_renderingHooked)
+        {
+            CompositionTarget.Rendering -= OnRendering;
+            _renderingHooked = false;
+        }
+
         _clock.Stop();
+        UnsubscribeBeat();
+    }
+
+    private void SubscribeBeat()
+    {
+        if (!_beatSubscribed && _vm is not null)
+        {
+            _vm.BeatTriggered += OnBeat;
+            _beatSubscribed = true;
+        }
+    }
+
+    private void UnsubscribeBeat()
+    {
+        if (_beatSubscribed && _vm is not null)
+        {
+            _vm.BeatTriggered -= OnBeat;
+            _beatSubscribed = false;
+        }
     }
 
     private void OnBeat(object? sender, double strength) => _pulse += strength;
@@ -117,12 +154,14 @@ public partial class AmbientBackdropView : UserControl
         var c1 = _vm!.BlobColor1;
         var c2 = _vm.BlobColor2;
         var c3 = _vm.BlobColor3;
+        var cb = _vm.BaseColor;
 
         if (!_colorsInitialized)
         {
             (_b1r, _b1g, _b1b) = (c1.R, c1.G, c1.B);
             (_b2r, _b2g, _b2b) = (c2.R, c2.G, c2.B);
             (_b3r, _b3g, _b3b) = (c3.R, c3.G, c3.B);
+            (_baseR, _baseG, _baseB) = (cb.R, cb.G, cb.B);
             _colorsInitialized = true;
         }
 
@@ -135,11 +174,19 @@ public partial class AmbientBackdropView : UserControl
         _b3r = AmbientMath.Ease(_b3r, c3.R, dt, ColorTimeConstant);
         _b3g = AmbientMath.Ease(_b3g, c3.G, dt, ColorTimeConstant);
         _b3b = AmbientMath.Ease(_b3b, c3.B, dt, ColorTimeConstant);
+        _baseR = AmbientMath.Ease(_baseR, cb.R, dt, ColorTimeConstant);
+        _baseG = AmbientMath.Ease(_baseG, cb.G, dt, ColorTimeConstant);
+        _baseB = AmbientMath.Ease(_baseB, cb.B, dt, ColorTimeConstant);
 
         Brush1Stop0.Color = FromDoubles(_b1r, _b1g, _b1b);
         Brush2Stop0.Color = FromDoubles(_b2r, _b2g, _b2b);
         Brush3Stop0.Color = FromDoubles(_b3r, _b3g, _b3b);
-        BaseFill.Fill = new SolidColorBrush(_vm.BaseColor);
+
+        var baseColor = FromDoubles(_baseR, _baseG, _baseB);
+        if (_baseBrush.Color != baseColor)
+        {
+            _baseBrush.Color = baseColor;
+        }
     }
 
     private static Color FromDoubles(double r, double g, double b)
