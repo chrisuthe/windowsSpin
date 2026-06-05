@@ -627,27 +627,25 @@
                                           VerticalAlignment="Center"/>
                             </Grid>
 
-                            <!-- Ambient Glow reactive backdrop -->
-                            <Grid Margin="0,0,0,16">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="Reactive backdrop (Ambient Glow)" Style="{StaticResource BodyText}"/>
-                                    <TextBlock Text="Animate the background with colors and energy from the music"
-                                               Style="{StaticResource CaptionText}"
-                                               Foreground="{StaticResource TextMutedBrush}"
-                                               Margin="0,2,0,0"/>
-                                </StackPanel>
-                                <CheckBox Grid.Column="1"
-                                          IsChecked="{Binding SettingsEnableAmbientBackdrop}"
-                                          VerticalAlignment="Center"/>
-                            </Grid>
+                            <!-- Backdrop style -->
+                            <StackPanel Margin="0,0,0,16">
+                                <TextBlock Text="Backdrop style" Style="{StaticResource BodyText}"/>
+                                <TextBlock Text="Animate the window with the music, or breathe the album art — or turn it off"
+                                           Style="{StaticResource CaptionText}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Margin="0,2,0,0"
+                                           TextWrapping="Wrap"/>
+                                <ComboBox Margin="0,8,0,0"
+                                          HorizontalAlignment="Stretch"
+                                          ItemsSource="{Binding AvailableBackdropStyles}"
+                                          SelectedItem="{Binding SettingsBackdropStyle}"
+                                          Style="{StaticResource DarkComboBox}"
+                                          ItemContainerStyle="{StaticResource DarkComboBoxItem}"/>
+                            </StackPanel>
 
                             <!-- Ambient Glow intensity (hidden when the backdrop is disabled) -->
                             <StackPanel Margin="0,0,0,16"
-                                        Visibility="{Binding SettingsEnableAmbientBackdrop, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        Visibility="{Binding IsBackdropEnabled, Converter={StaticResource BoolToVisibilityConverter}}">
                                 <TextBlock Text="Backdrop intensity" Style="{StaticResource BodyText}"/>
                                 <TextBlock Text="Scale how strongly the backdrop reacts, glows, and moves"
                                            Style="{StaticResource CaptionText}"
