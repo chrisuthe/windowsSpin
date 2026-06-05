@@ -81,6 +81,18 @@ public partial class MainViewModel : ViewModelBase
     private readonly IMediaTransportControlsService _mediaControlsService;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ClientCapabilities _clientCapabilities;
+    private readonly AmbientBackdropViewModel _ambient;
+
+    // Ambient Glow diagnostics: rate-limited Debug logging of the visualizer data path.
+    private int _vizFrames;
+    private int _vizLoudFrames;
+    private int _vizBeats;
+    private int _vizLoudMin = int.MaxValue;
+    private int _vizLoudMax = int.MinValue;
+
+    /// <summary>Ambient Glow backdrop state, bound by the backdrop view in MainWindow.</summary>
+    public AmbientBackdropViewModel Ambient => _ambient;
+
     private readonly IUserSettingsService _settingsService;
     private SendspinClientService? _manualClient;
     private ISendspinConnection? _manualConnection;
@@ -265,6 +277,12 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     [ObservableProperty]
     private bool _settingsShowDiscordPresence;
+
+    /// <summary>
+    /// Gets or sets whether the Ambient Glow reactive backdrop is enabled.
+    /// </summary>
+    [ObservableProperty]
+    private bool _settingsEnableAmbientBackdrop = true;
 
     /// <summary>
     /// Gets or sets whether System Media Transport Controls (Windows media keys, lockscreen,
@@ -453,6 +471,7 @@ public partial class MainViewModel : ViewModelBase
         IMediaTransportControlsService mediaControlsService,
         IHttpClientFactory httpClientFactory,
         ClientCapabilities clientCapabilities,
+        AmbientBackdropViewModel ambient,
         IUserSettingsService settingsService)
     {
         _logger = logger;
@@ -467,6 +486,7 @@ public partial class MainViewModel : ViewModelBase
         _mediaControlsService = mediaControlsService;
         _httpClientFactory = httpClientFactory;
         _clientCapabilities = clientCapabilities;
+        _ambient = ambient;
         _settingsService = settingsService;
 
         _mediaControlsService.PlayPauseRequested += (_, _) =>
@@ -492,6 +512,8 @@ public partial class MainViewModel : ViewModelBase
         _hostService.PlayerStateChanged += OnPlayerStateChanged;
         _hostService.ArtworkReceived += OnArtworkReceived;
         _hostService.ArtworkCleared += OnArtworkCleared;
+        _hostService.ColorChanged += OnColorChanged;
+        _hostService.VisualizationReceived += OnVisualizationReceived;
         _hostService.LastPlayedServerIdChanged += OnLastPlayedServerIdChanged;
 
         // Subscribe to server discovery events (client-initiated mode - primary)
@@ -762,6 +784,8 @@ public partial class MainViewModel : ViewModelBase
         _manualClient.PlayerStateChanged += OnManualClientPlayerStateChanged;
         _manualClient.ArtworkReceived += OnManualClientArtworkReceived;
         _manualClient.ArtworkCleared += OnArtworkCleared;
+        _manualClient.ColorChanged += OnColorChanged;
+        _manualClient.VisualizationReceived += OnVisualizationReceived;
     }
 
     /// <summary>
@@ -874,6 +898,7 @@ public partial class MainViewModel : ViewModelBase
         PlaybackState = PlaybackState.Idle;
         AlbumArtwork = null;
         _lastArtworkUrl = null;
+        _ambient.Reset();
         StatusMessage = $"Disconnected. Waiting for connections...\nClient ID: {ClientId}";
         OnPropertyChanged(nameof(IsConnected));
     }
@@ -894,6 +919,9 @@ public partial class MainViewModel : ViewModelBase
             _manualClient.PlayerStateChanged -= OnManualClientPlayerStateChanged;
             _manualClient.ArtworkReceived -= OnManualClientArtworkReceived;
             _manualClient.ArtworkCleared -= OnArtworkCleared;
+            _manualClient.ColorChanged -= OnColorChanged;
+            _manualClient.VisualizationReceived -= OnVisualizationReceived;
+            _ambient.Reset();
 
             try
             {
@@ -1088,12 +1116,12 @@ public partial class MainViewModel : ViewModelBase
         return true;
     }
 
-    private void OnManualClientArtworkReceived(object? sender, byte[] imageData)
+    private void OnManualClientArtworkReceived(object? sender, ArtworkReceivedEventArgs e)
     {
         App.Current.Dispatcher.Invoke(() =>
         {
-            AlbumArtwork = imageData;
-            _logger.LogDebug("Manual client artwork received: {Length} bytes", imageData.Length);
+            AlbumArtwork = e.ImageData;
+            _logger.LogDebug("Manual client artwork received: channel {Channel}, {Length} bytes", e.Channel, e.ImageData.Length);
         });
     }
 
@@ -1143,6 +1171,7 @@ public partial class MainViewModel : ViewModelBase
                 CurrentTrack = null;
                 PlaybackState = PlaybackState.Idle;
                 StatusMessage = $"Waiting for connections...\nClient ID: {ClientId}";
+                _ambient.Reset();
 
                 // Show toast notification for disconnection
                 if (!string.IsNullOrEmpty(disconnectedServerName))
@@ -1230,22 +1259,83 @@ public partial class MainViewModel : ViewModelBase
         });
     }
 
-    private void OnArtworkReceived(object? sender, byte[] imageData)
+    private void OnArtworkReceived(object? sender, ArtworkReceivedEventArgs e)
     {
         App.Current.Dispatcher.Invoke(() =>
         {
-            AlbumArtwork = imageData;
-            _logger.LogDebug("Artwork received: {Length} bytes", imageData.Length);
+            AlbumArtwork = e.ImageData;
+            _logger.LogDebug("Artwork received: channel {Channel}, {Length} bytes", e.Channel, e.ImageData.Length);
         });
     }
 
-    private void OnArtworkCleared(object? sender, EventArgs e)
+    private void OnArtworkCleared(object? sender, ArtworkClearedEventArgs e)
     {
         App.Current.Dispatcher.Invoke(() =>
         {
             AlbumArtwork = null;
-            _logger.LogDebug("Artwork cleared (no artwork available)");
+            _logger.LogDebug("Artwork cleared on channel {Channel} (no artwork available)", e.Channel);
         });
+    }
+
+    private void OnColorChanged(object? sender, ColorPalette palette)
+    {
+        App.Current.Dispatcher.Invoke(() =>
+        {
+            _ambient.ApplyColorPalette(palette);
+            _logger.LogDebug(
+                "Ambient color: base={Base} primary={Primary} accent={Accent} onDark={OnDark}, active={Active}",
+                palette.BackgroundDark, palette.Primary, palette.Accent, palette.OnDark, _ambient.IsActive);
+        });
+    }
+
+    private void OnVisualizationReceived(object? sender, VisualizerFrame frame)
+    {
+        App.Current.Dispatcher.Invoke(() =>
+        {
+            _ambient.ApplyVisualizerFrame(frame);
+            LogVisualizationDiagnostics(frame);
+        });
+    }
+
+    /// <summary>
+    /// Rate-limited Debug logging of the visualizer feed (loudness range/rate + beat count) so the
+    /// ambient backdrop can be calibrated against real data. No-op unless Debug logging is enabled.
+    /// </summary>
+    private void LogVisualizationDiagnostics(VisualizerFrame frame)
+    {
+        if (!_logger.IsEnabled(LogLevel.Debug))
+        {
+            return;
+        }
+
+        _vizFrames++;
+        if (frame.Loudness is { } loud)
+        {
+            _vizLoudFrames++;
+            _vizLoudMin = Math.Min(_vizLoudMin, loud);
+            _vizLoudMax = Math.Max(_vizLoudMax, loud);
+        }
+
+        if (frame.IsDownbeat is not null)
+        {
+            _vizBeats++;
+        }
+
+        if (_vizFrames >= 90)
+        {
+            _logger.LogDebug(
+                "Ambient viz/~3s: {Frames} frames, {LoudFrames} loudness [{Min}..{Max} of 65535], {Beats} beats; energy={Energy:F2}, active={Active}",
+                _vizFrames, _vizLoudFrames,
+                _vizLoudMin == int.MaxValue ? 0 : _vizLoudMin,
+                _vizLoudMax == int.MinValue ? 0 : _vizLoudMax,
+                _vizBeats, _ambient.TargetEnergy, _ambient.IsActive);
+
+            _vizFrames = 0;
+            _vizLoudFrames = 0;
+            _vizBeats = 0;
+            _vizLoudMin = int.MaxValue;
+            _vizLoudMax = int.MinValue;
+        }
     }
 
     /// <summary>
@@ -1833,6 +1923,11 @@ public partial class MainViewModel : ViewModelBase
         _mediaControlsService.IsEnabled = value;
     }
 
+    partial void OnSettingsEnableAmbientBackdropChanged(bool value)
+    {
+        _ambient.SetEnabled(value);
+    }
+
     partial void OnSettingsConnectionModeChanged(string value)
     {
         // Convert display name to config value
@@ -2079,6 +2174,10 @@ public partial class MainViewModel : ViewModelBase
             _discordService.Enable();
         }
 
+        // Load Ambient Glow backdrop setting and apply immediately
+        SettingsEnableAmbientBackdrop = _configuration.GetValue<bool>("Visualizer:Enabled", true);
+        _ambient.SetEnabled(SettingsEnableAmbientBackdrop);
+
         // Load SMTC (Windows media key) integration setting and apply immediately
         SettingsEnableMediaKeys = _configuration.GetValue<bool>("MediaControls:Enabled", true);
         _mediaControlsService.IsEnabled = SettingsEnableMediaKeys;
@@ -2324,6 +2423,11 @@ public partial class MainViewModel : ViewModelBase
             var discordSection = root["Discord"]?.AsObject() ?? new JsonObject();
             discordSection["Enabled"] = SettingsShowDiscordPresence;
             root["Discord"] = discordSection;
+
+            // Update Visualizer section
+            var visualizerSection = root["Visualizer"]?.AsObject() ?? new JsonObject();
+            visualizerSection["Enabled"] = SettingsEnableAmbientBackdrop;
+            root["Visualizer"] = visualizerSection;
 
             // Update MediaControls section
             var mediaControlsSection = root["MediaControls"]?.AsObject() ?? new JsonObject();
