@@ -645,6 +645,36 @@
                                           VerticalAlignment="Center"/>
                             </Grid>
 
+                            <!-- Ambient Glow intensity -->
+                            <Grid Margin="0,0,0,16"
+                                  IsEnabled="{Binding SettingsEnableAmbientBackdrop}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <TextBlock Text="Backdrop intensity" Style="{StaticResource BodyText}"/>
+                                    <TextBlock Text="Scale how strongly the backdrop reacts, glows, and moves"
+                                               Style="{StaticResource CaptionText}"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               Margin="0,2,0,0"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Slider Width="160"
+                                            Minimum="0" Maximum="2"
+                                            TickFrequency="0.25" IsSnapToTickEnabled="False"
+                                            Value="{Binding SettingsAmbientBackdropIntensity, Mode=TwoWay}"
+                                            VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding SettingsAmbientBackdropIntensity, StringFormat={}{0:P0}}"
+                                               Style="{StaticResource CaptionText}"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               Width="44" TextAlignment="Right"
+                                               Margin="8,0,0,0"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
+
                             <!-- Hardware Media Keys / SMTC -->
                             <Grid Margin="0,0,0,16">
                                 <Grid.ColumnDefinitions>
