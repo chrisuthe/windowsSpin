@@ -109,8 +109,9 @@ A small class (not a UserControl) that animates a target element. Constructed wi
 easing in `AmbientBackdropView`:
 
 - Subscribes to `vm.PropertyChanged`; when `Mode` becomes `BreathingArt`, hooks
-  `CompositionTarget.Rendering`; when it leaves, eases the art back to rest over a few frames
-  then unhooks (so no idle render cost in Off/Glow modes). Also subscribes to
+  `CompositionTarget.Rendering`; when it leaves, snaps the art to rest (scale 1.0, no glow) and
+  unhooks (so no idle render cost in Off/Glow modes). A mode change is a deliberate user action,
+  so an instant reset reads fine and avoids a teardown render loop. Also subscribes to
   `vm.BeatTriggered` for pulse impulses while hooked.
 - Per frame: ease energy toward `vm.TargetEnergy`; decay+ease the beat pulse (same constants
   as `AmbientBackdropView`: energy τ≈0.45, beat half-life 0.30, attack 0.06). Read

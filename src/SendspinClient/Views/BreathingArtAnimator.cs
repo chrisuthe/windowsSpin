@@ -46,6 +46,10 @@ public sealed class BreathingArtAnimator
         _scale = scale;
         _glow = glow;
         _vm = vm;
+
+        // Animator and VM are both app-lifetime singletons, so this subscription lives for the
+        // life of the process; no unsubscribe/IDisposable is needed (unlike AmbientBackdropView,
+        // whose VM can be swapped via DataContextChanged).
         _vm.PropertyChanged += OnVmPropertyChanged;
         ApplyModeState();
     }
