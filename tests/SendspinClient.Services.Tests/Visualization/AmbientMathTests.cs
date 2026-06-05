@@ -182,4 +182,16 @@ public class AmbientMathTests
     {
         Assert.Equal(1.0, AmbientMath.BreathScale(1.0, 1.0, -3.0), 0.0001);
     }
+
+    [Fact]
+    public void BreathScale_NegativeEnergyAndPulse_RestsAtOne()
+    {
+        Assert.Equal(1.0, AmbientMath.BreathScale(-1.0, -1.0), 0.0001);
+    }
+
+    [Fact]
+    public void BreathGlow_NegativeIntensity_ReturnsZero()
+    {
+        Assert.Equal(0.0, AmbientMath.BreathGlow(1.0, -3.0), 0.0001);
+    }
 }
