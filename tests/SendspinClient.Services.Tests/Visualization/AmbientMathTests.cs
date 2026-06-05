@@ -14,7 +14,7 @@ public class AmbientMathTests
     [Theory]
     [InlineData(0, 0.0)]
     [InlineData(65535, 1.0)]
-    [InlineData(32767, 0.49999, 0.001)]
+    [InlineData(32767, 0.4999924, 1e-6)]
     public void NormalizeLoudness_MapsRawToUnitRange(int raw, double expected, double tolerance = 1e-9)
     {
         Assert.Equal(expected, AmbientMath.NormalizeLoudness(raw), tolerance);
@@ -38,9 +38,9 @@ public class AmbientMathTests
     [Fact]
     public void Ease_MovesTowardTarget()
     {
+        // alpha = 1 - e^(-0.1/0.5) = 1 - e^(-0.2) = 0.1812692...
         var next = AmbientMath.Ease(0.0, 1.0, dtSeconds: 0.1, timeConstantSeconds: 0.5);
-        Assert.InRange(next, 0.0, 1.0);
-        Assert.True(next > 0.0, "should move toward target");
+        Assert.Equal(0.1812692, next, 1e-6);
     }
 
     [Fact]
@@ -79,6 +79,7 @@ public class AmbientMathTests
     [InlineData(0.0, 0.0, 0.85)]
     [InlineData(1.0, 0.0, 1.15)]
     [InlineData(1.0, 1.0, 1.30)]
+    [InlineData(1.0, 2.0, 1.30)]
     public void BlobScale_MapsEnergyAndPulse(double energy, double pulse, double expected)
     {
         Assert.Equal(expected, AmbientMath.BlobScale(energy, pulse), 0.0001);
@@ -96,5 +97,24 @@ public class AmbientMathTests
     public void BlobScale_ClampsNegativeInputs()
     {
         Assert.Equal(0.85, AmbientMath.BlobScale(-1.0, -1.0), 0.0001);
+    }
+
+    [Fact]
+    public void Ease_NegativeDt_ReturnsCurrent()
+    {
+        Assert.Equal(0.3, AmbientMath.Ease(0.3, 1.0, dtSeconds: -0.1, timeConstantSeconds: 0.5));
+    }
+
+    [Fact]
+    public void Decay_NegativeDt_ReturnsCurrent()
+    {
+        Assert.Equal(0.8, AmbientMath.Decay(0.8, dtSeconds: -0.1, halfLifeSeconds: 0.3));
+    }
+
+    [Fact]
+    public void BlobOpacity_ClampsOutOfRange()
+    {
+        Assert.Equal(0.45, AmbientMath.BlobOpacity(-1.0), 0.0001);
+        Assert.Equal(0.85, AmbientMath.BlobOpacity(2.0), 0.0001);
     }
 }

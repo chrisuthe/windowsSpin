@@ -80,11 +80,14 @@ public static class AmbientMath
     /// <summary>Blob opacity span contributed by energy (0..1).</summary>
     public const double OpacityEnergySpan = 0.40;
 
-    /// <summary>Blob render scale from eased energy and the current beat pulse.</summary>
+    /// <summary>
+    /// Blob render scale from eased energy and the current beat pulse. Energy and pulse are each
+    /// clamped to [0,1], so the result is bounded to [ScaleMin, ScaleMin+ScaleEnergySpan+ScalePulseSpan].
+    /// </summary>
     public static double BlobScale(double energy, double pulse)
     {
         var e = Math.Clamp(energy, 0.0, 1.0);
-        var p = Math.Max(pulse, 0.0);
+        var p = Math.Clamp(pulse, 0.0, 1.0);
         return ScaleMin + (e * ScaleEnergySpan) + (p * ScalePulseSpan);
     }
 
