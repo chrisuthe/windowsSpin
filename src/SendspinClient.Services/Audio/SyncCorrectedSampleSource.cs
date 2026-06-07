@@ -208,11 +208,13 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
 
         var syncError = _buffer.SmoothedSyncErrorMicroseconds / 1000.0; // Convert to ms
         var mode = _correctionProvider.CurrentMode;
+        var rate = _correctionProvider.TargetPlaybackRate;
 
         _logger.LogDebug(
-            "SyncCorrection: error={SyncError:+0.00;-0.00}ms mode={Mode} dropEveryN={DropN} insertEveryN={InsertN} totalDropped={Dropped} totalInserted={Inserted}",
+            "SyncCorrection: error={SyncError:+0.00;-0.00}ms mode={Mode} rate={Rate:F5}x dropEveryN={DropN} insertEveryN={InsertN} totalDropped={Dropped} totalInserted={Inserted}",
             syncError,
             mode,
+            rate,
             dropEveryN,
             insertEveryN,
             _totalDropped,
