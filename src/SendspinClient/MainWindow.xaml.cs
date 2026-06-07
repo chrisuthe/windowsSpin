@@ -104,14 +104,15 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Validates that only numeric input (including negative sign) is entered in TextBox.
+    /// Validates that only non-negative numeric input is entered in the TextBox.
+    /// Used by the Static Delay field, which the server requires to be 0 or greater.
     /// </summary>
     private void NumericTextBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
     {
-        // Allow digits and minus sign (for negative numbers)
+        // Digits only — no minus sign: static delay must be non-negative (server rejects negatives).
         foreach (char c in e.Text)
         {
-            if (!char.IsDigit(c) && c != '-')
+            if (!char.IsDigit(c))
             {
                 e.Handled = true;
                 return;
@@ -127,7 +128,7 @@ public partial class MainWindow : Window
         if (e.DataObject.GetDataPresent(typeof(string)))
         {
             string text = (string)e.DataObject.GetData(typeof(string));
-            if (!int.TryParse(text, out _))
+            if (!int.TryParse(text, out var pasted) || pasted < 0)
             {
                 e.CancelCommand();
             }

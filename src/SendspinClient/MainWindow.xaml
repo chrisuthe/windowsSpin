@@ -946,7 +946,7 @@
                                     </Button>
                                     <!-- Slider -->
                                     <Slider Grid.Column="1"
-                                            Minimum="-5000" Maximum="5000"
+                                            Minimum="0" Maximum="5000"
                                             Value="{Binding SettingsStaticDelayMs}"
                                             TickFrequency="500"
                                             IsSnapToTickEnabled="False"

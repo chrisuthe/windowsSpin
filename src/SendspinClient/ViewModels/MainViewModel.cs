@@ -1717,6 +1717,10 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     partial void OnSettingsStaticDelayMsChanged(double value)
     {
+        // Static delay must be non-negative — the server rejects a negative static_delay_ms
+        // (valid range 0-5000) and drops the connection. Clamp before applying/persisting.
+        value = Math.Max(0, value);
+
         // Apply delay value immediately (this is cheap)
         _clockSynchronizer.StaticDelayMs = value;
 
@@ -2198,7 +2202,7 @@ public partial class MainViewModel : ViewModelBase
         SettingsEnableConsoleLogging = settings.EnableConsoleLogging;
 
         // Load audio settings
-        SettingsStaticDelayMs = _configuration.GetValue<double>("Audio:StaticDelayMs", 0);
+        SettingsStaticDelayMs = Math.Max(0, _configuration.GetValue<double>("Audio:StaticDelayMs", 0));
 
         // Load persisted player volume/mute (these get applied via OnVolumeChanged/OnIsMutedChanged)
         Volume = _configuration.GetValue<int>("Audio:PlayerVolume", 100);
@@ -2327,7 +2331,7 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private void DecrementStaticDelay()
     {
-        SettingsStaticDelayMs = Math.Max(-5000, SettingsStaticDelayMs - 10);
+        SettingsStaticDelayMs = Math.Max(0, SettingsStaticDelayMs - 10);
     }
 
     /// <summary>
