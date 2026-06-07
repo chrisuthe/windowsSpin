@@ -279,14 +279,20 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         {
             _buffer = bufferedSource.Buffer;
 
-            // Create correction options for drop/insert only (no resampling tier)
-            // Set resampling threshold equal to deadband so it jumps straight to drop/insert
-            var dropInsertOptions = _buffer.SyncOptions.Clone();
-            dropInsertOptions.ResamplingThresholdMicroseconds = dropInsertOptions.DeadbandMicroseconds;
+            // Clone the buffer's sync options for the external correction calculator.
+            // In Combined mode, keep the configured resampling threshold (default 15ms) so small
+            // errors are corrected by smooth playback-rate resampling and only larger errors fall
+            // back to drop/insert. In DropInsertOnly mode, collapse the resampling band to the
+            // deadband so corrections skip straight to drop/insert (no resampler in the chain).
+            var correctionOptions = _buffer.SyncOptions.Clone();
+            if (_syncStrategy == SyncCorrectionStrategy.DropInsertOnly)
+            {
+                correctionOptions.ResamplingThresholdMicroseconds = correctionOptions.DeadbandMicroseconds;
+            }
 
             // Create correction provider for external sync correction
             var calculator = new SyncCorrectionCalculator(
-                dropInsertOptions,
+                correctionOptions,
                 _buffer.Format.SampleRate,
                 _buffer.Format.Channels);
             _correctionProvider = calculator;

@@ -423,7 +423,9 @@ public partial class StatsViewModel : ViewModelBase
         _lastSyncDroppedForSync = stats.SamplesDroppedForSync;
         _lastSyncInsertedForSync = stats.SamplesInsertedForSync;
 
-        var resamplingActive = Math.Abs(stats.TargetPlaybackRate - 1.0) > 0.001;
+        // Cancelling typical clock drift only needs ~50 ppm of rate trim, so use a fine epsilon.
+        // The old 0.001 (1000 ppm) was far too coarse to ever register real resampling.
+        var resamplingActive = Math.Abs(stats.TargetPlaybackRate - 1.0) > 0.00002;
 
         if (droppedDelta > 0)
         {
@@ -446,10 +448,11 @@ public partial class StatsViewModel : ViewModelBase
             CorrectionModeColor = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)); // Green
         }
 
-        // Playback Rate (for resampling-based sync correction)
+        // Playback Rate (for resampling-based sync correction). F5 so sub-0.1% trims are visible
+        // (e.g. 1.00005x); F3 rounded every correction down to a flat "1.000x".
         var rate = stats.TargetPlaybackRate;
-        PlaybackRateDisplay = $"{rate:F3}x";
-        PlaybackRateColor = Math.Abs(rate - 1.0) > 0.001
+        PlaybackRateDisplay = $"{rate:F5}x";
+        PlaybackRateColor = Math.Abs(rate - 1.0) > 0.00002
             ? new SolidColorBrush(Color.FromRgb(0x60, 0xa5, 0xfa)) // Blue when actively adjusting
             : Brushes.White;
 
