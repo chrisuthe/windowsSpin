@@ -284,8 +284,10 @@ public partial class App : Application
                 adaptiveCutoff: adaptiveCutoff,
                 minSamplesForForgetting: minSamplesForForgetting);
 
-            // Apply static delay from configuration
-            var staticDelayMs = _configuration!.GetValue<double>("Audio:StaticDelayMs", 0);
+            // Apply static delay from configuration. Must be non-negative: the Sendspin server
+            // (aiosendspin) validates static_delay_ms in 0-5000 and drops the connection if a client
+            // reports a negative value, so clamp on read (a stale negative config becomes 0).
+            var staticDelayMs = Math.Max(0, _configuration!.GetValue<double>("Audio:StaticDelayMs", 0));
             clockSync.StaticDelayMs = staticDelayMs;
 
             return clockSync;
