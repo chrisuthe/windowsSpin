@@ -111,4 +111,40 @@ public static class AmbientMath
         var i = Math.Max(0.0, intensity);
         return Math.Clamp(i * (OpacityMin + (e * OpacityEnergySpan)), 0.0, 1.0);
     }
+
+    /// <summary>Album-art breathe scale span from energy (0..1) at intensity 1.</summary>
+    public const double BreathScaleEnergySpan = 0.06;
+
+    /// <summary>Album-art breathe scale span from a full beat pulse at intensity 1.</summary>
+    public const double BreathScalePulseSpan = 0.04;
+
+    /// <summary>Baseline glow strength so the art keeps a faint aura even when quiet.</summary>
+    public const double BreathGlowBase = 0.15;
+
+    /// <summary>Glow strength span contributed by energy (0..1).</summary>
+    public const double BreathGlowEnergySpan = 0.85;
+
+    /// <summary>
+    /// Album-art breathe scale from eased energy and beat pulse, scaled by
+    /// <paramref name="intensity"/> (1.0 = default). Rests at 1.0 (the art is never shrunk);
+    /// energy/pulse are clamped to [0,1] and intensity to non-negative.
+    /// </summary>
+    public static double BreathScale(double energy, double pulse, double intensity = 1.0)
+    {
+        var e = Math.Clamp(energy, 0.0, 1.0);
+        var p = Math.Clamp(pulse, 0.0, 1.0);
+        var i = Math.Max(0.0, intensity);
+        return 1.0 + (i * ((e * BreathScaleEnergySpan) + (p * BreathScalePulseSpan)));
+    }
+
+    /// <summary>
+    /// Album-art glow strength (0..1) from eased energy, scaled by <paramref name="intensity"/>
+    /// (1.0 = default). The animator maps this to blur/opacity. Clamped to [0,1].
+    /// </summary>
+    public static double BreathGlow(double energy, double intensity = 1.0)
+    {
+        var e = Math.Clamp(energy, 0.0, 1.0);
+        var i = Math.Max(0.0, intensity);
+        return Math.Clamp(i * (BreathGlowBase + (e * BreathGlowEnergySpan)), 0.0, 1.0);
+    }
 }

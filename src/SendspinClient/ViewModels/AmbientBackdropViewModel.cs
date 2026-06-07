@@ -17,11 +17,13 @@ public partial class AmbientBackdropViewModel : ObservableObject
     private static readonly Color FallbackBlob2 = Color.FromRgb(0x06, 0xB6, 0xD4);
     private static readonly Color FallbackBlob3 = Color.FromRgb(0xDB, 0x27, 0x77);
 
-    /// <summary>Whether the feature is enabled in settings.</summary>
+    /// <summary>The selected backdrop style. The blob backdrop renders only in AmbientGlow mode.</summary>
     [ObservableProperty]
-    private bool _enabled = true;
+    private BackdropMode _mode = BackdropMode.AmbientGlow;
 
-    /// <summary>True when a real color palette has been received and the feature is enabled.</summary>
+    partial void OnModeChanged(BackdropMode value) => UpdateActive();
+
+    /// <summary>True when the style is Ambient Glow and a real color palette has been received.</summary>
     [ObservableProperty]
     private bool _isActive;
 
@@ -40,13 +42,23 @@ public partial class AmbientBackdropViewModel : ObservableObject
 
     /// <summary>
     /// Effective intensity (<c>IntensityFloor</c>..2.0) consumed by the renderer. The raw 0
-    /// setting is floored so the backdrop never goes fully dark via the slider; use
-    /// <see cref="SetEnabled"/> to disable entirely.
+    /// setting is floored so the backdrop never goes fully dark via the slider; choose the Off
+    /// style (<see cref="SetMode"/>) to disable entirely.
     /// </summary>
     public double Intensity => Math.Max(AmbientMath.IntensityFloor, _intensity);
 
     /// <summary>Sets the raw intensity (0..2) from the settings slider. Does not affect IsActive.</summary>
     public void SetIntensity(double raw) => _intensity = Math.Clamp(raw, 0.0, 2.0);
+
+    /// <summary>
+    /// Whether playback is currently active. Breathing Art breathes only while playing; the
+    /// visualizer signal does not reliably resume on a same-track pause/resume, so the renderer
+    /// relies on this rather than energy alone to decide when to be alive.
+    /// </summary>
+    public bool IsPlaying { get; private set; }
+
+    /// <summary>Sets whether playback is active (from MainViewModel's PlaybackState). Polled by the renderer.</summary>
+    public void SetPlaying(bool playing) => IsPlaying = playing;
 
     /// <summary>Raised when a beat frame arrives; strength is ~0.6 for a beat, 1.0 for a downbeat.</summary>
     public event EventHandler<double>? BeatTriggered;
@@ -88,12 +100,8 @@ public partial class AmbientBackdropViewModel : ObservableObject
         }
     }
 
-    /// <summary>Enables/disables the effect (from the settings toggle). Immediate, no reconnect.</summary>
-    public void SetEnabled(bool enabled)
-    {
-        Enabled = enabled;
-        UpdateActive();
-    }
+    /// <summary>Sets the backdrop style (from the settings dropdown). Immediate, no reconnect.</summary>
+    public void SetMode(BackdropMode mode) => Mode = mode;
 
     /// <summary>Resets to the inactive/idle state (e.g. on disconnect).</summary>
     public void Reset()
@@ -103,7 +111,7 @@ public partial class AmbientBackdropViewModel : ObservableObject
         UpdateActive();
     }
 
-    private void UpdateActive() => IsActive = Enabled && _hasPalette;
+    private void UpdateActive() => IsActive = Mode == BackdropMode.AmbientGlow && _hasPalette;
 
     private static Color ToColor(RgbColor? rgb, Color fallback)
         => rgb is { } c ? Color.FromRgb(c.R, c.G, c.B) : fallback;
