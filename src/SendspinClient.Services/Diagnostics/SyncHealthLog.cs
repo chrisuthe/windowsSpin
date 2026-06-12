@@ -92,8 +92,7 @@ public sealed class SyncHealthLog
                 if (info.Exists && info.Length >= _maxBytes)
                 {
                     var backup = Path.Combine(_directory, BackupFileName);
-                    File.Delete(backup);         // no-op if missing
-                    File.Move(path, backup);
+                    File.Move(path, backup, overwrite: true);
                 }
 
                 File.AppendAllText(path, block + Environment.NewLine, Encoding.UTF8);

@@ -67,6 +67,8 @@ public sealed class SyncHealthLogTests : IDisposable
         }
 
         Assert.True(File.Exists(Path.Combine(_dir, "sync-health.1.log")), "backup should exist");
+        var backupSize = new FileInfo(Path.Combine(_dir, "sync-health.1.log")).Length;
+        Assert.True(backupSize > 0, "backup should contain rotated content");
         var mainSize = new FileInfo(Path.Combine(_dir, "sync-health.log")).Length;
         Assert.True(mainSize <= 2048 + 1024, $"main log should stay near cap, was {mainSize}");
     }
