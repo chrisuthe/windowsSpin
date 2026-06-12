@@ -1089,6 +1089,14 @@ public partial class MainViewModel : ViewModelBase
 
             App.Current.Dispatcher.Invoke(() =>
             {
+                // Discard stale results: a track change (or newer artwork) may have
+                // superseded this fetch while it was in flight.
+                if (url != _lastArtworkUrl)
+                {
+                    _logger.LogDebug("Discarding stale artwork from {Url} (current: {CurrentUrl})", url, _lastArtworkUrl ?? "(none)");
+                    return;
+                }
+
                 AlbumArtwork = imageData;
                 _logger.LogDebug("Artwork loaded: {Length} bytes from {Url}", imageData.Length, url);
             });
