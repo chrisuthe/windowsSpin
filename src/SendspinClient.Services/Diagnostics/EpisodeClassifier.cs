@@ -47,9 +47,9 @@ public static class EpisodeClassifier
 {
     // Rule thresholds (see design spec for rationale)
     internal const double NetworkBufferFraction = 0.4;     // buffer below 40% of target
-    internal const double NetworkChunkGapMs = 1000;
+    internal const double NetworkChunkGapMs = 1000;    // >1000 ms = ingest stalled (rule 1)
     internal const double HealthyBufferFraction = 0.6;     // buffer at/above 60% of target
-    internal const double HealthyChunkGapMs = 500;
+    internal const double HealthyChunkGapMs = 500;     // <500 ms = healthy enough for skew/local rules; the 500-1000 ms zone is intentionally ambiguous and falls through to Unknown
     internal const double RttJitterThresholdMs = 5.0;
     internal const double OffsetTravelThresholdMs = 5.0;
     internal const int MinDirectionFlips = 2;

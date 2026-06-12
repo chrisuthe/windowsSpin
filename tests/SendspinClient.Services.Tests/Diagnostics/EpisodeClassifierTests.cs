@@ -127,4 +127,55 @@ public class EpisodeClassifierTests
         Assert.Equal(SyncHealthVerdict.Unknown, r.Verdict);
         Assert.False(string.IsNullOrWhiteSpace(r.Evidence));
     }
+
+    [Fact]
+    public void ExactlyMinDirectionFlips_WithUnstableClock_ClassifyAsClockSyncInstability()
+    {
+        var r = EpisodeClassifier.Classify(Baseline() with
+        {
+            DirectionFlips = 2,          // = EpisodeClassifier.MinDirectionFlips (exactly at boundary)
+            MaxRttJitterMs = 5.0 + 0.1, // just above EpisodeClassifier.RttJitterThresholdMs
+            Drops = 100,
+            Inserts = 50,
+        });
+        Assert.Equal(SyncHealthVerdict.ClockSyncInstability, r.Verdict);
+    }
+
+    [Fact]
+    public void OneDirectionFlip_DoesNotClassifyAsClockSyncInstability()
+    {
+        var r = EpisodeClassifier.Classify(Baseline() with
+        {
+            DirectionFlips = 1,
+            MaxRttJitterMs = 5.0 + 1.0, // above EpisodeClassifier.RttJitterThresholdMs
+            Drops = 100,
+            Inserts = 50,
+        });
+        Assert.NotEqual(SyncHealthVerdict.ClockSyncInstability, r.Verdict);
+    }
+
+    [Fact]
+    public void BufferCollapseAlone_WithoutIngestStall_DoesNotClassifyAsNetworkStarvation()
+    {
+        // Buffer collapsed but network is still delivering chunks - not starvation
+        var r = EpisodeClassifier.Classify(Baseline() with
+        {
+            MinBufferedMs = 50,   // < 40% of 250
+            MaxChunkGapMs = 50,   // well under the stall threshold
+            MaxChunkAgeMs = 50,
+        });
+        Assert.NotEqual(SyncHealthVerdict.NetworkStarvation, r.Verdict);
+    }
+
+    [Fact]
+    public void IngestStalledAlone_WithHealthyBuffer_DoesNotClassifyAsNetworkStarvation()
+    {
+        // Big chunk gap but buffer is still full - not yet starvation
+        var r = EpisodeClassifier.Classify(Baseline() with
+        {
+            MaxChunkGapMs = 1500, // > 1000 ms
+            MinBufferedMs = 250,  // buffer still healthy
+        });
+        Assert.NotEqual(SyncHealthVerdict.NetworkStarvation, r.Verdict);
+    }
 }
