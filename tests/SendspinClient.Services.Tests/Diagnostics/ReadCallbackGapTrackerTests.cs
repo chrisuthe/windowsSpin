@@ -36,6 +36,18 @@ public class ReadCallbackGapTrackerTests
     }
 
     [Fact]
+    public void MaxGapMs_TracksLargest_NotMostRecent()
+    {
+        var tracker = new ReadCallbackGapTracker();
+        tracker.RecordRead(nowMs: 0, expectedIntervalMs: 10);
+        tracker.RecordRead(nowMs: 300, expectedIntervalMs: 10);  // 300ms gap - the max
+        tracker.RecordRead(nowMs: 450, expectedIntervalMs: 10);  // 150ms gap - smaller
+
+        Assert.Equal(2, tracker.GapCount);
+        Assert.Equal(300, tracker.MaxGapMs);
+    }
+
+    [Fact]
     public void GapBelowFloor_Ignored()
     {
         var tracker = new ReadCallbackGapTracker();

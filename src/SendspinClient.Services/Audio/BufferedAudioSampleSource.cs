@@ -22,6 +22,7 @@ public sealed class BufferedAudioSampleSource : IAudioSampleSource
     private readonly ITimedAudioBuffer _buffer;
     private readonly Func<long> _getCurrentTimeMicroseconds;
     private readonly ReadCallbackGapTracker? _gapTracker;
+    private readonly double _samplesPerMs;
 
     /// <inheritdoc/>
     public AudioFormat Format => _buffer.Format;
@@ -49,6 +50,7 @@ public sealed class BufferedAudioSampleSource : IAudioSampleSource
         _buffer = buffer;
         _getCurrentTimeMicroseconds = getCurrentTimeMicroseconds;
         _gapTracker = gapTracker;
+        _samplesPerMs = (double)buffer.Format.SampleRate * buffer.Format.Channels / 1000.0;
         _gapTracker?.Reset();
     }
 
@@ -57,9 +59,8 @@ public sealed class BufferedAudioSampleSource : IAudioSampleSource
     {
         if (_gapTracker is not null)
         {
-            // Expected interval: samples requested ÷ samples per ms
-            var samplesPerMs = Format.SampleRate * Format.Channels / 1000.0;
-            _gapTracker.RecordRead(Environment.TickCount64, count / samplesPerMs);
+            // Expected interval: samples requested ÷ samples per ms (factor cached at construction)
+            _gapTracker.RecordRead(Environment.TickCount64, count / _samplesPerMs);
         }
 
         var currentTime = _getCurrentTimeMicroseconds();
