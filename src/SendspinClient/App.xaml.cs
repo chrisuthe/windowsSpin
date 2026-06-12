@@ -17,6 +17,7 @@ using SendspinClient.Services.Audio;
 using SendspinClient.Services.Discord;
 using SendspinClient.Services.MediaControls;
 using SendspinClient.Services.Models;
+using SendspinClient.Services.Diagnostics;
 using SendspinClient.Services.Notifications;
 using SendspinClient.ViewModels;
 using Serilog;
@@ -91,6 +92,9 @@ public partial class App : Application
         var services = new ServiceCollection();
         ConfigureServices(services);
         _serviceProvider = services.BuildServiceProvider();
+
+        // Force-create the sync health monitor so its timer runs for the whole session
+        _ = _serviceProvider.GetRequiredService<SyncHealthMonitor>();
 
         // Handle unhandled exceptions
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
@@ -345,11 +349,17 @@ public partial class App : Application
                     return buffer;
                 },
                 playerFactory: () => sp.GetRequiredService<IAudioPlayer>(),
-                sourceFactory: (buffer, timeFunc) => new BufferedAudioSampleSource(buffer, timeFunc),
+                sourceFactory: (buffer, timeFunc) => new BufferedAudioSampleSource(
+                    buffer, timeFunc, sp.GetRequiredService<ReadCallbackGapTracker>()),
                 precisionTimer: null,
                 waitForConvergence: waitForConvergence,
                 convergenceTimeoutMs: convergenceTimeoutMs);
         });
+
+        // Sync health diagnostics (issue #33): always-on episode detection + sync-health.log
+        services.AddSingleton<ReadCallbackGapTracker>();
+        services.AddSingleton(new SyncHealthLog(AppPaths.LogDirectory));
+        services.AddSingleton<SyncHealthMonitor>();
 
         // Server discovery for client-initiated mode
         // Discovers Music Assistant servers via mDNS and auto-connects

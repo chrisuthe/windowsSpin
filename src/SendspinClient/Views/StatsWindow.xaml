@@ -149,6 +149,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Sync Error" Style="{StaticResource StatLabel}"/>
@@ -164,6 +165,11 @@
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Playback Active" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
                         <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding IsPlaybackActive}"
                                    Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Health" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding HealthDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,8,0,0"
+                                   Foreground="{Binding HealthColor}" TextWrapping="Wrap" MaxWidth="220"/>
                     </Grid>
                 </Border>
 
