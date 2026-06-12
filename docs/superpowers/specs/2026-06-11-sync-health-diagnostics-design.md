@@ -52,9 +52,11 @@ wiring stays untouched; the monitor observes `IAudioPipeline` state itself.
     `MinBufferedMsRecent` (if present in 9.0.2; else buffered ms).
   - From `ClockSyncStatus`: offset µs, drift ppm, offset uncertainty, last/avg RTT, RTT jitter,
     adaptive-forgetting trigger count, measurement count.
-  - From `IReadCallbackGapSource` (new, implemented by `BufferedAudioSampleSource`): callback
-    gap count + max gap ms — measures audio-thread starvation (local CPU/timing signal).
-- Samples go into a fixed 300-entry ring (30 s). No allocations per tick beyond the struct write.
+  - From `ReadCallbackGapTracker` (new DI singleton; `BufferedAudioSampleSource` is created
+    per-pipeline-start by a factory, so it records into the shared tracker): callback gap count +
+    max gap ms — measures audio-thread starvation (local CPU/timing signal).
+- Samples feed the detector, which keeps a 100-entry (10 s) pre-roll ring — sized to the pre-roll
+  requirement, its only consumer. No allocations per tick beyond the struct write.
 
 ### EpisodeDetector
 
@@ -97,7 +99,8 @@ aggregates:
    *Evidence: flips, RTT jitter, offset travel, forgetting count.*
 3. **Device clock skew** — corrections one-directional, min buffer ≥ 60 % of target, max chunk
    gap < 500 ms, RTT jitter ≤ 5 ms, and sustained correction (episode duration ≥ 10 s).
-   Reports estimated skew: `ppm = drops_per_sec ÷ sample_rate × 1e6` (negative for inserts).
+   Reports estimated skew: `ppm = drops_per_sec ÷ (sample_rate × channels) × 1e6` (negative for
+   inserts; the SDK counter counts samples including channels).
    *Evidence: direction, rate, ppm estimate, buffer health.*
 4. **Local timing/CPU** — read-callback gap count > 0 (or max gap > 100 ms) while buffer ≥ 60 %
    of target and chunk arrival healthy.
@@ -131,7 +134,8 @@ One new row in the sync section: `Health:` showing `LatestVerdict` ("Network sta
 ## Error handling
 
 - The monitor must never affect playback: sampler tick wrapped in try/catch-log-once; log writes
-  on a background queue, failures degrade to in-memory only (verdict line still works).
+  happen on the monitor's timer thread (never audio or UI threads) and swallow failures, degrading
+  to in-memory only (verdict line still works).
 - Counter resets (pipeline restart) detected via `TotalSamplesWritten` decreasing → ring and
   detector state reset, no false episode.
 
@@ -141,7 +145,8 @@ One new row in the sync section: `Health:` showing `LatestVerdict` ("Network sta
 - `EpisodeDetector`: synthetic sample sequences → assert open/close timing, pre-roll content,
   aggregate math, hard-cap reopen, counter-reset handling.
 - `SyncHealthLog`: rotation at cap; format round-trip (parse the key=value back).
-- Sampler: thin; covered by an integration-style test with stubbed `IAudioPipeline`/`IClockSynchronizer`.
+- `ReadCallbackGapTracker`: gap detection thresholds, reset semantics.
+- Sampler/monitor: thin orchestration of unit-tested parts; covered by build + manual smoke.
 - Manual: reproduce #33 scenarios (pull cable mid-stream → network verdict; USB DAC long-run →
   skew verdict with ppm).
 
