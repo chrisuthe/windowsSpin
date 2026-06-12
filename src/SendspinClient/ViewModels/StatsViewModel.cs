@@ -36,6 +36,15 @@ public partial class StatsViewModel : ViewModelBase
     private long? _lastSyncInsertedForSync;
     private const int UpdateIntervalMs = 100; // 10 updates per second
 
+    // Shared design-system brushes (Resources/Styles/Colors.xaml) so stat colors match the
+    // rest of the app instead of redefining their own palette. Resolved once, not per tick.
+    private static readonly Brush StatusGood = AppBrush("SuccessBrush");
+    private static readonly Brush StatusWarning = AppBrush("WarningBrush");
+    private static readonly Brush StatusBad = AppBrush("ErrorBrush");
+    private static readonly Brush StatusActive = AppBrush("AccentBrush");
+    private static readonly Brush ValueNeutral = AppBrush("TextPrimaryBrush");
+    private static readonly Brush ValueMuted = AppBrush("TextMutedBrush");
+
     #region Sync Status Properties
 
     /// <summary>
@@ -48,7 +57,7 @@ public partial class StatsViewModel : ViewModelBase
     /// Gets the color for the sync error display (green=good, yellow=warning, red=bad).
     /// </summary>
     [ObservableProperty]
-    private Brush _syncErrorColor = Brushes.Gray;
+    private Brush _syncErrorColor = ValueMuted;
 
     /// <summary>
     /// Gets the current correction mode display string.
@@ -60,7 +69,7 @@ public partial class StatsViewModel : ViewModelBase
     /// Gets the color for the correction mode display.
     /// </summary>
     [ObservableProperty]
-    private Brush _correctionModeColor = Brushes.Gray;
+    private Brush _correctionModeColor = ValueMuted;
 
     /// <summary>
     /// Gets whether playback is currently active.
@@ -78,7 +87,7 @@ public partial class StatsViewModel : ViewModelBase
     /// Gets the color for the health display (green all-clear, yellow when episodes exist).
     /// </summary>
     [ObservableProperty]
-    private Brush _healthColor = Brushes.Gray;
+    private Brush _healthColor = ValueMuted;
 
     #endregion
 
@@ -106,7 +115,7 @@ public partial class StatsViewModel : ViewModelBase
     /// Gets the color for underrun count (red if > 0).
     /// </summary>
     [ObservableProperty]
-    private Brush _underrunColor = Brushes.White;
+    private Brush _underrunColor = ValueNeutral;
 
     /// <summary>
     /// Gets the overrun count.
@@ -146,7 +155,7 @@ public partial class StatsViewModel : ViewModelBase
     /// Gets the color for the playback rate (cyan when actively correcting).
     /// </summary>
     [ObservableProperty]
-    private Brush _playbackRateColor = Brushes.White;
+    private Brush _playbackRateColor = ValueNeutral;
 
     #endregion
 
@@ -162,7 +171,7 @@ public partial class StatsViewModel : ViewModelBase
     /// Gets the color for the clock sync status.
     /// </summary>
     [ObservableProperty]
-    private Brush _clockSyncStatusColor = Brushes.Gray;
+    private Brush _clockSyncStatusColor = ValueMuted;
 
     /// <summary>
     /// Gets the clock offset display string.
@@ -198,7 +207,7 @@ public partial class StatsViewModel : ViewModelBase
     /// Gets the color for the drift reliable indicator.
     /// </summary>
     [ObservableProperty]
-    private Brush _driftReliableColor = Brushes.Gray;
+    private Brush _driftReliableColor = ValueMuted;
 
     /// <summary>
     /// Gets the static delay display string.
@@ -324,7 +333,7 @@ public partial class StatsViewModel : ViewModelBase
     /// Gets the color for the device capabilities display (green for hi-res, white otherwise).
     /// </summary>
     [ObservableProperty]
-    private Brush _deviceCapabilitiesColor = Brushes.White;
+    private Brush _deviceCapabilitiesColor = ValueNeutral;
 
     #endregion
 
@@ -396,8 +405,8 @@ public partial class StatsViewModel : ViewModelBase
     {
         HealthDisplay = _syncHealthMonitor.HealthDisplay;
         HealthColor = _syncHealthMonitor.EpisodeCount == 0
-            ? new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80))  // Green
-            : new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
+            ? StatusGood  // Green
+            : StatusWarning; // Yellow
     }
 
     private void UpdateBufferStats()
@@ -407,9 +416,9 @@ public partial class StatsViewModel : ViewModelBase
         {
             // Pipeline not active
             SyncErrorDisplay = "-- ms";
-            SyncErrorColor = Brushes.Gray;
+            SyncErrorColor = ValueMuted;
             CorrectionModeDisplay = "Idle";
-            CorrectionModeColor = Brushes.Gray;
+            CorrectionModeColor = ValueMuted;
             IsPlaybackActive = "No";
             BufferedMsDisplay = "-- ms";
             TargetMsDisplay = "-- ms";
@@ -425,15 +434,15 @@ public partial class StatsViewModel : ViewModelBase
         var absError = Math.Abs(syncErrorMs);
         if (absError < 5)
         {
-            SyncErrorColor = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)); // Green
+            SyncErrorColor = StatusGood; // Green
         }
         else if (absError < 20)
         {
-            SyncErrorColor = new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
+            SyncErrorColor = StatusWarning; // Yellow
         }
         else
         {
-            SyncErrorColor = new SolidColorBrush(Color.FromRgb(0xf8, 0x71, 0x71)); // Red
+            SyncErrorColor = StatusBad; // Red
         }
 
         // Correction Mode - show the tier actually acting this tick. The shipped strategy is
@@ -456,22 +465,22 @@ public partial class StatsViewModel : ViewModelBase
         if (droppedDelta > 0)
         {
             CorrectionModeDisplay = "Dropping";
-            CorrectionModeColor = new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
+            CorrectionModeColor = StatusWarning; // Yellow
         }
         else if (insertedDelta > 0)
         {
             CorrectionModeDisplay = "Inserting";
-            CorrectionModeColor = new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
+            CorrectionModeColor = StatusWarning; // Yellow
         }
         else if (resamplingActive)
         {
             CorrectionModeDisplay = "Resampling";
-            CorrectionModeColor = new SolidColorBrush(Color.FromRgb(0x60, 0xa5, 0xfa)); // Blue
+            CorrectionModeColor = StatusActive; // Blue
         }
         else
         {
             CorrectionModeDisplay = "None";
-            CorrectionModeColor = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)); // Green
+            CorrectionModeColor = StatusGood; // Green
         }
 
         // Playback Rate (for resampling-based sync correction). F5 so sub-0.1% trims are visible
@@ -479,8 +488,8 @@ public partial class StatsViewModel : ViewModelBase
         var rate = stats.TargetPlaybackRate;
         PlaybackRateDisplay = $"{rate:F5}x";
         PlaybackRateColor = Math.Abs(rate - 1.0) > 0.00002
-            ? new SolidColorBrush(Color.FromRgb(0x60, 0xa5, 0xfa)) // Blue when actively adjusting
-            : Brushes.White;
+            ? StatusActive // Blue when actively adjusting
+            : ValueNeutral;
 
         // Playback state
         IsPlaybackActive = stats.IsPlaybackActive ? "Yes" : "No";
@@ -492,8 +501,8 @@ public partial class StatsViewModel : ViewModelBase
         // Underruns/Overruns
         UnderrunCount = stats.UnderrunCount;
         UnderrunColor = stats.UnderrunCount > 0
-            ? new SolidColorBrush(Color.FromRgb(0xf8, 0x71, 0x71))
-            : Brushes.White;
+            ? StatusBad
+            : ValueNeutral;
         OverrunCount = stats.OverrunCount;
 
         // Sync correction stats
@@ -514,17 +523,17 @@ public partial class StatsViewModel : ViewModelBase
         if (status.IsConverged)
         {
             ClockSyncStatusDisplay = "✓ Synchronized";
-            ClockSyncStatusColor = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)); // Green
+            ClockSyncStatusColor = StatusGood; // Green
         }
         else if (status.MeasurementCount > 0)
         {
             ClockSyncStatusDisplay = "Syncing...";
-            ClockSyncStatusColor = new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
+            ClockSyncStatusColor = StatusWarning; // Yellow
         }
         else
         {
             ClockSyncStatusDisplay = "Not synced";
-            ClockSyncStatusColor = Brushes.Gray;
+            ClockSyncStatusColor = ValueMuted;
         }
 
         ClockOffsetDisplay = $"{status.OffsetMilliseconds:+0.00;-0.00} ms";
@@ -541,17 +550,17 @@ public partial class StatsViewModel : ViewModelBase
         if (status.IsDriftReliable)
         {
             DriftReliableDisplay = "✓ Yes";
-            DriftReliableColor = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)); // Green
+            DriftReliableColor = StatusGood; // Green
         }
         else if (status.MeasurementCount > 0)
         {
             DriftReliableDisplay = "Calibrating...";
-            DriftReliableColor = new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
+            DriftReliableColor = StatusWarning; // Yellow
         }
         else
         {
             DriftReliableDisplay = "No";
-            DriftReliableColor = Brushes.Gray;
+            DriftReliableColor = ValueMuted;
         }
 
         // Static delay (from clock synchronizer)
@@ -561,6 +570,15 @@ public partial class StatsViewModel : ViewModelBase
         var detectedLatency = _audioPipeline.DetectedOutputLatencyMs;
         OutputLatencyDisplay = detectedLatency > 0 ? $"{detectedLatency} ms" : "-- ms";
     }
+
+    /// <summary>
+    /// Resolves a brush from the application's shared style resources.
+    /// Falls back to a plain gray brush when resources are unavailable (e.g. design time).
+    /// </summary>
+    /// <param name="key">The resource key from Resources/Styles/Colors.xaml.</param>
+    /// <returns>The shared brush, or a gray fallback.</returns>
+    private static Brush AppBrush(string key) =>
+        System.Windows.Application.Current?.Resources[key] as Brush ?? new SolidColorBrush(Colors.Gray);
 
     private static string FormatSampleCount(long samples)
     {
@@ -648,8 +666,8 @@ public partial class StatsViewModel : ViewModelBase
 
         // Green for hi-res, white for standard
         DeviceCapabilitiesColor = isHiRes
-            ? new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)) // Green
-            : Brushes.White;
+            ? StatusGood // Green
+            : ValueNeutral;
     }
 
     /// <summary>

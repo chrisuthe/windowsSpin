@@ -7,34 +7,18 @@
         Title="Stats for Nerds"
         Height="650" Width="420"
         MinHeight="500" MinWidth="350"
-        Background="#1a1a2e"
+        Style="{StaticResource MainWindowStyle}"
         WindowStartupLocation="CenterOwner">
 
     <Window.Resources>
-        <Style x:Key="StatLabel" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#888"/>
-            <Setter Property="FontSize" Value="11"/>
-            <Setter Property="FontFamily" Value="Consolas"/>
+        <!-- Local aliases derived from the shared design system (Resources/Styles/Controls.xaml).
+             Keep these BasedOn shared styles - no custom fonts/colors here. -->
+        <Style x:Key="StatLabel" TargetType="TextBlock" BasedOn="{StaticResource BodyText}"/>
+        <Style x:Key="StatValue" TargetType="TextBlock" BasedOn="{StaticResource BodyText}">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="FontWeight" Value="Medium"/>
         </Style>
-        <Style x:Key="StatValue" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#fff"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="FontFamily" Value="Consolas"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-        </Style>
-        <Style x:Key="StatValueGood" TargetType="TextBlock" BasedOn="{StaticResource StatValue}">
-            <Setter Property="Foreground" Value="#4ade80"/>
-        </Style>
-        <Style x:Key="StatValueWarning" TargetType="TextBlock" BasedOn="{StaticResource StatValue}">
-            <Setter Property="Foreground" Value="#fbbf24"/>
-        </Style>
-        <Style x:Key="StatValueBad" TargetType="TextBlock" BasedOn="{StaticResource StatValue}">
-            <Setter Property="Foreground" Value="#f87171"/>
-        </Style>
-        <Style x:Key="SectionHeader" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#a78bfa"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="FontWeight" Value="Bold"/>
+        <Style x:Key="SectionHeader" TargetType="TextBlock" BasedOn="{StaticResource CaptionText}">
             <Setter Property="Margin" Value="0,16,0,8"/>
         </Style>
     </Window.Resources>
@@ -48,16 +32,17 @@
 
         <!-- Header -->
         <StackPanel Grid.Row="0">
-            <TextBlock Text="Stats for Nerds" FontSize="18" FontWeight="Bold" Foreground="#fff"/>
-            <TextBlock Text="Real-time audio sync diagnostics" FontSize="11" Foreground="#888" Margin="0,4,0,0"/>
+            <TextBlock Text="Stats for Nerds" Style="{StaticResource SubHeaderText}"/>
+            <TextBlock Text="Real-time audio sync diagnostics" Style="{StaticResource CaptionText}" Margin="0,4,0,0"/>
         </StackPanel>
 
         <!-- Stats Content -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,16,0,0">
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,16,0,0"
+                      Style="{StaticResource DarkScrollViewer}">
             <StackPanel>
                 <!-- Audio Format -->
                 <TextBlock Text="AUDIO FORMAT" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
-                <Border Background="#2d2d44" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,8">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -76,11 +61,11 @@
 
                         <!-- Input (Incoming) Section Header -->
                         <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="Incoming Stream"
-                                   Foreground="#60a5fa" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                   Style="{StaticResource CaptionText}" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,6"/>
 
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Format" Style="{StaticResource StatLabel}"/>
                         <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding InputFormatDisplay}"
-                                   Style="{StaticResource StatValue}" Foreground="#4ade80"/>
+                                   Style="{StaticResource StatValue}" Foreground="{StaticResource SuccessBrush}"/>
 
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Sample Rate" Style="{StaticResource StatLabel}" Margin="0,6,0,0"/>
                         <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding InputSampleRateDisplay}"
@@ -92,11 +77,11 @@
 
                         <!-- Output Section Header -->
                         <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Text="Output to Device"
-                                   Foreground="#60a5fa" FontSize="10" FontWeight="SemiBold" Margin="0,14,0,6"/>
+                                   Style="{StaticResource CaptionText}" Foreground="{StaticResource AccentBrush}" Margin="0,14,0,6"/>
 
                         <TextBlock Grid.Row="5" Grid.Column="0" Text="Format" Style="{StaticResource StatLabel}"/>
                         <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding OutputFormatDisplay}"
-                                   Style="{StaticResource StatValue}" Foreground="#a78bfa"/>
+                                   Style="{StaticResource StatValue}" Foreground="{StaticResource PrimaryLightBrush}"/>
 
                         <TextBlock Grid.Row="6" Grid.Column="0" Text="Sample Rate" Style="{StaticResource StatLabel}" Margin="0,6,0,0"/>
                         <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding OutputSampleRateDisplay}"
@@ -110,7 +95,7 @@
 
                 <!-- Advertised Capabilities -->
                 <TextBlock Text="ADVERTISED CAPABILITIES" Style="{StaticResource SectionHeader}"/>
-                <Border Background="#2d2d44" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,8">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -124,7 +109,7 @@
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Codec Priority" Style="{StaticResource StatLabel}"/>
                         <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding AdvertisedCodecOrder}"
-                                   Style="{StaticResource StatValue}" Foreground="#a78bfa"/>
+                                   Style="{StaticResource StatValue}" Foreground="{StaticResource PrimaryLightBrush}"/>
 
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Supported Formats" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
                         <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding AdvertisedFormatsDisplay}"
@@ -139,7 +124,7 @@
 
                 <!-- Sync Status -->
                 <TextBlock Text="SYNC STATUS" Style="{StaticResource SectionHeader}"/>
-                <Border Background="#2d2d44" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,8">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -175,7 +160,7 @@
 
                 <!-- Buffer Stats -->
                 <TextBlock Text="BUFFER" Style="{StaticResource SectionHeader}"/>
-                <Border Background="#2d2d44" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,8">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -206,7 +191,7 @@
 
                 <!-- Correction Stats -->
                 <TextBlock Text="SYNC CORRECTION" Style="{StaticResource SectionHeader}"/>
-                <Border Background="#2d2d44" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,8">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -237,7 +222,7 @@
 
                 <!-- Clock Sync -->
                 <TextBlock Text="CLOCK SYNC" Style="{StaticResource SectionHeader}"/>
-                <Border Background="#2d2d44" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,8">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -278,17 +263,17 @@
 
                         <TextBlock Grid.Row="6" Grid.Column="0" Text="Output Latency" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
                         <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding OutputLatencyDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"
-                                   Foreground="#fbbf24"/>
+                                   Foreground="{StaticResource WarningBrush}"/>
 
                         <TextBlock Grid.Row="7" Grid.Column="0" Text="Static Delay" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
                         <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding StaticDelayDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"
-                                   Foreground="#60a5fa"/>
+                                   Foreground="{StaticResource AccentBrush}"/>
                     </Grid>
                 </Border>
 
                 <!-- Throughput -->
                 <TextBlock Text="THROUGHPUT" Style="{StaticResource SectionHeader}"/>
-                <Border Background="#2d2d44" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,8">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -314,31 +299,9 @@
         <StackPanel Grid.Row="2" Margin="0,16,0,0">
             <TextBlock Text="{Binding UpdateRateDisplay}" Style="{StaticResource StatLabel}" HorizontalAlignment="Center"/>
             <Button Content="Close" Click="CloseButton_Click"
+                    Style="{StaticResource PrimaryButton}"
                     HorizontalAlignment="Center" Margin="0,12,0,0"
-                    Padding="24,8"
-                    Background="#4f46e5" Foreground="White"
-                    BorderThickness="0" Cursor="Hand">
-                <Button.Style>
-                    <Style TargetType="Button">
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="Button">
-                                    <Border Background="{TemplateBinding Background}"
-                                            CornerRadius="6"
-                                            Padding="{TemplateBinding Padding}">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                        <Style.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Opacity" Value="0.9"/>
-                            </Trigger>
-                        </Style.Triggers>
-                    </Style>
-                </Button.Style>
-            </Button>
+                    Padding="24,8"/>
         </StackPanel>
     </Grid>
 </Window>
