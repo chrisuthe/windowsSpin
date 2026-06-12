@@ -34,6 +34,7 @@ public sealed class SyncHealthMonitor : IDisposable
 
     private bool _wasActive;
     private bool _tickFaulted;
+    private int _tickRunning;
     private int _episodeCount;
     private volatile string _healthDisplay = "No issues detected";
 
@@ -41,7 +42,7 @@ public sealed class SyncHealthMonitor : IDisposable
     public string HealthDisplay => _healthDisplay;
 
     /// <summary>Gets the number of episodes recorded this session.</summary>
-    public int EpisodeCount => _episodeCount;
+    public int EpisodeCount => Volatile.Read(ref _episodeCount);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SyncHealthMonitor"/> class.
@@ -68,6 +69,13 @@ public sealed class SyncHealthMonitor : IDisposable
 
     private void OnTick(object? state)
     {
+        // Timer callbacks can overlap if a tick stalls >100ms (e.g. slow log I/O);
+        // the detector is single-threaded by contract, so skip overlapping ticks.
+        if (Interlocked.Exchange(ref _tickRunning, 1) == 1)
+        {
+            return;
+        }
+
         try
         {
             var stats = _pipeline.BufferStats;
@@ -128,6 +136,10 @@ public sealed class SyncHealthMonitor : IDisposable
                 _tickFaulted = true;
                 _logger.LogError(ex, "Sync health monitor tick failed; diagnostics degraded");
             }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _tickRunning, 0);
         }
     }
 
