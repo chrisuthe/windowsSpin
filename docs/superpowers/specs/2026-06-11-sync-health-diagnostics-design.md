@@ -60,8 +60,18 @@ wiring stays untouched; the monitor observes `IAudioPipeline` state itself.
 
 State machine evaluated per tick on counter **deltas** between consecutive samples:
 
-- **Trigger** (any): drop delta > 0, insert delta > 0, underrun delta > 0, reanchor delta > 0,
-  |smoothed sync error| > 10 ms.
+- **Trigger** (any). Triggers are audibility-anchored: if a user could possibly hear it, it
+  opens an episode.
+  - drop delta > 0 or insert delta > 0 — waveform discontinuity (click/pop)
+  - underrun delta > 0 — silence gap
+  - reanchor delta > 0 — buffer clear (gap + jump)
+  - |smoothed sync error| > the configured correction deadband (default 2 ms) — the corrector's
+    own "imperceptible" line; beyond it, same-room speaker pairs can audibly phase and the
+    correction system is actively working
+  - read-callback gap delta > 0 — audio-thread starvation (glitch)
+  - |playback rate − 1.0| ≥ 90 % of `MaxSpeedCorrection` — correction saturated; not audible
+    itself but escalation to audible drops is imminent, and capturing the lead-up preserves the
+    best pre-roll evidence
 - **Quiet → Active**: first trigger tick opens an episode; the preceding 10 s of ring samples are
   copied as pre-roll.
 - **Active → closed**: 3 s with no trigger ticks (hysteresis), or 120 s hard cap (close + reopen
@@ -75,7 +85,9 @@ State machine evaluated per tick on counter **deltas** between consecutive sampl
 ### EpisodeClassifier
 
 Pure static function, deterministic ordered rules — first match wins, every verdict carries the
-evidence values that fired it:
+evidence values that fired it. Classification only *labels*; every episode is logged regardless
+of verdict, so nothing audible is ever filtered out — at worst it lands as `unknown` with full
+aggregates:
 
 1. **Network starvation** — episode had underruns, OR min buffer < 40 % of target AND
    (max chunk gap > 1 s OR max chunk age > 1 s).
@@ -96,8 +108,8 @@ Thresholds are `internal const` in the classifier, unit-tested per rule with syn
 
 ### SyncHealthLog
 
-- Always on. Path: `%LOCALAPPDATA%\Sendspin\logs\sync-health.log`. Cap 512 KB; on overflow rotate
-  to `sync-health.1.log` (keep one backup).
+- Always on. Path: `%LOCALAPPDATA%\Sendspin\logs\sync-health.log`. Cap 1 MB; on overflow rotate
+  to `sync-health.1.log` (keep one backup; ≤ 2 MB total on disk).
 - Session header on pipeline start: app + SDK version, OS build, output device, format, buffer
   target, detected output latency, static delay.
 - One block per episode — human-readable, `key=value` parseable, no track metadata (timings and
