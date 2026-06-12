@@ -20,6 +20,7 @@ using Sendspin.SDK.Extensions;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
+using SendspinClient.Services.Diagnostics;
 using SendspinClient.Services.Discord;
 using SendspinClient.Services.MediaControls;
 using SendspinClient.Services.Notifications;
@@ -81,6 +82,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly IMediaTransportControlsService _mediaControlsService;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ClientCapabilities _clientCapabilities;
+    private readonly SyncHealthMonitor _syncHealthMonitor;
     private readonly AmbientBackdropViewModel _ambient;
 
     // Ambient Glow diagnostics: rate-limited Debug logging of the visualizer data path.
@@ -488,7 +490,8 @@ public partial class MainViewModel : ViewModelBase
         IHttpClientFactory httpClientFactory,
         ClientCapabilities clientCapabilities,
         AmbientBackdropViewModel ambient,
-        IUserSettingsService settingsService)
+        IUserSettingsService settingsService,
+        SyncHealthMonitor syncHealthMonitor)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -504,6 +507,7 @@ public partial class MainViewModel : ViewModelBase
         _clientCapabilities = clientCapabilities;
         _ambient = ambient;
         _settingsService = settingsService;
+        _syncHealthMonitor = syncHealthMonitor;
 
         _mediaControlsService.PlayPauseRequested += (_, _) =>
             App.Current.Dispatcher.InvokeAsync(() =>
@@ -2602,7 +2606,7 @@ public partial class MainViewModel : ViewModelBase
     {
         try
         {
-            var statsViewModel = new StatsViewModel(_audioPipeline, _clockSynchronizer, _clientCapabilities);
+            var statsViewModel = new StatsViewModel(_audioPipeline, _clockSynchronizer, _clientCapabilities, _syncHealthMonitor);
             var statsWindow = new StatsWindow(statsViewModel)
             {
                 Owner = App.Current.MainWindow,

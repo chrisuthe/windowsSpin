@@ -10,6 +10,7 @@ using Sendspin.SDK.Audio;
 using Sendspin.SDK.Client;
 using Sendspin.SDK.Synchronization;
 using SendspinClient.Configuration;
+using SendspinClient.Services.Diagnostics;
 namespace SendspinClient.ViewModels;
 
 /// <summary>
@@ -25,6 +26,7 @@ public partial class StatsViewModel : ViewModelBase
     private readonly IAudioPipeline _audioPipeline;
     private readonly IClockSynchronizer _clockSynchronizer;
     private readonly ClientCapabilities _clientCapabilities;
+    private readonly SyncHealthMonitor _syncHealthMonitor;
     private readonly DispatcherTimer _updateTimer;
 
     // Previous sync drop/insert counts, so Correction Mode can show the tier actually acting this
@@ -65,6 +67,18 @@ public partial class StatsViewModel : ViewModelBase
     /// </summary>
     [ObservableProperty]
     private string _isPlaybackActive = "No";
+
+    /// <summary>
+    /// Gets the sync health verdict line (latest episode classification, or all-clear).
+    /// </summary>
+    [ObservableProperty]
+    private string _healthDisplay = "No issues detected";
+
+    /// <summary>
+    /// Gets the color for the health display (green all-clear, yellow when episodes exist).
+    /// </summary>
+    [ObservableProperty]
+    private Brush _healthColor = Brushes.Gray;
 
     #endregion
 
@@ -326,14 +340,17 @@ public partial class StatsViewModel : ViewModelBase
     /// <param name="audioPipeline">The audio pipeline to monitor.</param>
     /// <param name="clockSynchronizer">The clock synchronizer to monitor.</param>
     /// <param name="clientCapabilities">The client capabilities for advertised format display.</param>
+    /// <param name="syncHealthMonitor">The sync health monitor for episode diagnostics.</param>
     public StatsViewModel(
         IAudioPipeline audioPipeline,
         IClockSynchronizer clockSynchronizer,
-        ClientCapabilities clientCapabilities)
+        ClientCapabilities clientCapabilities,
+        SyncHealthMonitor syncHealthMonitor)
     {
         _audioPipeline = audioPipeline;
         _clockSynchronizer = clockSynchronizer;
         _clientCapabilities = clientCapabilities;
+        _syncHealthMonitor = syncHealthMonitor;
 
         _updateTimer = new DispatcherTimer
         {
@@ -372,6 +389,15 @@ public partial class StatsViewModel : ViewModelBase
         UpdateBufferStats();
         UpdateClockSyncStats();
         UpdateAudioFormatStats();
+        UpdateHealthStats();
+    }
+
+    private void UpdateHealthStats()
+    {
+        HealthDisplay = _syncHealthMonitor.HealthDisplay;
+        HealthColor = _syncHealthMonitor.EpisodeCount == 0
+            ? new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80))  // Green
+            : new SolidColorBrush(Color.FromRgb(0xfb, 0xbf, 0x24)); // Yellow
     }
 
     private void UpdateBufferStats()
