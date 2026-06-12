@@ -4,6 +4,7 @@
 
 using Sendspin.SDK.Audio;
 using Sendspin.SDK.Models;
+using SendspinClient.Services.Diagnostics;
 
 namespace SendspinClient.Services.Audio;
 
@@ -20,6 +21,7 @@ public sealed class BufferedAudioSampleSource : IAudioSampleSource
 {
     private readonly ITimedAudioBuffer _buffer;
     private readonly Func<long> _getCurrentTimeMicroseconds;
+    private readonly ReadCallbackGapTracker? _gapTracker;
 
     /// <inheritdoc/>
     public AudioFormat Format => _buffer.Format;
@@ -35,20 +37,31 @@ public sealed class BufferedAudioSampleSource : IAudioSampleSource
     /// </summary>
     /// <param name="buffer">The timed audio buffer to read from.</param>
     /// <param name="getCurrentTimeMicroseconds">Function that returns current local time in microseconds.</param>
+    /// <param name="gapTracker">Optional tracker for audio-thread starvation diagnostics.</param>
     public BufferedAudioSampleSource(
         ITimedAudioBuffer buffer,
-        Func<long> getCurrentTimeMicroseconds)
+        Func<long> getCurrentTimeMicroseconds,
+        ReadCallbackGapTracker? gapTracker = null)
     {
         ArgumentNullException.ThrowIfNull(buffer);
         ArgumentNullException.ThrowIfNull(getCurrentTimeMicroseconds);
 
         _buffer = buffer;
         _getCurrentTimeMicroseconds = getCurrentTimeMicroseconds;
+        _gapTracker = gapTracker;
+        _gapTracker?.Reset();
     }
 
     /// <inheritdoc/>
     public int Read(float[] buffer, int offset, int count)
     {
+        if (_gapTracker is not null)
+        {
+            // Expected interval: samples requested ÷ samples per ms
+            var samplesPerMs = Format.SampleRate * Format.Channels / 1000.0;
+            _gapTracker.RecordRead(Environment.TickCount64, count / samplesPerMs);
+        }
+
         var currentTime = _getCurrentTimeMicroseconds();
 
         // Read from the timed buffer using the portion we need to fill
