@@ -42,6 +42,11 @@ public sealed class EpisodeDetector
     /// <param name="clock">Optional clock factory for testability; defaults to <see cref="DateTimeOffset.Now"/>.</param>
     public EpisodeDetector(double deadbandMs, double maxSpeedCorrection, Func<DateTimeOffset>? clock = null)
     {
+        if (deadbandMs <= 0)
+            throw new ArgumentOutOfRangeException(nameof(deadbandMs), deadbandMs, "Must be > 0.");
+        if (maxSpeedCorrection <= 0 || maxSpeedCorrection >= 1)
+            throw new ArgumentOutOfRangeException(nameof(maxSpeedCorrection), maxSpeedCorrection, "Must be in (0, 1).");
+
         _deadbandMs = deadbandMs;
         _maxSpeedCorrection = maxSpeedCorrection;
         _clock = clock ?? (() => DateTimeOffset.Now);
@@ -193,7 +198,8 @@ public sealed class EpisodeDetector
                 _sampleRate = first.SampleRate,
                 _channels = first.Channels,
             };
-            acc.Accumulate(in first, in baseline, deadbandMs: 0, maxSpeedCorrection: 1);
+            // double.MaxValue: rate saturation is judged on later ticks, never the open tick
+            acc.Accumulate(in first, in baseline, deadbandMs: 0, maxSpeedCorrection: double.MaxValue);
             return acc;
         }
 
@@ -209,7 +215,7 @@ public sealed class EpisodeDetector
             _maxCallbackGapMs = Math.Max(_maxCallbackGapMs, s.MaxCallbackGapMs);
             _offsetTravelMs += Math.Abs(s.OffsetMs - _lastOffsetMs);
             _lastOffsetMs = s.OffsetMs;
-            if (Math.Abs(s.TargetPlaybackRate - 1.0) >= 0.9 * maxSpeedCorrection && maxSpeedCorrection < 1)
+            if (Math.Abs(s.TargetPlaybackRate - 1.0) >= 0.9 * maxSpeedCorrection)
             {
                 _rateSaturated = true;
             }

@@ -176,4 +176,46 @@ public class EpisodeDetectorTests
             Assert.Null(d.Observe(Sample(t, totalWritten: 10_000 + t)));
         }
     }
+
+    [Fact]
+    public void SecondEpisode_OpensAfterFirstCloses()
+    {
+        var d = NewDetector();
+        d.Observe(Sample(0));
+        d.Observe(Sample(100, drops: 500)); // first trigger
+
+        // Quiet until first episode closes
+        EpisodeRecord? first = null;
+        long t = 200;
+        for (; t <= 4_000 && first is null; t += 100)
+        {
+            first = d.Observe(Sample(t, drops: 500));
+        }
+
+        Assert.NotNull(first);
+
+        // Immediately trigger again on the next tick
+        Assert.Null(d.Observe(Sample(t, drops: 900))); // opens second episode
+
+        EpisodeRecord? second = null;
+        long end = t + 4_000;
+        for (t += 100; t <= end && second is null; t += 100)
+        {
+            second = d.Observe(Sample(t, drops: 900));
+        }
+
+        Assert.NotNull(second);
+        Assert.Equal(400, second!.Drops); // 900 - 500 baseline
+    }
+
+    [Theory]
+    [InlineData(0.0, 0.02)]
+    [InlineData(-1.0, 0.02)]
+    [InlineData(2.0, 0.0)]
+    [InlineData(2.0, 1.0)]
+    [InlineData(2.0, 1.5)]
+    public void InvalidConstructorArgs_Throw(double deadband, double maxCorrection)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new EpisodeDetector(deadband, maxCorrection));
+    }
 }
