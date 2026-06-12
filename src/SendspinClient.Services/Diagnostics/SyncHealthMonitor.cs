@@ -32,8 +32,8 @@ public sealed class SyncHealthMonitor : IDisposable
     private readonly EpisodeDetector _detector = new(DeadbandMs, MaxSpeedCorrection);
     private readonly Timer _timer;
 
-    private bool _wasActive;
-    private bool _tickFaulted;
+    private volatile bool _wasActive;
+    private volatile bool _tickFaulted;
     private int _tickRunning;
     private int _episodeCount;
     private volatile string _healthDisplay = "No issues detected";
@@ -85,7 +85,8 @@ public sealed class SyncHealthMonitor : IDisposable
                 return;
             }
 
-            if (!_wasActive)
+            // Defer the header until the output format is known so the log line is useful.
+            if (!_wasActive && _pipeline.OutputFormat is not null)
             {
                 _wasActive = true;
                 WriteSessionHeader();
