@@ -12,9 +12,21 @@
         Icon="Resources/Icons/sendspinDesktop.ico"
         Height="712" Width="386"
         MinHeight="688" MinWidth="372"
-        ResizeMode="{Binding IsSettingsOpen, Converter={StaticResource BoolToResizeModeConverter}}"
+        ResizeMode="CanMinimize"
         Background="{StaticResource BackgroundDarkBrush}"
-        WindowStyle="SingleBorderWindow">
+        WindowStyle="None">
+
+    <!-- Custom themed window chrome: paint our own title bar while the OS keeps
+         drag / minimize / taskbar behavior. Fixed size (no maximize / resize), so
+         none of the maximize-clip handling is needed. GlassFrameThickness keeps the
+         DWM drop shadow; CaptionHeight defines the draggable top strip. -->
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="40"
+                      ResizeBorderThickness="0"
+                      CornerRadius="0"
+                      GlassFrameThickness="1"
+                      UseAeroCaptionButtons="False"/>
+    </WindowChrome.WindowChrome>
 
     <Grid>
         <!-- Layer 0: Blurred Background (full window, behind everything) -->
@@ -94,8 +106,57 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- Row 0 intentionally empty: the settings gear moved to the footer
-                 (left of the volume), letting the album art rise into this space. -->
+            <!-- Custom themed title bar. The OS makes the top 40px draggable (WindowChrome
+                 CaptionHeight); the caption buttons opt back in via IsHitTestVisibleInChrome. -->
+            <Grid Grid.Row="0" Height="40" Background="#2E000000">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Brand: disc icon + app name -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal"
+                            VerticalAlignment="Center" Margin="12,0,0,0">
+                    <Image Source="pack://application:,,,/Resources/Icons/sendspinDesktop.png"
+                           Width="18" Height="18" VerticalAlignment="Center"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                    <TextBlock Text="WindowsSpin" FontSize="12.5" Foreground="#D7D7DE"
+                               VerticalAlignment="Center" Margin="9,0,0,0"/>
+                </StackPanel>
+
+                <!-- Caption controls: settings · minimize · close -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Stretch">
+                    <!-- Settings gear (active = brand colour when the panel is open) -->
+                    <Button Command="{Binding ToggleSettingsCommand}" ToolTip="Settings">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource CaptionButton}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSettingsOpen}" Value="True">
+                                        <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <TextBlock Text="&#x2699;" FontSize="17"/>
+                    </Button>
+
+                    <!-- Minimize -->
+                    <Button Style="{StaticResource CaptionButton}" Width="44"
+                            ToolTip="Minimize" Click="TitleBarMinimize_Click">
+                        <Path Width="11" Height="11" StrokeThickness="1"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              Data="M0,5.5 H11"/>
+                    </Button>
+
+                    <!-- Close -->
+                    <Button Style="{StaticResource CloseCaptionButton}"
+                            ToolTip="Close" Click="TitleBarClose_Click">
+                        <Path Width="11" Height="11" StrokeThickness="1"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              Data="M0,0 L11,11 M11,0 L0,11"/>
+                    </Button>
+                </StackPanel>
+            </Grid>
 
             <!-- Welcome View (visible when disconnected and settings not open) -->
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
@@ -1234,55 +1295,8 @@
                     </Style>
                 </Border.Style>
                 <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-
-                    <!-- Settings gear (always visible - the only entry to Settings,
-                         and the volume controls beside it are connected-only) -->
-                    <Button Grid.Column="0"
-                            Command="{Binding ToggleSettingsCommand}"
-                            ToolTip="Settings"
-                            Width="32" Height="32"
-                            Background="Transparent"
-                            Foreground="{StaticResource TextSecondaryBrush}"
-                            BorderThickness="0"
-                            Cursor="Hand"
-                            VerticalAlignment="Center"
-                            Margin="0,0,4,0">
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="Button">
-                                            <Border Background="{TemplateBinding Background}"
-                                                    CornerRadius="4">
-                                                <TextBlock Text="&#x2699;"
-                                                           FontSize="18"
-                                                           HorizontalAlignment="Center"
-                                                           VerticalAlignment="Center"
-                                                           Foreground="{TemplateBinding Foreground}"/>
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                                <Style.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
-                                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                    </Trigger>
-                                    <DataTrigger Binding="{Binding IsSettingsOpen}" Value="True">
-                                        <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-
                     <!-- Volume / output bar (visible when connected): volume + Switch Group -->
-                    <Grid Grid.Column="1"
-                          Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Grid Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
@@ -1329,8 +1343,7 @@
                     </Grid>
 
                     <!-- Error Message (when disconnected or error) -->
-                    <TextBlock Grid.Column="1"
-                               Text="{Binding ErrorMessage}"
+                    <TextBlock Text="{Binding ErrorMessage}"
                                Foreground="{StaticResource ErrorBrush}"
                                TextWrapping="Wrap"
                                VerticalAlignment="Center"
