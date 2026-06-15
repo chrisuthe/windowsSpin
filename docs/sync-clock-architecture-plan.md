@@ -50,6 +50,39 @@ shortfalls would largely disappear at the source.
 
 ## Part A — Implement the WASAPI audio clock (app side)
 
+> **Status: implemented (Phase 0 probe + Phase 1 wiring).** The probe confirmed `IAudioClock`
+> reads sane, monotonically-advancing values at ratio ~1.0000 in shared mode over ~100 s on a
+> wired desktop — refuting the interface comment's "shared mode → null" assumption. Phase 1 wires
+> it in as the live sync-timing source.
+>
+> Because the app moved sync correction **app-side**, the real integration point is **not** the
+> SDK's `GetAudioClockMicroseconds()` (the SDK only calls that once, at pipeline setup). It is the
+> `GetSyncTimeMicroseconds` delegate that `WasapiAudioPlayer` passes to `SyncCorrectedSampleSource`
+> — invoked per render read, which is the actual playback-sync timing path. That delegate now reads
+> `IAudioClock` and returns it via [`DeviceClockAnchor`](../src/SendspinClient.Services/Audio/DeviceClockAnchor.cs).
+>
+> **Anchoring.** The device position starts near 0; the wall clock is a huge epoch value. We capture
+> `offset = wall − device` once, then return `device + offset`. The offset cancels in the buffer's
+> `elapsed = now − start`, so downstream sees true device-paced elapsed while the absolute value
+> rides the wall-clock timeline — making device↔wall transitions a continuous hand-off, not a cliff.
+>
+> **Escape hatch + auto-fallback.** `Audio:SyncCorrection:UseDeviceClock` (default `true`) disables
+> it entirely; at runtime, a read failure falls back to the wall clock and a large mid-stream
+> backward jump abandons the device clock for that stream. So bad hardware degrades to today's
+> behavior instead of breaking.
+>
+> **Documented hardware hiccups** (full detail in `DeviceClockAnchor`'s XML docs):
+> - Device clock not ready for the first few ms after `Start()` → wall clock until it anchors.
+> - Drivers that don't support / throw on `IAudioClock` → null read → wall clock, no exception escapes.
+> - Mid-stream position reset/glitch (backward jump > 50 ms) → abandon device clock for the stream.
+> - Stream restart / device switch zeroes the position → `Reset()` re-anchors (`SetState`→Playing and
+>   `SwitchDeviceAsync`) so the zero is a fresh anchor, not mistaken for a glitch.
+> - Ratio ~1.0000 on a machine whose system clock already agrees with its DAC means **no change** —
+>   the win is only where the two clocks genuinely diverge (e.g. fletchowns' USB DAC). **The decisive
+>   validation is still a verbose re-test on that USB DAC.**
+> - A subtly-wrong device clock (wrong rate, or silently slaved to the system clock) isn't caught by
+>   the guards; it just yields neutral-to-slightly-worse sync. Only per-device validation finds that.
+
 ### Goal
 
 Provide the SDK with the device playback position so it times sync against the DAC clock,
