@@ -310,11 +310,15 @@ public partial class App : Application
             ? ResamplerType.SoundTouch
             : ResamplerType.Wdl;
 
+        // Time sync against the WASAPI device clock (DAC crystal) rather than the wall clock. Escape
+        // hatch for hardware whose IAudioClock misbehaves; the player also auto-falls-back at runtime.
+        var useDeviceClock = _configuration!.GetValue("Audio:SyncCorrection:UseDeviceClock", true);
+
         services.AddTransient<IAudioPlayer>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<WasapiAudioPlayer>>();
             var currentDeviceId = _configuration!.GetValue<string?>("Audio:DeviceId");
-            return new WasapiAudioPlayer(logger, currentDeviceId, syncStrategy, resamplerType);
+            return new WasapiAudioPlayer(logger, currentDeviceId, syncStrategy, resamplerType, useDeviceClock);
         });
 
         // Audio pipeline - orchestrates decoder, buffer, and player

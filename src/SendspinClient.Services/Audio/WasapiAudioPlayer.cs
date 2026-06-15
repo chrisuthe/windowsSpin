@@ -65,10 +65,13 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     private int _outputLatencyMs;
     private int _deviceNativeSampleRate = 48000;
 
-    // Audio-clock probe (issue #33). The SDK assumes WASAPI shared mode cannot supply a
-    // hardware clock and falls back to the wall clock; this gathers evidence to test that.
+    // WASAPI device clock as the sync-timing source (issue #33). The SDK assumes shared mode cannot
+    // supply a hardware clock and times sync against the wall clock; the probe confirmed IAudioClock
+    // is readable and tracks real time in shared mode, so we drive sync off it via _deviceClockAnchor
+    // (with automatic wall-clock fallback). _useDeviceClock is the escape hatch for bad hardware.
+    private readonly bool _useDeviceClock;
+    private readonly DeviceClockAnchor _deviceClockAnchor = new();
     private AudioClockClient? _audioClockClient;
-    private bool _audioClockProbeFailed;
     private long _lastClockProbeLogTicks;
     private long _probeLastClockMicros;
     private long _probeLastWallMicros;
@@ -173,16 +176,24 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// WDL uses sinc interpolation, SoundTouch uses WSOLA algorithm.
     /// Ignored when strategy is DropInsertOnly.
     /// </param>
+    /// <param name="useDeviceClock">
+    /// When true (default), sync is timed against the WASAPI device clock (IAudioClock) instead of
+    /// the wall clock, with automatic fallback to the wall clock when the device clock is
+    /// unavailable or misbehaves. Set false to force wall-clock timing on hardware where the device
+    /// clock proves unreliable. See <see cref="DeviceClockAnchor"/>.
+    /// </param>
     public WasapiAudioPlayer(
         ILogger<WasapiAudioPlayer> logger,
         string? deviceId = null,
         SyncCorrectionStrategy syncStrategy = SyncCorrectionStrategy.Combined,
-        ResamplerType resamplerType = ResamplerType.Wdl)
+        ResamplerType resamplerType = ResamplerType.Wdl,
+        bool useDeviceClock = true)
     {
         _logger = logger;
         _deviceId = deviceId;
         _syncStrategy = syncStrategy;
         _resamplerType = resamplerType;
+        _useDeviceClock = useDeviceClock;
     }
 
     /// <summary>
@@ -311,7 +322,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
             _correctedSource = new SyncCorrectedSampleSource(
                 _buffer,
                 _correctionProvider,
-                () => HighPrecisionTimer.Shared.GetCurrentTimeMicroseconds(),
+                GetSyncTimeMicroseconds,
                 _logger);
 
             effectiveSource = _correctedSource;
@@ -474,6 +485,16 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                         _wasapiOut.Dispose();
                         _wasapiOut = null;
                     }
+
+                    // The cached IAudioClock belongs to the disposed device; drop it and re-anchor so
+                    // the new device's clock baseline is picked up cleanly (handled again on Playing,
+                    // but cleared here too in case the switch happens while stopped). Also clear the
+                    // diagnostic baseline so the first [AudioClock] log after the switch doesn't
+                    // compute a bogus delta against the old device's (much larger) position.
+                    _audioClockClient = null;
+                    _deviceClockAnchor.Reset();
+                    _probeLastClockMicros = 0;
+                    _probeLastWallMicros = 0;
 
                     // Update device ID
                     _deviceId = deviceId;
@@ -742,19 +763,47 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     }
 
     /// <summary>
-    /// Audio-clock probe for issue #33. Reads the WASAPI device clock (IAudioClock) and logs it
-    /// against wall time to determine empirically whether it is usable in shared mode - the SDK's
-    /// IAudioPlayer contract assumes it is not. Returns <c>null</c> so the SDK keeps its current
-    /// wall-clock timing; this only gathers evidence. Wiring the device clock in as the sync
-    /// timing source is a follow-up once the probe confirms it tracks real time.
+    /// Sync time source for <see cref="SyncCorrectedSampleSource"/> - the app's actual playback
+    /// timing path (the SDK's GetAudioClockMicroseconds/GetCurrentLocalTime path is bypassed here,
+    /// since correction was moved app-side). This delegate IS invoked per render read during
+    /// playback, so it reads the WASAPI device clock (IAudioClock) and returns it anchored onto the
+    /// wall-clock timeline via <see cref="DeviceClockAnchor"/> - timing sync against the DAC's own
+    /// crystal instead of the system clock (issue #33). Falls back to the wall clock when the device
+    /// clock is unavailable, when it misbehaves, or when <see cref="_useDeviceClock"/> is false.
     /// </summary>
-    public long? GetAudioClockMicroseconds()
+    private long GetSyncTimeMicroseconds()
     {
-        LogAudioClockProbeIfDue();
-        return null;
+        var wallMicros = HighPrecisionTimer.Shared.GetCurrentTimeMicroseconds();
+
+        if (!_useDeviceClock)
+        {
+            return wallMicros;
+        }
+
+        // One hardware read per call, reused for both the returned sync time and the diagnostics log.
+        var deviceMicros = TryReadAudioClockMicroseconds();
+        var syncMicros = _deviceClockAnchor.Resolve(deviceMicros, wallMicros);
+
+        if (_deviceClockAnchor.JustEngaged)
+        {
+            _logger.LogInformation("[Timing] Device audio clock engaged as the sync-timing source (IAudioClock, shared mode)");
+        }
+        else if (_deviceClockAnchor.JustDisabled)
+        {
+            _logger.LogWarning("[Timing] Device audio clock went non-monotonic; reverted to wall-clock timing for this stream");
+        }
+
+        LogAudioClockDiagnosticsIfDue(deviceMicros, wallMicros);
+        return syncMicros;
     }
 
-    private void LogAudioClockProbeIfDue()
+    /// <summary>
+    /// Periodically logs the device-clock-vs-wall-clock advance ratio (issue #33 diagnostics). Uses
+    /// the reading already taken in <see cref="GetSyncTimeMicroseconds"/> - it does not re-read
+    /// hardware. A ratio &gt; 1.0 means the DAC is running faster than the system clock (the drift
+    /// the device clock now corrects for); ~1.0000 means the two clocks already agree on this box.
+    /// </summary>
+    private void LogAudioClockDiagnosticsIfDue(long? clockMicros, long wallMicros)
     {
         var nowTicks = DateTime.UtcNow.Ticks;
         var last = Interlocked.Read(ref _lastClockProbeLogTicks);
@@ -768,21 +817,19 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
             return;
         }
 
-        var clockMicros = TryReadAudioClockMicroseconds();
         if (clockMicros == null)
         {
-            _logger.LogInformation("[AudioClockProbe] IAudioClock unavailable in shared mode - SDK wall-clock fallback in effect");
+            _logger.LogInformation("[AudioClock] not readable yet (awaiting playback / IAudioClock not ready) - on wall-clock fallback");
             return;
         }
 
-        var wallMicros = nowTicks / 10; // 100ns ticks -> microseconds
         if (_probeLastWallMicros != 0)
         {
             var clockDeltaMs = (clockMicros.Value - _probeLastClockMicros) / 1000.0;
             var wallDeltaMs = (wallMicros - _probeLastWallMicros) / 1000.0;
             var ratio = wallDeltaMs > 0 ? clockDeltaMs / wallDeltaMs : 0;
             _logger.LogInformation(
-                "[AudioClockProbe] pos={PosMs:F1}ms; advanced {ClockDeltaMs:F0}ms over wall {WallDeltaMs:F0}ms (ratio {Ratio:F4} - ~1.0 = tracks real time)",
+                "[AudioClock] pos={PosMs:F1}ms; advanced {ClockDeltaMs:F0}ms over wall {WallDeltaMs:F0}ms (ratio {Ratio:F4}; >1 = DAC faster than system clock)",
                 clockMicros.Value / 1000.0,
                 clockDeltaMs,
                 wallDeltaMs,
@@ -791,7 +838,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         else
         {
             _logger.LogInformation(
-                "[AudioClockProbe] IAudioClock readable in shared mode: pos={PosMs:F1}ms (first reading)",
+                "[AudioClock] IAudioClock readable in shared mode: pos={PosMs:F1}ms (first reading)",
                 clockMicros.Value / 1000.0);
         }
 
@@ -805,7 +852,11 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// </summary>
     private long? TryReadAudioClockMicroseconds()
     {
-        if (_audioClockProbeFailed)
+        // Only query once playback is running: Play() has called the audio client's Init()+Start(),
+        // so IAudioClock is valid. Querying earlier (the SDK's one-time timing-source check at
+        // pipeline setup, before WasapiOut.Init()) throws AUDCLNT_E_NOT_INITIALIZED. We must NOT
+        // permanently disable on that, or a pre-playback failure masks a clock that works in play.
+        if (State != AudioPlayerState.Playing)
         {
             return null;
         }
@@ -829,8 +880,9 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         }
         catch (Exception ex)
         {
-            _audioClockProbeFailed = true;
-            _logger.LogWarning(ex, "[AudioClockProbe] IAudioClock read failed - this supports the SDK's shared-mode fallback assumption");
+            // Drop the cached client and retry on the next probe (also handles device-switch staleness).
+            _audioClockClient = null;
+            _logger.LogDebug(ex, "[AudioClockProbe] IAudioClock read threw; will retry");
             return null;
         }
     }
@@ -867,6 +919,13 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     {
         if (State != newState)
         {
+            // Entering Playing means a (re)started WASAPI stream whose device-clock position zeroes;
+            // re-anchor so the reset is taken as a fresh anchor, not mistaken for a backward glitch.
+            if (newState == AudioPlayerState.Playing && State != AudioPlayerState.Playing)
+            {
+                _deviceClockAnchor.Reset();
+            }
+
             _logger.LogDebug("Player state: {OldState} -> {NewState}", State, newState);
             State = newState;
             StateChanged?.Invoke(this, newState);
