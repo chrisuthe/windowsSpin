@@ -324,8 +324,10 @@
                 </Border>
             </Border>
 
-            <!-- Now Playing Section - Modern Design -->
-            <Grid Grid.Row="1" VerticalAlignment="Center">
+            <!-- Now Playing Section - Modern Design.
+                 Top-aligned so the gap above the album art matches the 24px side margins
+                 (centering made the top gap grow with the leftover row height). -->
+            <Grid Grid.Row="1" VerticalAlignment="Top">
                 <Grid.Style>
                     <Style TargetType="Grid">
                         <Setter Property="Visibility" Value="Collapsed"/>
