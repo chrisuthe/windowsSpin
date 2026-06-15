@@ -211,6 +211,31 @@ public partial class MainViewModel : ViewModelBase
         : $"Current: {CurrentGroupName}\nClick to switch";
 
     /// <summary>
+    /// Gets or sets whether shuffle is enabled for the current group.
+    /// Reflects the server's authoritative state (Sendspin spec: shuffle is group-level).
+    /// </summary>
+    [ObservableProperty]
+    private bool _isShuffleEnabled;
+
+    /// <summary>
+    /// Gets or sets the current repeat mode: "off", "all", or "one".
+    /// Reflects the server's authoritative state (Sendspin spec: repeat is group-level).
+    /// </summary>
+    [NotifyPropertyChangedFor(nameof(RepeatTooltip))]
+    [ObservableProperty]
+    private string _repeatMode = "off";
+
+    /// <summary>
+    /// Gets the tooltip text for the Repeat button, describing the current mode.
+    /// </summary>
+    public string RepeatTooltip => RepeatMode switch
+    {
+        "all" => "Repeat: All",
+        "one" => "Repeat: One",
+        _ => "Repeat: Off",
+    };
+
+    /// <summary>
     /// Gets or sets the status message displayed in the UI.
     /// Shows connection state, errors, or "Now Playing" information.
     /// </summary>
@@ -708,6 +733,54 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Toggles shuffle on/off for the current group. The new state is reflected
+    /// back via <see cref="GroupState.Shuffle"/> on the next group/update.
+    /// </summary>
+    [RelayCommand]
+    private async Task ToggleShuffleAsync()
+    {
+        if (!IsConnected) return;
+
+        try
+        {
+            var command = IsShuffleEnabled ? Commands.Unshuffle : Commands.Shuffle;
+            _logger.LogInformation("ToggleShuffle -> sending {Command} (was {State})", command, IsShuffleEnabled);
+            await SendCommandToActiveClientAsync(command);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send shuffle command");
+        }
+    }
+
+    /// <summary>
+    /// Cycles the repeat mode off → all → one → off. The new state is reflected
+    /// back via <see cref="GroupState.Repeat"/> on the next group/update.
+    /// </summary>
+    [RelayCommand]
+    private async Task CycleRepeatAsync()
+    {
+        if (!IsConnected) return;
+
+        try
+        {
+            // off → all → one → off, matching the Now Playing design.
+            var command = RepeatMode switch
+            {
+                "all" => Commands.RepeatOne,
+                "one" => Commands.RepeatOff,
+                _ => Commands.RepeatAll,
+            };
+            _logger.LogInformation("CycleRepeat -> sending {Command} (was {Mode})", command, RepeatMode);
+            await SendCommandToActiveClientAsync(command);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send repeat command");
+        }
+    }
+
+    /// <summary>
     /// Switches to the next available playback group.
     /// The server will automatically move this player to a different group.
     /// </summary>
@@ -1036,6 +1109,10 @@ public partial class MainViewModel : ViewModelBase
                 // Capture group name for Switch Group button
                 CurrentGroupName = group.Name ?? group.GroupId;
 
+                // Reflect the group's shuffle/repeat state on the transport buttons.
+                IsShuffleEnabled = group.Shuffle;
+                RepeatMode = group.Repeat ?? "off";
+
                 if (group.Metadata?.Duration.HasValue == true)
                 {
                     Duration = group.Metadata.Duration.Value;
@@ -1230,6 +1307,10 @@ public partial class MainViewModel : ViewModelBase
 
                 // Capture group name for Switch Group button
                 CurrentGroupName = group.Name ?? group.GroupId;
+
+                // Reflect the group's shuffle/repeat state on the transport buttons.
+                IsShuffleEnabled = group.Shuffle;
+                RepeatMode = group.Repeat ?? "off";
 
                 // Handle progress updates OR clearing
                 // Progress can be:

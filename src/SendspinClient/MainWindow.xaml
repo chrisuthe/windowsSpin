@@ -79,9 +79,9 @@
             </Border.Style>
             <Border.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                    <GradientStop Color="#881E1E2E" Offset="0"/>
-                    <GradientStop Color="#AA1E1E2E" Offset="0.4"/>
-                    <GradientStop Color="#DD1E1E2E" Offset="1"/>
+                    <GradientStop Color="#88181B1D" Offset="0"/>
+                    <GradientStop Color="#AA181B1D" Offset="0.4"/>
+                    <GradientStop Color="#DD15171A" Offset="1"/>
                 </LinearGradientBrush>
             </Border.Background>
         </Border>
@@ -94,8 +94,10 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- Header (semi-transparent when connected) -->
-            <Border Grid.Row="0" Padding="16">
+            <!-- Header: slim strip carrying only the settings gear.
+                 The app identity (logo + "WindowsSpin") already lives in the OS title bar,
+                 so the in-app "Sendspin / Windows Client" block was removed as redundant. -->
+            <Border Grid.Row="0" Padding="12,6">
                 <Border.Style>
                     <Style TargetType="Border">
                         <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
@@ -107,20 +109,8 @@
                     </Style>
                 </Border.Style>
                 <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <!-- Title and subtitle -->
-                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                        <TextBlock Text="Sendspin" Style="{StaticResource HeaderText}"/>
-                        <TextBlock Text="Windows Client" Style="{StaticResource CaptionText}" Margin="0,4,0,0"/>
-                    </StackPanel>
-
-                    <!-- Right side buttons -->
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <!-- Settings gear icon (always visible) -->
+                    <!-- Settings gear, right-aligned (always visible) -->
+                    <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button Command="{Binding ToggleSettingsCommand}"
                                 ToolTip="Settings"
                                 Width="36" Height="36"
@@ -516,56 +506,98 @@
                                    VerticalAlignment="Center"/>
                     </Grid>
 
-                    <!-- Playback Controls -->
-                    <Grid Margin="0,24,0,0" Width="320">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
+                    <!-- Playback Controls: shuffle · prev · play · next · repeat -->
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Center"
+                                Margin="0,24,0,0">
+
+                        <!-- Shuffle (lights up green when active) -->
+                        <Button Command="{Binding ToggleShuffleCommand}"
+                                ToolTip="Shuffle"
+                                Width="40" Height="40"
+                                Margin="0,0,8,0">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsShuffleEnabled}" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource PlayerAccentBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <Path Width="21" Height="21" Stretch="Uniform"
+                                  StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                  Data="M16,3 H21 V8 M4,20 L21,3 M21,16 V21 H16 M15,15 L21,21 M4,4 L9,9"/>
+                        </Button>
 
                         <!-- Previous Button -->
-                        <Button Grid.Column="1"
-                                Content="◀◀"
+                        <Button Content="◀◀"
                                 Style="{StaticResource IconButton}"
                                 Command="{Binding PreviousTrackCommand}"
                                 Width="48" Height="48"
                                 FontSize="18"
+                                Margin="8,0"
                                 ToolTip="Previous"/>
 
                         <!-- Play/Pause (Large Circular with Background) -->
-                        <Button Grid.Column="2"
-                                Style="{StaticResource LargePlayButton}"
+                        <Button Style="{StaticResource LargePlayButton}"
                                 Command="{Binding PlayPauseCommand}"
                                 ToolTip="Play/Pause"
-                                Margin="16,0">
+                                Margin="12,0">
                             <TextBlock Text="{Binding IsPlaying, Converter={StaticResource PlayPauseIconConverter}}"
                                        FontSize="32"
                                        Foreground="{StaticResource TextPrimaryBrush}"/>
                         </Button>
 
                         <!-- Next Button -->
-                        <Button Grid.Column="3"
-                                Content="▶▶"
+                        <Button Content="▶▶"
                                 Style="{StaticResource IconButton}"
                                 Command="{Binding NextTrackCommand}"
                                 Width="48" Height="48"
                                 FontSize="18"
+                                Margin="8,0"
                                 ToolTip="Next"/>
 
-                        <!-- Switch Group Button (right side) -->
-                        <Button Grid.Column="4"
-                                HorizontalAlignment="Right"
-                                Command="{Binding SwitchGroupCommand}"
-                                Style="{StaticResource IconButton}"
-                                ToolTip="{Binding CurrentGroupTooltip}"
+                        <!-- Repeat (green when active; shows "1" in repeat-one mode) -->
+                        <Button Command="{Binding CycleRepeatCommand}"
+                                ToolTip="{Binding RepeatTooltip}"
                                 Width="40" Height="40"
-                                FontSize="18">
-                            <TextBlock Text="&#x1F4E1;"/>
+                                Margin="8,0,0,0">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="Foreground" Value="{StaticResource PlayerAccentBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding RepeatMode}" Value="off">
+                                            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <Grid Width="21" Height="21">
+                                <Path Stretch="Uniform"
+                                      StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                      Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                      Data="M17,2 L21,6 L17,10 M3,11 L3,10 A4,4 0 0 1 7,6 L21,6 M7,22 L3,18 L7,14 M21,13 L21,14 A4,4 0 0 1 17,18 L3,18"/>
+                                <TextBlock Text="1"
+                                           FontSize="9" FontWeight="Bold"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding RepeatMode}" Value="one">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
                         </Button>
-                    </Grid>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
 
@@ -1253,11 +1285,12 @@
                     </Style>
                 </Border.Style>
                 <Grid>
-                    <!-- Volume Control (visible when connected) -->
+                    <!-- Volume / output bar (visible when connected): volume + Switch Group -->
                     <Grid Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
@@ -1280,6 +1313,23 @@
                                    Style="{StaticResource CaptionText}"
                                    VerticalAlignment="Center"
                                    Width="35"/>
+
+                        <!-- Switch Group: output belongs with the volume row, not the transport row -->
+                        <Button Grid.Column="3"
+                                Command="{Binding SwitchGroupCommand}"
+                                Style="{StaticResource IconButton}"
+                                ToolTip="{Binding CurrentGroupTooltip}"
+                                Foreground="{StaticResource TextSecondaryBrush}"
+                                Width="32" Height="32"
+                                Margin="4,0,0,0">
+                            <Path Width="18" Height="18" Stretch="Uniform"
+                                  StrokeThickness="1.7" StrokeLineJoin="Round"
+                                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                  Data="M4.4,3 H8 A1.4,1.4 0 0 1 9.4,4.4 V8 A1.4,1.4 0 0 1 8,9.4 H4.4 A1.4,1.4 0 0 1 3,8 V4.4 A1.4,1.4 0 0 1 4.4,3 Z
+                                        M15.4,3 H19 A1.4,1.4 0 0 1 20.4,4.4 V8 A1.4,1.4 0 0 1 19,9.4 H15.4 A1.4,1.4 0 0 1 14,8 V4.4 A1.4,1.4 0 0 1 15.4,3 Z
+                                        M4.4,14 H8 A1.4,1.4 0 0 1 9.4,15.4 V19 A1.4,1.4 0 0 1 8,20.4 H4.4 A1.4,1.4 0 0 1 3,19 V15.4 A1.4,1.4 0 0 1 4.4,14 Z
+                                        M15.4,14 H19 A1.4,1.4 0 0 1 20.4,15.4 V19 A1.4,1.4 0 0 1 19,20.4 H15.4 A1.4,1.4 0 0 1 14,19 V15.4 A1.4,1.4 0 0 1 15.4,14 Z"/>
+                        </Button>
                     </Grid>
 
                     <!-- Error Message (when disconnected or error) -->
