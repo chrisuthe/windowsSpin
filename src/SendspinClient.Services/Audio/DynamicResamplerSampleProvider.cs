@@ -32,7 +32,6 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposabl
     private readonly int _targetSampleRate;
 
     private double _playbackRate = 1.0;
-    private float[] _sourceBuffer;
     private bool _disposed;
 
     // Underrun tracking for diagnostics
@@ -172,19 +171,6 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposabl
         _resampler.SetFeedMode(true); // We're in output-driven mode (request N output samples)
         UpdateResamplerRates();
 
-        // Pre-allocate source buffer sized for worst-case to avoid audio thread allocations.
-        // Must account for:
-        // - Max WASAPI buffer request (~16384 samples for 100ms+ latency at 48kHz stereo)
-        // - Max playback rate (1.04x)
-        // - Sample rate conversion ratio (e.g., 96kHz→48kHz = 2.0x)
-        //
-        // Formula: maxOutputRequest * MaxRate * sampleRateRatio * safetyMargin
-        const int MaxExpectedOutputRequest = 16384;
-        const double SafetyMargin = 1.2; // 20% extra headroom
-        var sampleRateRatio = (double)source.WaveFormat.SampleRate / _targetSampleRate;
-        var bufferSize = (int)(MaxExpectedOutputRequest * MaxRate * sampleRateRatio * SafetyMargin);
-        _sourceBuffer = new float[bufferSize];
-
         // Subscribe to correction provider rate changes if available
         if (_correctionProvider != null)
         {
@@ -205,100 +191,47 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposabl
             return 0;
         }
 
-        double currentRate;
-        lock (_rateLock)
-        {
-            currentRate = _playbackRate;
-        }
+        var channels = WaveFormat.Channels;
+        var outputFrames = count / channels;
 
-        // NOTE: We intentionally do NOT bypass the resampler even at rate 1.0.
-        // Bypassing causes audible pops when transitioning in/out of resampling mode
-        // because the WDL resampler has internal filter state that gets disrupted.
-        // At rate 1.0, the resampler acts as a passthrough but maintains consistent state.
-
-        // Calculate how many source samples we need for the requested output samples.
-        // Must account for BOTH sample rate conversion AND sync correction:
-        // - Sample rate ratio: sourceRate / targetRate (e.g., 48k/44.1k = 1.088)
-        // - Playback rate: currentRate (e.g., 1.02 for 2% speedup)
+        // Output-driven (feed) mode: ask the resampler how many INPUT frames it needs to
+        // produce outputFrames - accounting for its current rate AND its internal sinc-filter
+        // history - then read exactly that many straight into the resampler's own buffer.
+        // This is NAudio's canonical WdlResamplingSampleProvider usage.
         //
-        // Example: 48kHz source, 44.1kHz target, 1.02x playback, 2048 output samples:
-        // inputNeeded = 2048 * 1.02 * (48000/44100) = 2048 * 1.02 * 1.088 = 2274
+        // The previous implementation computed the input count itself (count * rate *
+        // sourceRate/targetRate). That figure ignores the WDL filter's priming latency, so the
+        // resampler was perpetually under-fed by a frame or two and emitted fewer samples than
+        // requested - padded with silence. At rate ~1.0 it fired on nearly every callback,
+        // surfacing as audible stutter on revealing external DACs.
         //
-        // Without this, downsampling (source > target) would starve the resampler,
-        // causing it to produce fewer output samples and resulting in silence gaps.
-        var sampleRateRatio = (double)_source.WaveFormat.SampleRate / _targetSampleRate;
-        var inputSamplesNeeded = (int)Math.Ceiling(count * currentRate * sampleRateRatio);
+        // We intentionally do NOT bypass the resampler at rate 1.0: the WDL filter carries
+        // state across calls, and dropping out of the path disrupts it and causes pops.
+        var framesNeeded = _resampler.ResamplePrepare(outputFrames, channels, out var inBuffer, out var inBufferOffset);
+        var framesRead = _source.Read(inBuffer, inBufferOffset, framesNeeded * channels) / channels;
 
-        // Ensure source buffer is large enough.
-        // This should rarely happen with proper pre-allocation, but handle it as a safety net.
-        if (_sourceBuffer.Length < inputSamplesNeeded)
+        if (framesRead == 0)
         {
-            _logger?.LogWarning(
-                "Audio thread buffer reallocation triggered: needed {Needed}, had {Had}. " +
-                "Consider increasing MaxExpectedOutputRequest.",
-                inputSamplesNeeded,
-                _sourceBuffer.Length);
-            _sourceBuffer = new float[inputSamplesNeeded * 2];
-        }
-
-        // Read from source
-        var inputRead = _source.Read(_sourceBuffer, 0, inputSamplesNeeded);
-
-        if (inputRead == 0)
-        {
-            // Source is empty - fill with silence and track underrun
+            // Source genuinely empty - fill with silence and track the underrun.
             Interlocked.Increment(ref _sourceEmptyCount);
             LogUnderrunIfNeeded("source empty");
             Array.Fill(buffer, 0f, offset, count);
             return count;
         }
 
-        // Resample
-        var outputGenerated = Resample(_sourceBuffer, inputRead, buffer, offset, count);
+        var framesGenerated = _resampler.ResampleOut(buffer, offset, framesRead, outputFrames, channels);
+        var samplesGenerated = framesGenerated * channels;
 
-        // If we didn't generate enough output, pad with silence and track underrun
-        if (outputGenerated < count)
+        // A shortfall here now means the source delivered fewer frames than the resampler
+        // asked for (a real upstream/network underrun), not a filter-priming deficit.
+        if (samplesGenerated < count)
         {
             Interlocked.Increment(ref _resamplerShortCount);
-            LogUnderrunIfNeeded($"resampler short: got {outputGenerated}, needed {count}");
-            Array.Fill(buffer, 0f, offset + outputGenerated, count - outputGenerated);
+            LogUnderrunIfNeeded($"resampler short: got {samplesGenerated}, needed {count}");
+            Array.Fill(buffer, 0f, offset + samplesGenerated, count - samplesGenerated);
         }
 
         return count;
-    }
-
-    /// <summary>
-    /// Performs the actual resampling using WDL resampler.
-    /// </summary>
-    private int Resample(float[] input, int inputCount, float[] output, int outputOffset, int outputCount)
-    {
-        var channels = WaveFormat.Channels;
-        var inputFrames = inputCount / channels;
-        var outputFrames = outputCount / channels;
-
-        // Get resampler's input buffer - includes offset parameter for where to write
-        var framesNeeded = _resampler.ResamplePrepare(outputFrames, channels, out var inBuffer, out var inBufferOffset);
-
-        // Copy our input to resampler's buffer at the correct offset
-        var framesToCopy = Math.Min(inputFrames, framesNeeded);
-        var samplesToCopy = framesToCopy * channels;
-        for (var i = 0; i < samplesToCopy; i++)
-        {
-            inBuffer[inBufferOffset + i] = input[i];
-        }
-
-        // Process through resampler directly into output buffer
-        var framesGenerated = _resampler.ResampleOut(output, outputOffset, framesToCopy, outputFrames, channels);
-
-        var samplesGenerated = framesGenerated * channels;
-
-        // Soft clipping disabled - was causing audible "overdrive" artifacts even on normal audio.
-        // The WDL resampler's output is typically within ±1.0 for well-mastered content.
-        // Any occasional overshoots from sinc filter ringing will be handled by the DAC's
-        // built-in clipping, which is less audible than our soft clipper engaging frequently.
-        // ApplySoftClipping(output, outputOffset, samplesGenerated);
-
-        return samplesGenerated;
     }
 
     /// <summary>
