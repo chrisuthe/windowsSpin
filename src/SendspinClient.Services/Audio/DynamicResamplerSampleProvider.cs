@@ -34,6 +34,9 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposabl
     private double _playbackRate = 1.0;
     private bool _disposed;
 
+    // Last frame actually produced, held across a shortfall instead of writing silence.
+    private readonly float[] _lastFrame;
+
     // Underrun tracking for diagnostics
     private long _sourceEmptyCount;
     private long _resamplerShortCount;
@@ -161,6 +164,8 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposabl
             _logger?.LogDebug("Resampler configured for sync correction only (no sample rate conversion)");
         }
 
+        _lastFrame = new float[WaveFormat.Channels];
+
         // Initialize WDL resampler
         // Reduced from 32 to 16 taps - 32-tap was causing audible artifacts during
         // dynamic rate changes. 16-tap provides good quality with faster adaptation
@@ -199,20 +204,22 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposabl
         // history - then read exactly that many straight into the resampler's own buffer.
         // This is NAudio's canonical WdlResamplingSampleProvider usage.
         //
-        // The previous implementation computed the input count itself (count * rate *
-        // sourceRate/targetRate). That figure ignores the WDL filter's priming latency, so the
-        // resampler was perpetually under-fed by a frame or two and emitted fewer samples than
-        // requested - padded with silence. At rate ~1.0 it fired on nearly every callback,
-        // surfacing as audible stutter on revealing external DACs.
+        // ResamplePrepare's count is ratio*out + filter-priming margin - already-buffered input
+        // (see NAudio's WdlResamplingSampleProvider). The previous implementation computed the
+        // read size itself as count * rate * sourceRate/targetRate, which omits that priming
+        // margin, so the filter was under-fed and emitted fewer samples than requested whenever
+        // the rate sat off 1.0 (i.e. under continuous drift correction). The shortfall was padded
+        // with digital silence and surfaced as audible stutter on revealing external DACs.
         //
-        // We intentionally do NOT bypass the resampler at rate 1.0: the WDL filter carries
-        // state across calls, and dropping out of the path disrupts it and causes pops.
+        // We intentionally do NOT bypass the resampler at rate 1.0: the WDL filter carries state
+        // across calls, and dropping out of the path disrupts it and causes pops.
         var framesNeeded = _resampler.ResamplePrepare(outputFrames, channels, out var inBuffer, out var inBufferOffset);
         var framesRead = _source.Read(inBuffer, inBufferOffset, framesNeeded * channels) / channels;
 
         if (framesRead == 0)
         {
-            // Source genuinely empty - fill with silence and track the underrun.
+            // Source genuinely empty (sustained upstream/network stall) - silence is correct here;
+            // holding a sample across a long gap would leave an audible stuck DC offset.
             Interlocked.Increment(ref _sourceEmptyCount);
             LogUnderrunIfNeeded("source empty");
             Array.Fill(buffer, 0f, offset, count);
@@ -222,13 +229,29 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposabl
         var framesGenerated = _resampler.ResampleOut(buffer, offset, framesRead, outputFrames, channels);
         var samplesGenerated = framesGenerated * channels;
 
-        // A shortfall here now means the source delivered fewer frames than the resampler
-        // asked for (a real upstream/network underrun), not a filter-priming deficit.
+        // Remember the last frame actually produced, for zero-order-hold concealment.
+        if (samplesGenerated >= channels)
+        {
+            Array.Copy(buffer, offset + samplesGenerated - channels, _lastFrame, 0, channels);
+        }
+
+        // Output-driven feeding removes the priming deficit, but the WDL filter can still come up
+        // a frame or two short on a rate change (the input/output accounting momentarily shifts
+        // when SetRates changes the ratio). Conceal that residual by holding the last produced
+        // frame (zero-order hold) rather than writing silence: a silence gap is a step
+        // discontinuity - a broadband click - while a held sample keeps the waveform continuous
+        // and is inaudible at 1-2 frames. This is standard packet-loss concealment. If a callback
+        // produced nothing at all, _lastFrame carries the previous callback's frame; it is zero
+        // only before the very first frame of the stream.
         if (samplesGenerated < count)
         {
             Interlocked.Increment(ref _resamplerShortCount);
             LogUnderrunIfNeeded($"resampler short: got {samplesGenerated}, needed {count}");
-            Array.Fill(buffer, 0f, offset + samplesGenerated, count - samplesGenerated);
+
+            for (var i = samplesGenerated; i < count; i++)
+            {
+                buffer[offset + i] = _lastFrame[i % channels];
+            }
         }
 
         return count;
