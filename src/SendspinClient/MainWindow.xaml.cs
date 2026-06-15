@@ -12,8 +12,8 @@ namespace SendspinClient;
 /// </summary>
 public partial class MainWindow : Window
 {
-    private const double DefaultWidth = 386;
-    private const double DefaultHeight = 712;
+    private const double DefaultWidth = 410;
+    private const double DefaultHeight = 736;
     private BreathingArtAnimator? _breathingAnimator;
 
     public MainWindow()

@@ -10,25 +10,40 @@
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="WindowsSpin"
         Icon="Resources/Icons/sendspinDesktop.ico"
-        Height="712" Width="386"
-        MinHeight="688" MinWidth="372"
+        Height="736" Width="410"
+        MinHeight="712" MinWidth="396"
         ResizeMode="CanMinimize"
-        Background="{StaticResource BackgroundDarkBrush}"
+        AllowsTransparency="True"
+        Background="Transparent"
         WindowStyle="None">
 
     <!-- Custom themed window chrome: paint our own title bar while the OS keeps
          drag / minimize / taskbar behavior. Fixed size (no maximize / resize), so
-         none of the maximize-clip handling is needed. GlassFrameThickness keeps the
-         DWM drop shadow; CaptionHeight defines the draggable top strip. -->
+         none of the maximize-clip handling is needed. CaptionHeight defines the
+         draggable top strip (52 = 12px shadow margin + 40px title bar). -->
     <WindowChrome.WindowChrome>
-        <WindowChrome CaptionHeight="40"
+        <WindowChrome CaptionHeight="52"
                       ResizeBorderThickness="0"
                       CornerRadius="0"
-                      GlassFrameThickness="1"
+                      GlassFrameThickness="0"
                       UseAeroCaptionButtons="False"/>
     </WindowChrome.WindowChrome>
 
+    <!-- Rounded window surface. AllowsTransparency lets us paint smooth 25px corners
+         and our own drop shadow (DWM can't do arbitrary corner radii). The 12px
+         margin gives the shadow room; the window is sized +24px so visible content
+         stays 386x712. -->
+    <Border Margin="12" CornerRadius="25" Background="{StaticResource BackgroundDarkBrush}">
+        <Border.Effect>
+            <DropShadowEffect Color="Black" BlurRadius="14" ShadowDepth="0" Opacity="0.5"/>
+        </Border.Effect>
+
     <Grid>
+        <!-- Clip all content (blurred art, gradients) to the rounded corners.
+             Fixed-size window, so a fixed geometry is exact. -->
+        <Grid.Clip>
+            <RectangleGeometry Rect="0,0,386,712" RadiusX="25" RadiusY="25"/>
+        </Grid.Clip>
         <!-- Layer 0: Blurred Background (full window, behind everything) -->
         <Border>
             <Border.Style>
@@ -1352,4 +1367,5 @@
             </Border>
         </Grid>
     </Grid>
+    </Border>
 </Window>
