@@ -43,6 +43,16 @@ That's it!
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/ScreenShots/now-playing.png" alt="Now Playing" width="370">
+  &nbsp;&nbsp;
+  <img src="docs/ScreenShots/settings.png" alt="Settings" width="370">
+</p>
+
+---
+
 ## Troubleshooting
 
 **Server not discovered?**
