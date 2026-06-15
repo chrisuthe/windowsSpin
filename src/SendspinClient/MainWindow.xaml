@@ -94,61 +94,8 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- Header: slim strip carrying only the settings gear.
-                 The app identity (logo + "WindowsSpin") already lives in the OS title bar,
-                 so the in-app "Sendspin / Windows Client" block was removed as redundant. -->
-            <Border Grid.Row="0" Padding="12,6">
-                <Border.Style>
-                    <Style TargetType="Border">
-                        <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                                <Setter Property="Background" Value="Transparent"/>
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </Border.Style>
-                <Grid>
-                    <!-- Settings gear, right-aligned (always visible) -->
-                    <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button Command="{Binding ToggleSettingsCommand}"
-                                ToolTip="Settings"
-                                Width="36" Height="36"
-                                Background="Transparent"
-                                Foreground="{StaticResource TextSecondaryBrush}"
-                                BorderThickness="0"
-                                Cursor="Hand">
-                            <Button.Style>
-                                <Style TargetType="Button">
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="Button">
-                                                <Border Background="{TemplateBinding Background}"
-                                                        CornerRadius="4">
-                                                    <TextBlock Text="&#x2699;"
-                                                               FontSize="20"
-                                                               HorizontalAlignment="Center"
-                                                               VerticalAlignment="Center"
-                                                               Foreground="{TemplateBinding Foreground}"/>
-                                                </Border>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                    <Style.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
-                                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                        </Trigger>
-                                        <DataTrigger Binding="{Binding IsSettingsOpen}" Value="True">
-                                            <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Button.Style>
-                        </Button>
-                    </StackPanel>
-                </Grid>
-            </Border>
+            <!-- Row 0 intentionally empty: the settings gear moved to the footer
+                 (left of the volume), letting the album art rise into this space. -->
 
             <!-- Welcome View (visible when disconnected and settings not open) -->
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
@@ -1285,8 +1232,55 @@
                     </Style>
                 </Border.Style>
                 <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Settings gear (always visible - the only entry to Settings,
+                         and the volume controls beside it are connected-only) -->
+                    <Button Grid.Column="0"
+                            Command="{Binding ToggleSettingsCommand}"
+                            ToolTip="Settings"
+                            Width="32" Height="32"
+                            Background="Transparent"
+                            Foreground="{StaticResource TextSecondaryBrush}"
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            VerticalAlignment="Center"
+                            Margin="0,0,4,0">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="{TemplateBinding Background}"
+                                                    CornerRadius="4">
+                                                <TextBlock Text="&#x2699;"
+                                                           FontSize="18"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{TemplateBinding Foreground}"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                    </Trigger>
+                                    <DataTrigger Binding="{Binding IsSettingsOpen}" Value="True">
+                                        <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+
                     <!-- Volume / output bar (visible when connected): volume + Switch Group -->
-                    <Grid Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Grid Grid.Column="1"
+                          Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
@@ -1333,9 +1327,11 @@
                     </Grid>
 
                     <!-- Error Message (when disconnected or error) -->
-                    <TextBlock Text="{Binding ErrorMessage}"
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding ErrorMessage}"
                                Foreground="{StaticResource ErrorBrush}"
                                TextWrapping="Wrap"
+                               VerticalAlignment="Center"
                                Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                 </Grid>
             </Border>
