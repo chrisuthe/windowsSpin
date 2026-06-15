@@ -23,7 +23,7 @@
     SDK's dev branch). Unset property => NuGet path, so normal builds are unaffected.
   -->
   <ItemGroup Condition="'$(UseSdkSource)' != 'true'">
-    <PackageReference Include="Sendspin.SDK" Version="9.0.3" />
+    <PackageReference Include="Sendspin.SDK" Version="9.0.4" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseSdkSource)' == 'true'">
     <ProjectReference Include="$(SdkSourcePath)\src\Sendspin.SDK\Sendspin.SDK.csproj" />
