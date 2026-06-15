@@ -65,6 +65,15 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     private int _outputLatencyMs;
     private int _deviceNativeSampleRate = 48000;
 
+    // Audio-clock probe (issue #33). The SDK assumes WASAPI shared mode cannot supply a
+    // hardware clock and falls back to the wall clock; this gathers evidence to test that.
+    private AudioClockClient? _audioClockClient;
+    private bool _audioClockProbeFailed;
+    private long _lastClockProbeLogTicks;
+    private long _probeLastClockMicros;
+    private long _probeLastWallMicros;
+    private const long ClockProbeLogIntervalTicks = TimeSpan.TicksPerSecond * 5;
+
     /// <summary>
     /// Gets the detected output latency in milliseconds.
     /// This is the buffer latency reported by the WASAPI audio device.
@@ -730,6 +739,128 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
             WindowsAudioEngineOverheadMs);
 
         return fallbackLatency;
+    }
+
+    /// <summary>
+    /// Audio-clock probe for issue #33. Reads the WASAPI device clock (IAudioClock) and logs it
+    /// against wall time to determine empirically whether it is usable in shared mode - the SDK's
+    /// IAudioPlayer contract assumes it is not. Returns <c>null</c> so the SDK keeps its current
+    /// wall-clock timing; this only gathers evidence. Wiring the device clock in as the sync
+    /// timing source is a follow-up once the probe confirms it tracks real time.
+    /// </summary>
+    public long? GetAudioClockMicroseconds()
+    {
+        LogAudioClockProbeIfDue();
+        return null;
+    }
+
+    private void LogAudioClockProbeIfDue()
+    {
+        var nowTicks = DateTime.UtcNow.Ticks;
+        var last = Interlocked.Read(ref _lastClockProbeLogTicks);
+        if (nowTicks - last < ClockProbeLogIntervalTicks)
+        {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _lastClockProbeLogTicks, nowTicks, last) != last)
+        {
+            return;
+        }
+
+        var clockMicros = TryReadAudioClockMicroseconds();
+        if (clockMicros == null)
+        {
+            _logger.LogInformation("[AudioClockProbe] IAudioClock unavailable in shared mode - SDK wall-clock fallback in effect");
+            return;
+        }
+
+        var wallMicros = nowTicks / 10; // 100ns ticks -> microseconds
+        if (_probeLastWallMicros != 0)
+        {
+            var clockDeltaMs = (clockMicros.Value - _probeLastClockMicros) / 1000.0;
+            var wallDeltaMs = (wallMicros - _probeLastWallMicros) / 1000.0;
+            var ratio = wallDeltaMs > 0 ? clockDeltaMs / wallDeltaMs : 0;
+            _logger.LogInformation(
+                "[AudioClockProbe] pos={PosMs:F1}ms; advanced {ClockDeltaMs:F0}ms over wall {WallDeltaMs:F0}ms (ratio {Ratio:F4} - ~1.0 = tracks real time)",
+                clockMicros.Value / 1000.0,
+                clockDeltaMs,
+                wallDeltaMs,
+                ratio);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "[AudioClockProbe] IAudioClock readable in shared mode: pos={PosMs:F1}ms (first reading)",
+                clockMicros.Value / 1000.0);
+        }
+
+        _probeLastClockMicros = clockMicros.Value;
+        _probeLastWallMicros = wallMicros;
+    }
+
+    /// <summary>
+    /// Reads the WASAPI device clock position in microseconds via IAudioClock, or null if it is
+    /// not available. seconds = position / frequency (unit-agnostic per the WASAPI contract).
+    /// </summary>
+    private long? TryReadAudioClockMicroseconds()
+    {
+        if (_audioClockProbeFailed)
+        {
+            return null;
+        }
+
+        try
+        {
+            var clock = GetAudioClockClient();
+            if (clock == null)
+            {
+                return null;
+            }
+
+            var frequency = clock.Frequency;
+            if (frequency <= 0)
+            {
+                return null;
+            }
+
+            var position = clock.AdjustedPosition;
+            return (long)((double)position / frequency * 1_000_000.0);
+        }
+        catch (Exception ex)
+        {
+            _audioClockProbeFailed = true;
+            _logger.LogWarning(ex, "[AudioClockProbe] IAudioClock read failed - this supports the SDK's shared-mode fallback assumption");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Lazily resolves the <see cref="AudioClockClient"/> from WasapiOut's private AudioClient
+    /// (the same reflection reach-in used for stream latency), available after Init().
+    /// </summary>
+    private AudioClockClient? GetAudioClockClient()
+    {
+        if (_audioClockClient != null)
+        {
+            return _audioClockClient;
+        }
+
+        if (_wasapiOut == null)
+        {
+            return null;
+        }
+
+        var audioClientField = typeof(WasapiOut).GetField(
+            "audioClient",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        if (audioClientField?.GetValue(_wasapiOut) is AudioClient audioClient)
+        {
+            _audioClockClient = audioClient.AudioClockClient;
+        }
+
+        return _audioClockClient;
     }
 
     private void SetState(AudioPlayerState newState)
