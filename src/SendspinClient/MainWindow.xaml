@@ -10,8 +10,8 @@
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="WindowsSpin"
         Icon="Resources/Icons/sendspinDesktop.ico"
-        Height="780" Width="400"
-        MinHeight="750" MinWidth="350"
+        Height="712" Width="386"
+        MinHeight="688" MinWidth="372"
         ResizeMode="{Binding IsSettingsOpen, Converter={StaticResource BoolToResizeModeConverter}}"
         Background="{StaticResource BackgroundDarkBrush}"
         WindowStyle="SingleBorderWindow">
@@ -355,7 +355,7 @@
                         <Border.Effect>
                             <DropShadowEffect x:Name="AlbumArtGlow" ShadowDepth="0" BlurRadius="0" Opacity="0"/>
                         </Border.Effect>
-                        <Border Width="280" Height="280"
+                        <Border Width="320" Height="320"
                                 CornerRadius="12">
                             <Border.Effect>
                                 <DropShadowEffect Color="Black" BlurRadius="40" ShadowDepth="8" Opacity="0.6"/>
