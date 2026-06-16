@@ -169,7 +169,7 @@ public partial class MainViewModel : ViewModelBase
     /// Changes are debounced and sent to the server.
     /// </summary>
     [ObservableProperty]
-    private int _volume = 100;
+    private int _volume = 50;
 
     /// <summary>
     /// Gets or sets whether audio output is muted.
@@ -207,8 +207,8 @@ public partial class MainViewModel : ViewModelBase
     /// Gets the tooltip text for the Switch Group button.
     /// </summary>
     public string CurrentGroupTooltip => string.IsNullOrEmpty(CurrentGroupName)
-        ? "Switch Group"
-        : $"Current: {CurrentGroupName}\nClick to switch";
+        ? "Click to switch to the next group"
+        : $"{CurrentGroupName} · {PlaybackState}\nClick to switch to the next group";
 
     /// <summary>
     /// Gets or sets whether shuffle is enabled for the current group.
@@ -336,6 +336,13 @@ public partial class MainViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _settingsStartMinimized = true;
+
+    /// <summary>
+    /// Gets or sets whether the Switch Group button is shown in the volume bar.
+    /// On by default; hidden when disabled (useful for single-group/single-room setups).
+    /// </summary>
+    [ObservableProperty]
+    private bool _settingsShowSwitchGroupButton = true;
 
     /// <summary>
     /// Gets or sets the player name shown to servers.
@@ -1686,6 +1693,7 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsPlaying));
         OnPropertyChanged(nameof(DisplayTitle));
         OnPropertyChanged(nameof(DisplayArtist));
+        OnPropertyChanged(nameof(CurrentGroupTooltip));
         UpdateTrayToolTip();
 
         // Show playback state notification (if enabled in settings)
@@ -2297,8 +2305,9 @@ public partial class MainViewModel : ViewModelBase
         // Load audio settings
         SettingsStaticDelayMs = Math.Max(0, _configuration.GetValue<double>("Audio:StaticDelayMs", 0));
 
-        // Load persisted player volume/mute (these get applied via OnVolumeChanged/OnIsMutedChanged)
-        Volume = _configuration.GetValue<int>("Audio:PlayerVolume", 100);
+        // Load persisted player volume/mute (these get applied via OnVolumeChanged/OnIsMutedChanged).
+        // 50% is the default when nothing has been saved/overridden yet.
+        Volume = _configuration.GetValue<int>("Audio:PlayerVolume", 50);
         IsMuted = _configuration.GetValue<bool>("Audio:PlayerMuted", false);
 
         // Load audio stream type preference
@@ -2334,6 +2343,7 @@ public partial class MainViewModel : ViewModelBase
         _mediaControlsService.IsEnabled = SettingsEnableMediaKeys;
 
         SettingsStartMinimized = _configuration.GetValue<bool>("App:StartMinimized", true);
+        SettingsShowSwitchGroupButton = _configuration.GetValue<bool>("App:ShowSwitchGroupButton", true);
 
         // Load player name (default to computer name)
         SettingsPlayerName = _configuration.GetValue<string>("Player:Name", Environment.MachineName) ?? Environment.MachineName;
@@ -2589,6 +2599,7 @@ public partial class MainViewModel : ViewModelBase
 
             var appSection = root["App"]?.AsObject() ?? new JsonObject();
             appSection["StartMinimized"] = SettingsStartMinimized;
+            appSection["ShowSwitchGroupButton"] = SettingsShowSwitchGroupButton;
             root["App"] = appSection;
 
             // Update player section
