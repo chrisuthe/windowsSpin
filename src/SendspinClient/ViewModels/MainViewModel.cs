@@ -207,8 +207,8 @@ public partial class MainViewModel : ViewModelBase
     /// Gets the tooltip text for the Switch Group button.
     /// </summary>
     public string CurrentGroupTooltip => string.IsNullOrEmpty(CurrentGroupName)
-        ? "Switch Group"
-        : $"Current: {CurrentGroupName}\nClick to switch";
+        ? "Click to switch to the next group"
+        : $"{CurrentGroupName} · {PlaybackState}\nClick to switch to the next group";
 
     /// <summary>
     /// Gets or sets whether shuffle is enabled for the current group.
@@ -1686,6 +1686,7 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsPlaying));
         OnPropertyChanged(nameof(DisplayTitle));
         OnPropertyChanged(nameof(DisplayArtist));
+        OnPropertyChanged(nameof(CurrentGroupTooltip));
         UpdateTrayToolTip();
 
         // Show playback state notification (if enabled in settings)
