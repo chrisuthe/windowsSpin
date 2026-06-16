@@ -776,6 +776,24 @@
                                           VerticalAlignment="Center"/>
                             </Grid>
 
+                            <Grid Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Show Switch Group Button" Style="{StaticResource BodyText}"/>
+                                    <TextBlock Text="Show the group-switching button in the volume bar (turn off for single-room setups)"
+                                               Style="{StaticResource CaptionText}"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               Margin="0,2,0,0"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <CheckBox Grid.Column="1"
+                                          IsChecked="{Binding SettingsShowSwitchGroupButton}"
+                                          VerticalAlignment="Center"/>
+                            </Grid>
+
                             <!-- Player Name -->
                             <StackPanel Margin="0,0,0,16">
                                 <TextBlock Text="Player Name" Style="{StaticResource BodyText}"/>
@@ -1348,7 +1366,8 @@
                                 ToolTip="{Binding CurrentGroupTooltip}"
                                 Foreground="{StaticResource TextSecondaryBrush}"
                                 Width="32" Height="32"
-                                Margin="4,0,0,0">
+                                Margin="4,0,0,0"
+                                Visibility="{Binding SettingsShowSwitchGroupButton, Converter={StaticResource BoolToVisibilityConverter}}">
                             <Path Width="18" Height="18" Stretch="Uniform"
                                   StrokeThickness="1.7" StrokeLineJoin="Round"
                                   Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"

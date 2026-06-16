@@ -338,6 +338,13 @@ public partial class MainViewModel : ViewModelBase
     private bool _settingsStartMinimized = true;
 
     /// <summary>
+    /// Gets or sets whether the Switch Group button is shown in the volume bar.
+    /// On by default; hidden when disabled (useful for single-group/single-room setups).
+    /// </summary>
+    [ObservableProperty]
+    private bool _settingsShowSwitchGroupButton = true;
+
+    /// <summary>
     /// Gets or sets the player name shown to servers.
     /// Defaults to the computer name.
     /// </summary>
@@ -2336,6 +2343,7 @@ public partial class MainViewModel : ViewModelBase
         _mediaControlsService.IsEnabled = SettingsEnableMediaKeys;
 
         SettingsStartMinimized = _configuration.GetValue<bool>("App:StartMinimized", true);
+        SettingsShowSwitchGroupButton = _configuration.GetValue<bool>("App:ShowSwitchGroupButton", true);
 
         // Load player name (default to computer name)
         SettingsPlayerName = _configuration.GetValue<string>("Player:Name", Environment.MachineName) ?? Environment.MachineName;
@@ -2591,6 +2599,7 @@ public partial class MainViewModel : ViewModelBase
 
             var appSection = root["App"]?.AsObject() ?? new JsonObject();
             appSection["StartMinimized"] = SettingsStartMinimized;
+            appSection["ShowSwitchGroupButton"] = SettingsShowSwitchGroupButton;
             root["App"] = appSection;
 
             // Update player section
