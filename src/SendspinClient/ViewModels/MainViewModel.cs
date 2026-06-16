@@ -1825,7 +1825,10 @@ public partial class MainViewModel : ViewModelBase
         // Apply delay value immediately (this is cheap)
         _clockSynchronizer.StaticDelayMs = value;
 
-        // Debounce buffer clear - only clear after user stops adjusting the slider
+        // Debounce the re-anchor - only apply after the user stops adjusting the slider.
+        // Re-anchor (not Clear): applies the new delay to the already-buffered audio in place.
+        // Clear() would dump the buffer and, with a server that transmits far ahead of playback,
+        // stall for the full transmit-ahead window (tens of seconds of silence) while it refills.
         _staticDelayClearCts?.Cancel();
         _staticDelayClearCts?.Dispose();
         _staticDelayClearCts = new CancellationTokenSource();
@@ -1838,8 +1841,8 @@ public partial class MainViewModel : ViewModelBase
                 await Task.Delay(StaticDelayClearDebounceMs, clearCts.Token);
                 if (!clearCts.Token.IsCancellationRequested)
                 {
-                    _audioPipeline.Clear();
-                    _logger.LogDebug("Static delay changed to {DelayMs}ms, audio buffer cleared", value);
+                    _audioPipeline.ReanchorTiming();
+                    _logger.LogDebug("Static delay changed to {DelayMs}ms, sync timing re-anchored (buffer preserved)", value);
                 }
             }
             catch (OperationCanceledException)
