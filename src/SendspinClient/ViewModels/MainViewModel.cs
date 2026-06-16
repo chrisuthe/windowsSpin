@@ -169,7 +169,7 @@ public partial class MainViewModel : ViewModelBase
     /// Changes are debounced and sent to the server.
     /// </summary>
     [ObservableProperty]
-    private int _volume = 100;
+    private int _volume = 50;
 
     /// <summary>
     /// Gets or sets whether audio output is muted.
@@ -2297,8 +2297,9 @@ public partial class MainViewModel : ViewModelBase
         // Load audio settings
         SettingsStaticDelayMs = Math.Max(0, _configuration.GetValue<double>("Audio:StaticDelayMs", 0));
 
-        // Load persisted player volume/mute (these get applied via OnVolumeChanged/OnIsMutedChanged)
-        Volume = _configuration.GetValue<int>("Audio:PlayerVolume", 100);
+        // Load persisted player volume/mute (these get applied via OnVolumeChanged/OnIsMutedChanged).
+        // 50% is the default when nothing has been saved/overridden yet.
+        Volume = _configuration.GetValue<int>("Audio:PlayerVolume", 50);
         IsMuted = _configuration.GetValue<bool>("Audio:PlayerMuted", false);
 
         // Load audio stream type preference
