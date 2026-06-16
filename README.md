@@ -12,14 +12,6 @@ WindowsSpin connects your Windows computer to [Music Assistant](https://music-as
 
 ---
 
-## Why WindowsSpin?
-
-**The Problem:** You want to play music on multiple devices throughout your home, but audio from different speakers reaches your ears at different times—creating an annoying echo effect as you move between rooms.
-
-**The Solution:** WindowsSpin uses precision clock synchronization to ensure audio plays at exactly the same moment on all connected players. Walk from your living room to your kitchen and the music follows you seamlessly—no delays, no echoes, just continuous audio.
-
----
-
 ## Download & Install
 
 ### Requirements
@@ -54,16 +46,9 @@ That's it!
 ## Screenshots
 
 <p align="center">
-  <img src="docs/ScreenShots/mainwindow.png" alt="Main Window" width="400">
-</p>
-<p align="center">
-  <img src="docs/ScreenShots/settingsmenu.png" alt="Settings" width="400">
-</p>
-<p align="center">
-  <img src="docs/ScreenShots/statsfornerds.png" alt="Connection Stats" width="400">
-</p>
-<p align="center">
-  <img src="docs/ScreenShots/TrayMenu.png" alt="System Tray Menu" width="350">
+  <img src="docs/ScreenShots/now-playing.png" alt="Now Playing" width="370">
+  &nbsp;&nbsp;
+  <img src="docs/ScreenShots/settings.png" alt="Settings" width="370">
 </p>
 
 ---

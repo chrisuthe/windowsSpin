@@ -12,8 +12,8 @@ namespace SendspinClient;
 /// </summary>
 public partial class MainWindow : Window
 {
-    private const double DefaultWidth = 400;
-    private const double DefaultHeight = 780;
+    private const double DefaultWidth = 410;
+    private const double DefaultHeight = 736;
     private BreathingArtAnimator? _breathingAnimator;
 
     public MainWindow()
@@ -87,6 +87,20 @@ public partial class MainWindow : Window
             }
         }
     }
+
+    /// <summary>
+    /// Custom title-bar minimize button (WindowChrome replaces the native caption buttons).
+    /// Honors the Shift+minimize-to-tray behavior via the StateChanged handler above.
+    /// </summary>
+    private void TitleBarMinimize_Click(object sender, RoutedEventArgs e)
+        => SystemCommands.MinimizeWindow(this);
+
+    /// <summary>
+    /// Custom title-bar close button. Routes through the normal close path, so the
+    /// hide-to-tray behavior in <see cref="OnWindowClosing"/> still applies.
+    /// </summary>
+    private void TitleBarClose_Click(object sender, RoutedEventArgs e)
+        => SystemCommands.CloseWindow(this);
 
     /// <summary>
     /// Handles clicks on server cards in the welcome view.

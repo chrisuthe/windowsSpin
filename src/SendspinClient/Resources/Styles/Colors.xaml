@@ -1,25 +1,31 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <!-- Primary Colors -->
-    <Color x:Key="PrimaryColor">#7C3AED</Color>
-    <Color x:Key="PrimaryDarkColor">#5B21B6</Color>
-    <Color x:Key="PrimaryLightColor">#A78BFA</Color>
+    <!-- Primary Colors (brand green, derived from the disc icon's gradient:
+         #5BE58A light stop → #1F9D54 dark stop) -->
+    <Color x:Key="PrimaryColor">#1F9D54</Color>
+    <Color x:Key="PrimaryDarkColor">#177A41</Color>
+    <Color x:Key="PrimaryLightColor">#5BE58A</Color>
 
     <!-- Accent Colors -->
     <Color x:Key="AccentColor">#06B6D4</Color>
     <Color x:Key="AccentDarkColor">#0891B2</Color>
 
-    <!-- Background Colors -->
-    <Color x:Key="BackgroundDarkColor">#1E1E2E</Color>
-    <Color x:Key="BackgroundColor">#2D2D3D</Color>
-    <Color x:Key="SurfaceColor">#3D3D4D</Color>
-    <Color x:Key="SurfaceLightColor">#4D4D5D</Color>
+    <!-- Background Colors (neutral dark slate - low chroma, no blue/purple cast,
+         matching the Now Playing design. This is the "resting" backdrop; album-art
+         reactive tinting is layered on top of it.) -->
+    <Color x:Key="BackgroundDarkColor">#181B1D</Color>
+    <Color x:Key="BackgroundColor">#21252A</Color>
+    <Color x:Key="SurfaceColor">#2B3036</Color>
+    <Color x:Key="SurfaceLightColor">#393F46</Color>
 
     <!-- Text Colors -->
     <Color x:Key="TextPrimaryColor">#FFFFFF</Color>
     <Color x:Key="TextSecondaryColor">#A0A0B0</Color>
     <Color x:Key="TextMutedColor">#606070</Color>
+
+    <!-- Player accent (active transport toggles: shuffle / repeat) -->
+    <Color x:Key="PlayerAccentColor">#4ADE80</Color>
 
     <!-- State Colors -->
     <Color x:Key="SuccessColor">#10B981</Color>
@@ -42,6 +48,8 @@
     <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource TextPrimaryColor}"/>
     <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}"/>
     <SolidColorBrush x:Key="TextMutedBrush" Color="{StaticResource TextMutedColor}"/>
+
+    <SolidColorBrush x:Key="PlayerAccentBrush" Color="{StaticResource PlayerAccentColor}"/>
 
     <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}"/>
     <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}"/>

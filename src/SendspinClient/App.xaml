@@ -16,7 +16,6 @@
             <!-- Converters for tray context menu (with text labels) -->
             <converters:PlayPauseTextConverter x:Key="PlayPauseTextConverter"/>
             <converters:MuteIconConverter x:Key="MuteIconConverter"/>
-            <converters:BoolToResizeModeConverter x:Key="BoolToResizeModeConverter"/>
 
             <!-- Image converters -->
             <local:ByteArrayToImageConverter x:Key="ByteArrayToImageConverter"/>
