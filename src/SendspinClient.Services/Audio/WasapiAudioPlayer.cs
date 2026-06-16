@@ -65,10 +65,11 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     private int _outputLatencyMs;
     private int _deviceNativeSampleRate = 48000;
 
-    // WASAPI device clock as the sync-timing source (issue #33). The SDK assumes shared mode cannot
-    // supply a hardware clock and times sync against the wall clock; the probe confirmed IAudioClock
-    // is readable and tracks real time in shared mode, so we drive sync off it via _deviceClockAnchor
-    // (with automatic wall-clock fallback). _useDeviceClock is the escape hatch for bad hardware.
+    // Optional WASAPI device clock as the sync-timing source (issue #33). OFF by default: the device
+    // clock reads the DAC-rendered position, which permanently lags the samples read from our buffer
+    // by the ~100ms WASAPI prefill, producing a constant -100ms sync error that pushes the player off
+    // the shared schedule (out of sync with other players). The wall-clock default tracks real
+    // playback 1:1 and holds sync, as it did in 2.1.0. Opt in only for genuinely divergent DAC clocks.
     private readonly bool _useDeviceClock;
     private readonly DeviceClockAnchor _deviceClockAnchor = new();
     private AudioClockClient? _audioClockClient;
@@ -177,17 +178,19 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// Ignored when strategy is DropInsertOnly.
     /// </param>
     /// <param name="useDeviceClock">
-    /// When true (default), sync is timed against the WASAPI device clock (IAudioClock) instead of
-    /// the wall clock, with automatic fallback to the wall clock when the device clock is
-    /// unavailable or misbehaves. Set false to force wall-clock timing on hardware where the device
-    /// clock proves unreliable. See <see cref="DeviceClockAnchor"/>.
+    /// When false (default), sync is timed against the wall clock (<c>HighPrecisionTimer</c>), which
+    /// tracks real playback 1:1 and holds multi-room sync — the 2.1.0 behavior. When true, sync is
+    /// timed against the WASAPI device clock (IAudioClock); this reads the DAC-rendered position,
+    /// which lags the buffer read pointer by the ~100ms output prefill and leaves the player ~100ms
+    /// off the shared schedule, so it is opt-in only for genuinely divergent DAC clocks. Falls back
+    /// to the wall clock when the device clock is unavailable or misbehaves. See <see cref="DeviceClockAnchor"/>.
     /// </param>
     public WasapiAudioPlayer(
         ILogger<WasapiAudioPlayer> logger,
         string? deviceId = null,
         SyncCorrectionStrategy syncStrategy = SyncCorrectionStrategy.Combined,
         ResamplerType resamplerType = ResamplerType.Wdl,
-        bool useDeviceClock = true)
+        bool useDeviceClock = false)
     {
         _logger = logger;
         _deviceId = deviceId;

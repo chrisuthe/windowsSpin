@@ -310,9 +310,14 @@ public partial class App : Application
             ? ResamplerType.SoundTouch
             : ResamplerType.Wdl;
 
-        // Time sync against the WASAPI device clock (DAC crystal) rather than the wall clock. Escape
-        // hatch for hardware whose IAudioClock misbehaves; the player also auto-falls-back at runtime.
-        var useDeviceClock = _configuration!.GetValue("Audio:SyncCorrection:UseDeviceClock", true);
+        // Sync timing source. Default OFF = wall clock (HighPrecisionTimer), matching 2.1.0 which
+        // synchronized correctly with no offset. The WASAPI device clock reads the DAC-RENDERED
+        // position, which permanently lags the samples read from our buffer by the ~100ms WASAPI
+        // output-buffer prefill — a constant negative sync error the corrector fights, leaving the
+        // player ~100ms off the shared schedule (out of sync with other players). The wall clock
+        // tracks real playback 1:1 and self-corrects the startup gulp. Opt in only for hardware whose
+        // DAC clock genuinely diverges from the system clock (most report a 1.0000 ratio = no benefit).
+        var useDeviceClock = _configuration!.GetValue("Audio:SyncCorrection:UseDeviceClock", false);
 
         services.AddTransient<IAudioPlayer>(sp =>
         {

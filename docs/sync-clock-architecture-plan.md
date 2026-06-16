@@ -1,5 +1,15 @@
 # Sync clock architecture plan — resolving the resampler-stutter root cause
 
+> **⚠️ Superseded (2026-06-16): the WASAPI audio clock below was a wrong turn.** Wiring the device
+> clock in as the sync-timing source (commit `d18dd27`) made the player **~100ms out of sync with
+> other players**: the device clock reads the DAC-*rendered* position, which permanently lags the
+> buffer read pointer by the ~100ms WASAPI output prefill, so the corrector fights a constant −100ms
+> error. The wall clock (2.1.0) tracks real playback 1:1 and holds sync with no offset. On the
+> machines tested the DAC clock reports a 1.0000 ratio (agrees with the system clock = no drift
+> benefit), and the #33 stutter was actually fixed by PR #46 (concealment + output-driven feeding),
+> not the clock. The device clock is therefore **default-OFF** (`Audio:SyncCorrection:UseDeviceClock`,
+> opt-in only for genuinely divergent DAC clocks). See `MultiRoomSyncAlignmentTests` for the proof.
+
 Status: proposed. Author handoff doc for issue #33 follow-up.
 
 ## Why this exists
