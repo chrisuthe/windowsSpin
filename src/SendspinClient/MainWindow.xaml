@@ -727,6 +727,7 @@
                                             Minimum="0" Maximum="2"
                                             TickFrequency="0.25" IsSnapToTickEnabled="False"
                                             Value="{Binding SettingsAmbientBackdropIntensity, Mode=TwoWay}"
+                                            IsMoveToPointEnabled="True"
                                             VerticalAlignment="Center"/>
                                     <TextBlock Grid.Column="1"
                                                Text="{Binding SettingsAmbientBackdropIntensity, StringFormat={}{0:P0}}"
@@ -1330,6 +1331,7 @@
                         <Slider Grid.Column="1"
                                 Minimum="0" Maximum="100"
                                 Value="{Binding Volume}"
+                                IsMoveToPointEnabled="True"
                                 VerticalAlignment="Center"
                                 Margin="8,0"/>
 
