@@ -78,6 +78,21 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     private long _probeLastWallMicros;
     private const long ClockProbeLogIntervalTicks = TimeSpan.TicksPerSecond * 5;
 
+    // Device-invalidation recovery. AUDCLNT_E_DEVICE_INVALIDATED (0x88890004) fires when the output
+    // device is pulled out from under WASAPI - default device changed, device disabled/unplugged/
+    // reformatted, or grabbed in exclusive mode. Instead of dying in a terminal Error state (silence
+    // until restart), re-initialize the output on the current device and resume.
+    private int _recovering;
+    private const int DeviceInvalidatedHResult = unchecked((int)0x88890004);
+    private const int MaxDeviceRecoveryAttempts = 5;
+    private const int DeviceRecoveryBaseDelayMs = 200;
+
+    // Latency requested when creating WasapiOut, and the Windows Audio Engine overhead used only as a
+    // fallback. The real device latency is read from IAudioClient.StreamLatency AFTER Init() (querying
+    // before Init throws AUDCLNT_E_NOT_INITIALIZED).
+    private const int RequestedLatencyMs = 100;
+    private const int WindowsAudioEngineOverheadMs = 15;
+
     /// <summary>
     /// Gets the detected output latency in milliseconds.
     /// This is the buffer latency reported by the WASAPI audio device.
@@ -243,8 +258,6 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                     // Create WASAPI output in shared mode with 100ms latency
                     // Shared mode adds Windows Audio Engine overhead (~10-20ms) on top of
                     // the requested buffer latency, so we use 100ms for stability
-                    const int RequestedLatencyMs = 100;
-
                     if (device != null)
                     {
                         _wasapiOut = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: false, latency: RequestedLatencyMs);
@@ -256,9 +269,9 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
                     _wasapiOut.PlaybackStopped += OnPlaybackStopped;
 
-                    // Query the actual output latency from the audio client
-                    // This includes both the WASAPI buffer and Windows Audio Engine overhead
-                    _outputLatencyMs = GetActualOutputLatency(_wasapiOut, RequestedLatencyMs);
+                    // Preliminary estimate for this init log; the real device latency is read from
+                    // IAudioClient.StreamLatency in SetSampleSource, after WasapiOut.Init() runs.
+                    _outputLatencyMs = RequestedLatencyMs + WindowsAudioEngineOverheadMs;
 
                     SetState(AudioPlayerState.Stopped);
                     _logger.LogInformation(
@@ -359,6 +372,10 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                 "Sample source configured with {Strategy} (no resampler in chain)",
                 _syncStrategy);
         }
+
+        // Now that Init() has initialized the underlying AudioClient, read the real device latency.
+        // Querying earlier throws AUDCLNT_E_NOT_INITIALIZED and falls back to an estimate.
+        _outputLatencyMs = GetActualOutputLatency(_wasapiOut, RequestedLatencyMs);
     }
 
     /// <summary>
@@ -465,14 +482,18 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
     /// <inheritdoc/>
     public Task SwitchDeviceAsync(string? deviceId, CancellationToken cancellationToken = default)
+        => SwitchDeviceInternalAsync(deviceId, forceResume: false, cancellationToken);
+
+    private Task SwitchDeviceInternalAsync(string? deviceId, bool forceResume, CancellationToken cancellationToken = default)
     {
         return Task.Run(
             () =>
             {
                 try
                 {
-                    // Remember current state
-                    var wasPlaying = State == AudioPlayerState.Playing;
+                    // Remember current state. Device-invalidation recovery passes forceResume: by then
+                    // playback has faulted off Playing, but we still want to resume on the rebuilt output.
+                    var wasPlaying = forceResume || State == AudioPlayerState.Playing;
                     var currentSampleProvider = _sampleProvider;
 
                     _logger.LogInformation(
@@ -484,7 +505,16 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                     if (_wasapiOut != null)
                     {
                         _wasapiOut.PlaybackStopped -= OnPlaybackStopped;
-                        _wasapiOut.Stop();
+                        try
+                        {
+                            _wasapiOut.Stop();
+                        }
+                        catch (Exception stopEx)
+                        {
+                            // A device-invalidated output throws on Stop(); it is already dead, ignore.
+                            _logger.LogDebug(stopEx, "Ignoring error stopping previous audio output");
+                        }
+
                         _wasapiOut.Dispose();
                         _wasapiOut = null;
                     }
@@ -523,7 +553,6 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                     _deviceNativeSampleRate = QueryDeviceMixFormat(device);
 
                     // Create new WASAPI output with 100ms latency
-                    const int RequestedLatencyMs = 100;
                     if (device != null)
                     {
                         _wasapiOut = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: false, latency: RequestedLatencyMs);
@@ -534,7 +563,6 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                     }
 
                     _wasapiOut.PlaybackStopped += OnPlaybackStopped;
-                    _outputLatencyMs = GetActualOutputLatency(_wasapiOut, RequestedLatencyMs);
 
                     // Reset sync tracking to prevent timing discontinuities from triggering false corrections
                     if (_buffer is TimedAudioBuffer timedBuffer)
@@ -564,6 +592,9 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                         _logger.LogDebug("Sample source re-attached to new device");
                     }
 
+                    // Read the real device latency now that Init() has initialized the AudioClient.
+                    _outputLatencyMs = GetActualOutputLatency(_wasapiOut, RequestedLatencyMs);
+
                     SetState(AudioPlayerState.Stopped);
 
                     // Resume playback if we were playing
@@ -582,8 +613,14 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to switch audio device");
-                    SetState(AudioPlayerState.Error);
-                    ErrorOccurred?.Invoke(this, new AudioPlayerError("Failed to switch audio device", ex));
+                    if (!forceResume)
+                    {
+                        // During recovery (forceResume) the retry loop owns the terminal Error decision,
+                        // so it can try again rather than the first failed rebuild going silent forever.
+                        SetState(AudioPlayerState.Error);
+                        ErrorOccurred?.Invoke(this, new AudioPlayerError("Failed to switch audio device", ex));
+                    }
+
                     throw;
                 }
             },
@@ -614,6 +651,17 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     {
         if (e.Exception != null)
         {
+            // AUDCLNT_E_DEVICE_INVALIDATED: the output device was pulled out from under WASAPI
+            // (default device changed, device disabled/unplugged/reformatted, exclusive grab).
+            // Recoverable - re-initialize the output instead of dropping to a terminal Error state.
+            if (e.Exception is System.Runtime.InteropServices.COMException com
+                && com.HResult == DeviceInvalidatedHResult)
+            {
+                _logger.LogWarning(e.Exception, "Audio output device invalidated; attempting to recover");
+                _ = TryRecoverFromDeviceInvalidationAsync();
+                return;
+            }
+
             _logger.LogError(e.Exception, "Playback stopped due to error");
             SetState(AudioPlayerState.Error);
             ErrorOccurred?.Invoke(this, new AudioPlayerError("Playback error", e.Exception));
@@ -622,6 +670,56 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         {
             // Unexpected stop while playing
             SetState(AudioPlayerState.Stopped);
+        }
+    }
+
+    /// <summary>
+    /// Re-initializes the audio output after the device was invalidated, preserving buffered audio.
+    /// Retries a few times with a short backoff so Windows can settle a new default device, then
+    /// falls back to a terminal Error state. Reuses the device-switch rebuild path (which keeps the
+    /// buffer and re-anchors timing), so playback resumes from the buffered audio rather than silence.
+    /// </summary>
+    private async Task TryRecoverFromDeviceInvalidationAsync()
+    {
+        // One recovery in flight: the error can fire repeatedly while a device is flapping.
+        if (Interlocked.Exchange(ref _recovering, 1) == 1)
+        {
+            return;
+        }
+
+        try
+        {
+            for (var attempt = 1; attempt <= MaxDeviceRecoveryAttempts; attempt++)
+            {
+                // Back off increasingly so the OS has time to promote a new default device.
+                await Task.Delay(DeviceRecoveryBaseDelayMs * attempt).ConfigureAwait(false);
+
+                try
+                {
+                    await SwitchDeviceInternalAsync(_deviceId, forceResume: true).ConfigureAwait(false);
+                    _logger.LogInformation(
+                        "Recovered audio output after device invalidation (attempt {Attempt}/{Max})",
+                        attempt,
+                        MaxDeviceRecoveryAttempts);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Audio recovery attempt {Attempt}/{Max} failed",
+                        attempt,
+                        MaxDeviceRecoveryAttempts);
+                }
+            }
+
+            _logger.LogError("Audio output could not be recovered after {Max} attempts", MaxDeviceRecoveryAttempts);
+            SetState(AudioPlayerState.Error);
+            ErrorOccurred?.Invoke(this, new AudioPlayerError("Audio device invalidated and could not be recovered"));
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _recovering, 0);
         }
     }
 
@@ -753,7 +851,6 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
         // Fallback: use requested latency plus typical Windows Audio Engine overhead
         // In shared mode, Windows adds ~10-20ms of additional buffering
-        const int WindowsAudioEngineOverheadMs = 15;
         var fallbackLatency = requestedLatencyMs + WindowsAudioEngineOverheadMs;
 
         _logger.LogDebug(
