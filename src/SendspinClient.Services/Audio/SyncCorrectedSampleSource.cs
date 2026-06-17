@@ -131,6 +131,11 @@ public sealed class SyncCorrectedSampleSource : IAudioSampleSource, IDisposable
                 _buffer.SyncErrorMicroseconds,
                 _buffer.SmoothedSyncErrorMicroseconds);
 
+            // Report the resampler rate back to the buffer so it appears in the stats UI.
+            // The rate is applied externally (in the resampler), so without this the buffer's
+            // reported rate would always read 1.0 even while actively resampling for sync.
+            _buffer.ReportExternalPlaybackRate(_correctionProvider.TargetPlaybackRate);
+
             // Get current correction settings
             var dropEveryN = _correctionProvider.DropEveryNFrames;
             var insertEveryN = _correctionProvider.InsertEveryNFrames;
