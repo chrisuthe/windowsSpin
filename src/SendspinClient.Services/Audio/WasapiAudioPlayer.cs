@@ -87,6 +87,12 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     private const int MaxDeviceRecoveryAttempts = 5;
     private const int DeviceRecoveryBaseDelayMs = 200;
 
+    // Latency requested when creating WasapiOut, and the Windows Audio Engine overhead used only as a
+    // fallback. The real device latency is read from IAudioClient.StreamLatency AFTER Init() (querying
+    // before Init throws AUDCLNT_E_NOT_INITIALIZED).
+    private const int RequestedLatencyMs = 100;
+    private const int WindowsAudioEngineOverheadMs = 15;
+
     /// <summary>
     /// Gets the detected output latency in milliseconds.
     /// This is the buffer latency reported by the WASAPI audio device.
@@ -252,8 +258,6 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                     // Create WASAPI output in shared mode with 100ms latency
                     // Shared mode adds Windows Audio Engine overhead (~10-20ms) on top of
                     // the requested buffer latency, so we use 100ms for stability
-                    const int RequestedLatencyMs = 100;
-
                     if (device != null)
                     {
                         _wasapiOut = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: false, latency: RequestedLatencyMs);
@@ -265,9 +269,9 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
                     _wasapiOut.PlaybackStopped += OnPlaybackStopped;
 
-                    // Query the actual output latency from the audio client
-                    // This includes both the WASAPI buffer and Windows Audio Engine overhead
-                    _outputLatencyMs = GetActualOutputLatency(_wasapiOut, RequestedLatencyMs);
+                    // Preliminary estimate for this init log; the real device latency is read from
+                    // IAudioClient.StreamLatency in SetSampleSource, after WasapiOut.Init() runs.
+                    _outputLatencyMs = RequestedLatencyMs + WindowsAudioEngineOverheadMs;
 
                     SetState(AudioPlayerState.Stopped);
                     _logger.LogInformation(
@@ -368,6 +372,10 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                 "Sample source configured with {Strategy} (no resampler in chain)",
                 _syncStrategy);
         }
+
+        // Now that Init() has initialized the underlying AudioClient, read the real device latency.
+        // Querying earlier throws AUDCLNT_E_NOT_INITIALIZED and falls back to an estimate.
+        _outputLatencyMs = GetActualOutputLatency(_wasapiOut, RequestedLatencyMs);
     }
 
     /// <summary>
@@ -545,7 +553,6 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                     _deviceNativeSampleRate = QueryDeviceMixFormat(device);
 
                     // Create new WASAPI output with 100ms latency
-                    const int RequestedLatencyMs = 100;
                     if (device != null)
                     {
                         _wasapiOut = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: false, latency: RequestedLatencyMs);
@@ -556,7 +563,6 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                     }
 
                     _wasapiOut.PlaybackStopped += OnPlaybackStopped;
-                    _outputLatencyMs = GetActualOutputLatency(_wasapiOut, RequestedLatencyMs);
 
                     // Reset sync tracking to prevent timing discontinuities from triggering false corrections
                     if (_buffer is TimedAudioBuffer timedBuffer)
@@ -585,6 +591,9 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                         _wasapiOut.Init(currentSampleProvider);
                         _logger.LogDebug("Sample source re-attached to new device");
                     }
+
+                    // Read the real device latency now that Init() has initialized the AudioClient.
+                    _outputLatencyMs = GetActualOutputLatency(_wasapiOut, RequestedLatencyMs);
 
                     SetState(AudioPlayerState.Stopped);
 
@@ -842,7 +851,6 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
         // Fallback: use requested latency plus typical Windows Audio Engine overhead
         // In shared mode, Windows adds ~10-20ms of additional buffering
-        const int WindowsAudioEngineOverheadMs = 15;
         var fallbackLatency = requestedLatencyMs + WindowsAudioEngineOverheadMs;
 
         _logger.LogDebug(
