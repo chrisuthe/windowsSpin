@@ -142,10 +142,20 @@ In `src/SendspinClient.Services/Notifications/WindowsToastNotificationService.cs
 Run: `dotnet build -c Release SendspinClient.sln`
 Expected: Build succeeded, 0 errors.
 
-- [ ] **Step 7: Smoke-check the title**
+- [ ] **Step 7: Startup smoke test (non-blocking — do NOT use `dotnet run`)**
 
-Run: `dotnet run --project src/SendspinClient/SendspinClient.csproj`
-Expected: the window title bar and header read **Sendspin for Windows**. Close the app.
+This is a WPF tray app that never self-exits, so launch the built exe, give it time to start, then kill it. A near-immediate exit signals a startup crash.
+
+```powershell
+$exe = "src/SendspinClient/bin/Release/net10.0-windows10.0.17763.0/SendspinClient.exe"
+$p = Start-Process $exe -PassThru
+Start-Sleep -Seconds 8
+if ($p.HasExited) { Write-Error "App exited early (code $($p.ExitCode)) - startup crash"; exit 1 }
+Stop-Process -Id $p.Id -Force
+"OK: app started and stayed running"
+```
+
+Expected: `OK: app started and stayed running`. (The visual title text is confirmed by the controller at the review gate.)
 
 - [ ] **Step 8: Commit**
 
@@ -262,11 +272,13 @@ In `src/SendspinClient/App.xaml.cs`, insert the migration call after the single-
 Run: `dotnet build -c Release SendspinClient.sln`
 Expected: Build succeeded, 0 errors.
 
-- [ ] **Step 6: Manual migration smoke test**
+- [ ] **Step 6: Migration smoke test (non-blocking launch-and-kill)**
 
-Run this in PowerShell — it seeds a fake legacy folder, launches the app, and checks the move:
+Seed a fake legacy folder, launch the built exe just long enough for `OnStartup` to run the migration, kill it, then assert the move. Do NOT use `dotnet run` (the tray app never exits and would hang).
 
 ```powershell
+# Ensure no instance is running (the single-instance guard would short-circuit before migration)
+Get-Process SendspinClient -ErrorAction SilentlyContinue | Stop-Process -Force
 $legacy = "$env:LOCALAPPDATA\WindowsSpin"
 $new = "$env:LOCALAPPDATA\Sendspin for Windows"
 Remove-Item -Recurse -Force $new -ErrorAction SilentlyContinue
@@ -274,17 +286,20 @@ Remove-Item -Recurse -Force $legacy -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $legacy | Out-Null
 Set-Content "$legacy\client_id" "TEST-CLIENT-ID-12345"
 Set-Content "$legacy\appsettings.json" '{"_marker":"legacy"}'
-dotnet run --project src/SendspinClient/SendspinClient.csproj
+
+$exe = "src/SendspinClient/bin/Release/net10.0-windows10.0.17763.0/SendspinClient.exe"
+$p = Start-Process $exe -PassThru
+Start-Sleep -Seconds 8
+Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+
+# Assertions
+if (Test-Path $legacy) { Write-Error "FAIL: legacy folder still exists (not migrated)"; exit 1 }
+$id = Get-Content "$new\client_id"
+if ($id -ne "TEST-CLIENT-ID-12345") { Write-Error "FAIL: client_id not preserved (got '$id')"; exit 1 }
+"OK: legacy folder migrated, client_id preserved"
 ```
 
-After the app window appears, close it, then verify:
-
-```powershell
-Test-Path "$env:LOCALAPPDATA\WindowsSpin"                     # expect: False (moved away)
-Get-Content "$env:LOCALAPPDATA\Sendspin for Windows\client_id" # expect: TEST-CLIENT-ID-12345
-```
-
-Expected: legacy folder gone, `client_id` preserved verbatim in the new folder.
+Expected: `OK: legacy folder migrated, client_id preserved`. (Requires a Release build first — Step 5.)
 
 - [ ] **Step 7: Commit**
 
@@ -352,10 +367,21 @@ Expected: the file exists (confirms the assembly renamed correctly).
 Run: `dotnet test Sendspin.Windows.sln -c Release`
 Expected: all tests pass.
 
-- [ ] **Step 8: Smoke-launch**
+- [ ] **Step 8: Startup smoke test (non-blocking — catches XAML/`x:Class` mismatch)**
 
-Run: `dotnet run --project src/Sendspin.Windows/Sendspin.Windows.csproj`
-Expected: app launches with no XAML/`x:Class` runtime error (catches any namespace mismatch the compiler missed). Close the app.
+A namespace/`x:Class` mismatch throws at startup, not compile time, so launch the renamed exe and confirm it stays alive:
+
+```powershell
+Get-Process "Sendspin.Windows" -ErrorAction SilentlyContinue | Stop-Process -Force
+$exe = "src/Sendspin.Windows/bin/Release/net10.0-windows10.0.17763.0/Sendspin.Windows.exe"
+$p = Start-Process $exe -PassThru
+Start-Sleep -Seconds 8
+if ($p.HasExited) { Write-Error "App exited early (code $($p.ExitCode)) - likely XAML/x:Class mismatch"; exit 1 }
+Stop-Process -Id $p.Id -Force
+"OK: renamed app started and stayed running"
+```
+
+Expected: `OK: renamed app started and stayed running`.
 
 - [ ] **Step 9: Commit**
 
