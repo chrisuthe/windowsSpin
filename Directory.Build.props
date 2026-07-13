@@ -10,9 +10,9 @@
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
 
     <!-- Assembly info -->
-    <Company>WindowsSpin</Company>
-    <Product>WindowsSpin</Product>
-    <Copyright>Copyright (c) 2024</Copyright>
+    <Company>Sendspin</Company>
+    <Product>Sendspin for Windows</Product>
+    <Copyright>Copyright (c) 2026</Copyright>
     <Authors>Contributors</Authors>
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>

@@ -248,7 +248,7 @@ public partial class App : Application
         {
             ClientId = clientId,
             ClientName = playerName,
-            ProductName = "Sendspin Windows Client",
+            ProductName = "Sendspin for Windows",
             Manufacturer = null, // Set by SDK consumers as needed
             SoftwareVersion = appVersion,
             AudioFormats = audioFormats,
@@ -505,7 +505,7 @@ public partial class App : Application
         }
 
         Log.Logger = logConfig.CreateLogger();
-        Log.Information("WindowsSpin starting. Log level: {LogLevel}, File logging: {FileLogging}, Log directory: {LogDir}",
+        Log.Information("Sendspin for Windows starting. Log level: {LogLevel}, File logging: {FileLogging}, Log directory: {LogDir}",
             settings.LogLevel,
             settings.EnableFileLogging,
             settings.EnableFileLogging ? settings.GetEffectiveLogDirectory() : "N/A");
@@ -684,7 +684,7 @@ public partial class App : Application
             }
 
             // Flush and close Serilog to ensure all logs are written
-            Log.Information("WindowsSpin shutting down");
+            Log.Information("Sendspin for Windows shutting down");
             try
             {
                 await Log.CloseAndFlushAsync();
@@ -717,7 +717,7 @@ public partial class App : Application
         {
             MessageBox.Show(
                 $"A fatal error occurred:\n\n{exception?.Message}\n\nThe application will close.",
-                "WindowsSpin Error",
+                "Sendspin for Windows Error",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }

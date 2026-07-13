@@ -8,7 +8,7 @@
         xmlns:views="clr-namespace:SendspinClient.Views"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
-        Title="WindowsSpin"
+        Title="Sendspin for Windows"
         Icon="Resources/Icons/sendspinDesktop.ico"
         Height="736" Width="410"
         MinHeight="712" MinWidth="396"
@@ -135,7 +135,7 @@
                     <Image Source="pack://application:,,,/Resources/Icons/sendspinDesktop.png"
                            Width="18" Height="18" VerticalAlignment="Center"
                            RenderOptions.BitmapScalingMode="HighQuality"/>
-                    <TextBlock Text="WindowsSpin" FontSize="12.5" Foreground="#D7D7DE"
+                    <TextBlock Text="Sendspin for Windows" FontSize="12.5" Foreground="#D7D7DE"
                                VerticalAlignment="Center" Margin="9,0,0,0"/>
                 </StackPanel>
 

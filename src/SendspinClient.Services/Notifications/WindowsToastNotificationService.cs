@@ -49,7 +49,7 @@ public sealed class WindowsToastNotificationService : INotificationService
     /// This ID groups all notifications from this application together
     /// and allows Windows to manage them as a unit.
     /// </remarks>
-    private const string AppId = "WindowsSpin";
+    private const string AppId = "Sendspin.Windows";
 
     /// <summary>
     /// Tag used for track change notifications, allowing replacement of previous track notifications.
