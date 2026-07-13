@@ -276,30 +276,47 @@ Expected: Build succeeded, 0 errors.
 
 Seed a fake legacy folder, launch the built exe just long enough for `OnStartup` to run the migration, kill it, then assert the move. Do NOT use `dotnet run` (the tray app never exits and would hang).
 
+> **SAFETY — this test uses the REAL `%LocalAppData%` paths the app uses, because `Environment.SpecialFolder.LocalApplicationData` reads the shell known-folder (not the `%LOCALAPPDATA%` env var), so it cannot be redirected to a sandbox. Therefore the test MUST move any real data aside first and restore it in a `finally`. NEVER `Remove-Item -Recurse -Force` a real `%LocalAppData%` app folder — an earlier version of this step did exactly that and destroyed a real user's `client_id` and settings.**
+
 ```powershell
 # Ensure no instance is running (the single-instance guard would short-circuit before migration)
-Get-Process SendspinClient -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process SendspinClient, "Sendspin.Windows" -ErrorAction SilentlyContinue | Stop-Process -Force
+
 $legacy = "$env:LOCALAPPDATA\WindowsSpin"
-$new = "$env:LOCALAPPDATA\Sendspin for Windows"
-Remove-Item -Recurse -Force $new -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force $legacy -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force $legacy | Out-Null
-Set-Content "$legacy\client_id" "TEST-CLIENT-ID-12345"
-Set-Content "$legacy\appsettings.json" '{"_marker":"legacy"}'
+$new    = "$env:LOCALAPPDATA\Sendspin for Windows"
+$stamp  = Get-Date -Format 'yyyyMMdd-HHmmss'
 
-$exe = "src/SendspinClient/bin/Release/net10.0-windows10.0.17763.0/SendspinClient.exe"
-$p = Start-Process $exe -PassThru
-Start-Sleep -Seconds 8
-Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+# Move any REAL data aside so the test can never destroy it
+$legacyBak = if (Test-Path $legacy) { $b = "$legacy.realbak-$stamp"; Rename-Item $legacy $b; $b } else { $null }
+$newBak    = if (Test-Path $new)    { $b = "$new.realbak-$stamp";    Rename-Item $new $b;    $b } else { $null }
 
-# Assertions
-if (Test-Path $legacy) { Write-Error "FAIL: legacy folder still exists (not migrated)"; exit 1 }
-$id = Get-Content "$new\client_id"
-if ($id -ne "TEST-CLIENT-ID-12345") { Write-Error "FAIL: client_id not preserved (got '$id')"; exit 1 }
-"OK: legacy folder migrated, client_id preserved"
+try {
+    # Seed a FAKE legacy folder (real data is safely moved aside above)
+    New-Item -ItemType Directory -Force $legacy | Out-Null
+    Set-Content "$legacy\client_id" "TEST-CLIENT-ID-12345"
+    Set-Content "$legacy\appsettings.json" '{"_marker":"legacy"}'
+
+    $exe = "src/SendspinClient/bin/Release/net10.0-windows10.0.17763.0/SendspinClient.exe"
+    $p = Start-Process $exe -PassThru
+    Start-Sleep -Seconds 8
+    Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+
+    # Assertions
+    if (Test-Path $legacy) { throw "FAIL: legacy folder still exists (not migrated)" }
+    $id = Get-Content "$new\client_id"
+    if ($id -ne "TEST-CLIENT-ID-12345") { throw "FAIL: client_id not preserved (got '$id')" }
+    "OK: legacy folder migrated, client_id preserved"
+}
+finally {
+    # Remove ONLY the test-created folders, then restore the real data
+    Remove-Item -Recurse -Force $legacy -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force $new -ErrorAction SilentlyContinue
+    if ($legacyBak) { Rename-Item $legacyBak $legacy }
+    if ($newBak)    { Rename-Item $newBak $new }
+}
 ```
 
-Expected: `OK: legacy folder migrated, client_id preserved`. (Requires a Release build first — Step 5.)
+Expected: `OK: legacy folder migrated, client_id preserved`, and your real `%LocalAppData%\WindowsSpin` / `Sendspin for Windows` folders are exactly as they were before the test. (Requires a Release build first — Step 5.)
 
 - [ ] **Step 7: Commit**
 
