@@ -1,4 +1,4 @@
-# Sendspin for Windows - Multi-Room Audio for Windows
+# Sendspin for Windows
 
 <p align="center">
   <img src="icon.png" alt="Sendspin for Windows" width="128" height="128">
