@@ -1,0 +1,197 @@
+using Sendspin.Windows.Services.Visualization;
+using Xunit;
+
+namespace Sendspin.Windows.Services.Tests.Visualization;
+
+public class AmbientMathTests
+{
+    [Fact]
+    public void NormalizeLoudness_Null_ReturnsZero()
+    {
+        Assert.Equal(0.0, AmbientMath.NormalizeLoudness(null));
+    }
+
+    [Theory]
+    [InlineData(0, 0.0)]
+    [InlineData(65535, 1.0)]
+    [InlineData(32767, 0.4999924, 1e-6)]
+    public void NormalizeLoudness_MapsRawToUnitRange(int raw, double expected, double tolerance = 1e-9)
+    {
+        Assert.Equal(expected, AmbientMath.NormalizeLoudness(raw), tolerance);
+    }
+
+    [Theory]
+    [InlineData(-100)]
+    [InlineData(99999)]
+    public void NormalizeLoudness_ClampsOutOfRange(int raw)
+    {
+        var v = AmbientMath.NormalizeLoudness(raw);
+        Assert.InRange(v, 0.0, 1.0);
+    }
+
+    [Fact]
+    public void Ease_ZeroDt_ReturnsCurrent()
+    {
+        Assert.Equal(0.2, AmbientMath.Ease(0.2, 1.0, dtSeconds: 0.0, timeConstantSeconds: 0.5));
+    }
+
+    [Fact]
+    public void Ease_MovesTowardTarget()
+    {
+        // alpha = 1 - e^(-0.1/0.5) = 1 - e^(-0.2) = 0.1812692...
+        var next = AmbientMath.Ease(0.0, 1.0, dtSeconds: 0.1, timeConstantSeconds: 0.5);
+        Assert.Equal(0.1812692, next, 1e-6);
+    }
+
+    [Fact]
+    public void Ease_LargeDt_ApproachesTarget()
+    {
+        var next = AmbientMath.Ease(0.0, 1.0, dtSeconds: 10.0, timeConstantSeconds: 0.5);
+        Assert.True(next > 0.99, "after many time constants it should be near target");
+    }
+
+    [Fact]
+    public void Ease_ZeroTimeConstant_SnapsToTarget()
+    {
+        Assert.Equal(1.0, AmbientMath.Ease(0.0, 1.0, dtSeconds: 0.016, timeConstantSeconds: 0.0));
+    }
+
+    [Fact]
+    public void Decay_AfterOneHalfLife_IsHalf()
+    {
+        var v = AmbientMath.Decay(1.0, dtSeconds: 0.25, halfLifeSeconds: 0.25);
+        Assert.Equal(0.5, v, 0.001);
+    }
+
+    [Fact]
+    public void Decay_ZeroDt_ReturnsCurrent()
+    {
+        Assert.Equal(0.8, AmbientMath.Decay(0.8, dtSeconds: 0.0, halfLifeSeconds: 0.3));
+    }
+
+    [Fact]
+    public void Decay_NonPositiveHalfLife_ReturnsZero()
+    {
+        Assert.Equal(0.0, AmbientMath.Decay(1.0, dtSeconds: 0.016, halfLifeSeconds: 0.0));
+    }
+
+    [Theory]
+    [InlineData(0.0, 0.0, 0.82)]
+    [InlineData(1.0, 0.0, 1.32)]
+    [InlineData(1.0, 1.0, 1.67)]
+    [InlineData(1.0, 2.0, 1.67)]
+    public void BlobScale_MapsEnergyAndPulse(double energy, double pulse, double expected)
+    {
+        Assert.Equal(expected, AmbientMath.BlobScale(energy, pulse), 0.0001);
+    }
+
+    [Theory]
+    [InlineData(0.0, 0.55)]
+    [InlineData(1.0, 0.97)]
+    public void BlobOpacity_MapsEnergy(double energy, double expected)
+    {
+        Assert.Equal(expected, AmbientMath.BlobOpacity(energy), 0.0001);
+    }
+
+    [Fact]
+    public void BlobScale_ClampsNegativeInputs()
+    {
+        Assert.Equal(0.82, AmbientMath.BlobScale(-1.0, -1.0), 0.0001);
+    }
+
+    [Fact]
+    public void Ease_NegativeDt_ReturnsCurrent()
+    {
+        Assert.Equal(0.3, AmbientMath.Ease(0.3, 1.0, dtSeconds: -0.1, timeConstantSeconds: 0.5));
+    }
+
+    [Fact]
+    public void Decay_NegativeDt_ReturnsCurrent()
+    {
+        Assert.Equal(0.8, AmbientMath.Decay(0.8, dtSeconds: -0.1, halfLifeSeconds: 0.3));
+    }
+
+    [Fact]
+    public void BlobOpacity_ClampsOutOfRange()
+    {
+        Assert.Equal(0.55, AmbientMath.BlobOpacity(-1.0), 0.0001);
+        Assert.Equal(0.97, AmbientMath.BlobOpacity(2.0), 0.0001);
+    }
+
+    [Theory]
+    [InlineData(1.0, 0.0, 0.0, 0.82)]   // intensity 0 -> only ScaleMin remains (no IntensityFloor here)
+    [InlineData(1.0, 0.0, 1.0, 1.32)]   // intensity 1 -> identity (ScaleMin + 0.50)
+    [InlineData(1.0, 0.0, 2.0, 1.82)]   // intensity 2 -> doubled energy span (ScaleMin + 1.00)
+    [InlineData(1.0, 1.0, 2.0, 2.52)]   // intensity 2 with full pulse: 0.82 + 2*(0.50+0.35)
+    public void BlobScale_ScalesReactivityByIntensity(double energy, double pulse, double intensity, double expected)
+    {
+        Assert.Equal(expected, AmbientMath.BlobScale(energy, pulse, intensity), 0.0001);
+    }
+
+    [Theory]
+    [InlineData(0.0, 0.0, 0.0)]    // intensity 0 -> invisible
+    [InlineData(0.0, 1.0, 0.55)]   // intensity 1 -> identity
+    [InlineData(0.0, 2.0, 1.0)]    // intensity 2 -> 2*0.55 = 1.10 clamped to 1.0
+    [InlineData(1.0, 2.0, 1.0)]    // energy 1, intensity 2 -> clamped to 1.0
+    public void BlobOpacity_ScalesPresenceByIntensity(double energy, double intensity, double expected)
+    {
+        Assert.Equal(expected, AmbientMath.BlobOpacity(energy, intensity), 0.0001);
+    }
+
+    [Fact]
+    public void BlobScale_NegativeIntensity_ClampsToZeroReactivity()
+    {
+        Assert.Equal(0.82, AmbientMath.BlobScale(1.0, 1.0, -5.0), 0.0001);
+    }
+
+    [Fact]
+    public void BlobOpacity_NegativeIntensity_ClampsToInvisible()
+    {
+        Assert.Equal(0.0, AmbientMath.BlobOpacity(1.0, -5.0), 0.0001);
+    }
+
+    [Fact]
+    public void IntensityFloor_IsFaintButNonZero()
+    {
+        Assert.InRange(AmbientMath.IntensityFloor, 0.05, 0.30);
+    }
+
+    [Theory]
+    [InlineData(0.0, 0.0, 1.0, 1.0)]    // rest = 1.0 (art never shrinks)
+    [InlineData(1.0, 0.0, 1.0, 1.06)]   // +6% energy span at intensity 1
+    [InlineData(1.0, 1.0, 1.0, 1.10)]   // +6% energy +4% pulse
+    [InlineData(1.0, 1.0, 2.0, 1.20)]   // intensity 2 doubles the reactive part
+    [InlineData(1.0, 1.0, 0.0, 1.0)]    // intensity 0 -> rest
+    public void BreathScale_RestsAtOneAndScalesByIntensity(double energy, double pulse, double intensity, double expected)
+    {
+        Assert.Equal(expected, AmbientMath.BreathScale(energy, pulse, intensity), 0.0001);
+    }
+
+    [Theory]
+    [InlineData(0.0, 1.0, 0.15)]   // quiet -> faint base aura at intensity 1
+    [InlineData(1.0, 1.0, 1.0)]    // full energy -> clamp to 1
+    [InlineData(1.0, 2.0, 1.0)]    // intensity 2 -> clamp to 1
+    [InlineData(0.0, 0.0, 0.0)]    // intensity 0 -> no glow
+    public void BreathGlow_BaseAuraScalesAndClamps(double energy, double intensity, double expected)
+    {
+        Assert.Equal(expected, AmbientMath.BreathGlow(energy, intensity), 0.0001);
+    }
+
+    [Fact]
+    public void BreathScale_NegativeIntensity_RestsAtOne()
+    {
+        Assert.Equal(1.0, AmbientMath.BreathScale(1.0, 1.0, -3.0), 0.0001);
+    }
+
+    [Fact]
+    public void BreathScale_NegativeEnergyAndPulse_RestsAtOne()
+    {
+        Assert.Equal(1.0, AmbientMath.BreathScale(-1.0, -1.0), 0.0001);
+    }
+
+    [Fact]
+    public void BreathGlow_NegativeIntensity_ReturnsZero()
+    {
+        Assert.Equal(0.0, AmbientMath.BreathGlow(1.0, -3.0), 0.0001);
+    }
+}
