@@ -1,12 +1,12 @@
-# WindowsSpin - Multi-Room Audio for Windows
+# Sendspin for Windows - Multi-Room Audio for Windows
 
 <p align="center">
-  <img src="icon.png" alt="WindowsSpin" width="128" height="128">
+  <img src="icon.png" alt="Sendspin for Windows" width="128" height="128">
 </p>
 
 **Turn any Windows PC into a synchronized multi-room audio player.**
 
-WindowsSpin connects your Windows computer to [Music Assistant](https://music-assistant.io/), allowing you to play music throughout your home in perfect sync. Whether you have an old laptop, a home theater PC, or a desktop workstation, WindowsSpin transforms it into part of your whole-home audio system.
+Sendspin for Windows connects your Windows computer to [Music Assistant](https://music-assistant.io/), allowing you to play music throughout your home in perfect sync. Whether you have an old laptop, a home theater PC, or a desktop workstation, Sendspin for Windows transforms it into part of your whole-home audio system.
 
 > **Disclaimer:** This is an **independent, unofficial project** and is **not affiliated with, endorsed by, or associated with** the Music Assistant project or the official Sendspin protocol maintainers.
 
@@ -22,19 +22,19 @@ WindowsSpin connects your Windows computer to [Music Assistant](https://music-as
 
 1. Download the latest installer from the [Releases page](https://github.com/chrisuthe/windowsSpin/releases)
 2. Run the installer
-3. Launch WindowsSpin from the Start Menu
+3. Launch Sendspin for Windows from the Start Menu
 
 **Options:**
-- `WindowsSpin-Setup.exe` — Standard installer (requires .NET 10 runtime)
-- `WindowsSpin-Setup-SelfContained.exe` — Includes runtime (larger download, no dependencies)
-- `WindowsSpin-portable.zip` — Portable version, no installation needed
+- `Sendspin.Windows-Setup.exe` — Standard installer (requires .NET 10 runtime)
+- `Sendspin.Windows-Setup-SelfContained.exe` — Includes runtime (larger download, no dependencies)
+- `Sendspin.Windows-portable.zip` — Portable version, no installation needed
 
 ---
 
 ## Getting Started
 
 ### 1. Connect
-WindowsSpin automatically discovers Music Assistant servers on your network. If your server isn't found, enter the address manually (e.g., `10.0.2.8:8927`).
+Sendspin for Windows automatically discovers Music Assistant servers on your network. If your server isn't found, enter the address manually (e.g., `10.0.2.8:8927`).
 
 ### 2. Play
 Your Windows PC now appears as a player in Music Assistant. Add it to a group with other players for synchronized multi-room playback.
@@ -62,7 +62,7 @@ That's it!
 
 **Audio not playing?**
 - Verify your audio device is working in Windows
-- Check Settings → Audio Device in WindowsSpin
+- Check Settings → Audio Device in Sendspin for Windows
 
 **Poor synchronization?**
 - Check your network connection stability
