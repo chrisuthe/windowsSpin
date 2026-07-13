@@ -10,7 +10,7 @@ public static class ClientIdService
 {
     /// <summary>
     /// Gets the path to the client ID file.
-    /// Located at %LocalAppData%\WindowsSpin\client_id.
+    /// Located at %LocalAppData%\Sendspin for Windows\client_id.
     /// </summary>
     public static string ClientIdPath { get; } = Path.Combine(AppPaths.UserDataDirectory, "client_id");
 

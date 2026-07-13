@@ -20,7 +20,7 @@ public class LoggingSettings
 
     /// <summary>
     /// Gets or sets whether to enable file logging.
-    /// When enabled, logs are written to %LocalAppData%\WindowsSpin\logs\.
+    /// When enabled, logs are written to %LocalAppData%\Sendspin for Windows\logs\.
     /// Default: true.
     /// </summary>
     public bool EnableFileLogging { get; set; } = true;
@@ -34,7 +34,7 @@ public class LoggingSettings
 
     /// <summary>
     /// Gets or sets the directory for log files.
-    /// If empty, defaults to %LocalAppData%\WindowsSpin\logs\.
+    /// If empty, defaults to %LocalAppData%\Sendspin for Windows\logs\.
     /// </summary>
     public string LogDirectory { get; set; } = string.Empty;
 

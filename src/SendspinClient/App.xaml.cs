@@ -71,6 +71,10 @@ public partial class App : Application
                 }
             });
 
+        // Migrate legacy %LocalAppData%\WindowsSpin\ data to the renamed folder on first launch
+        // after the rebrand (preserves settings, client_id, logs). Must run before config is read.
+        AppPaths.MigrateLegacyDataIfNeeded();
+
         // Initialize user settings directory (copy defaults on first run)
         AppPaths.InitializeUserSettingsIfNeeded();
 
