@@ -22,12 +22,12 @@ A Windows desktop application for synchronized multi-room audio playback using t
 
 ```
 src/
-├── SendspinClient.Services/     # Windows-specific service implementations
+├── Sendspin.Windows.Services/   # Windows-specific service implementations
 │   ├── Audio/                   # WASAPI player via NAudio
 │   ├── Discord/                 # Discord Rich Presence integration
 │   └── Notifications/           # Windows toast notifications
 │
-└── SendspinClient/              # WPF desktop application
+└── Sendspin.Windows/            # WPF desktop application
     ├── Configuration/           # Settings management
     ├── ViewModels/              # MVVM view models
     └── Views/                   # XAML views
@@ -38,8 +38,8 @@ src/
 
 ### Dependency Flow
 ```
-SendspinClient (WPF)
-    └─▶ SendspinClient.Services (Windows-specific)
+Sendspin.Windows (WPF)
+    └─▶ Sendspin.Windows.Services (Windows-specific)
     └─▶ Sendspin.SDK (NuGet package)
 ```
 
@@ -64,16 +64,16 @@ dotnet build
 dotnet build -c Release
 
 # Run the WPF client
-dotnet run --project src/SendspinClient/SendspinClient.csproj
+dotnet run --project src/Sendspin.Windows/Sendspin.Windows.csproj
 
 # Publish for distribution
-dotnet publish src/SendspinClient/SendspinClient.csproj -c Release -r win-x64
+dotnet publish src/Sendspin.Windows/Sendspin.Windows.csproj -c Release -r win-x64
 ```
 
 ### Solution File
 ```bash
 # Build entire solution
-dotnet build SendspinClient.sln
+dotnet build Sendspin.Windows.sln
 ```
 
 ---
@@ -288,7 +288,7 @@ Audio binary format:
 
 Settings are stored in two locations:
 1. **Install directory**: `appsettings.json` (defaults, read-only after install)
-2. **User AppData**: `%LOCALAPPDATA%\Sendspin\appsettings.json` (user overrides)
+2. **User AppData**: `%LOCALAPPDATA%\Sendspin for Windows\appsettings.json` (user overrides)
 
 ### Key Configuration Options
 
@@ -366,7 +366,7 @@ anywhere in the codebase, it's stale — the v7 semantic was non-spec.
 
 ### ViewModels
 
-**Main entry point**: `src/SendspinClient/ViewModels/MainViewModel.cs`
+**Main entry point**: `src/Sendspin.Windows/ViewModels/MainViewModel.cs`
 
 Uses CommunityToolkit.Mvvm with source generators:
 ```csharp
@@ -379,7 +379,7 @@ private async Task PlayPauseAsync() // Generates PlayPauseCommand
 
 ### Dependency Injection
 
-Services are registered in `src/SendspinClient/App.xaml.cs`:
+Services are registered in `src/Sendspin.Windows/App.xaml.cs`:
 ```csharp
 services.AddSingleton<IClockSynchronizer, KalmanClockSynchronizer>();
 services.AddSingleton<IAudioPipeline, AudioPipeline>();
@@ -402,7 +402,7 @@ services.AddSingleton<IAudioPipeline>(sp => new AudioPipeline(
 ## Windows-Specific Services
 
 ### WASAPI Audio Player
-**File**: `src/SendspinClient.Services/Audio/WasapiAudioPlayer.cs`
+**File**: `src/Sendspin.Windows.Services/Audio/WasapiAudioPlayer.cs`
 
 Uses NAudio's `WasapiOut` for low-latency audio output. Key responsibilities:
 - Initialize audio device with specific format
@@ -410,7 +410,7 @@ Uses NAudio's `WasapiOut` for low-latency audio output. Key responsibilities:
 - Support hot-switching between audio devices
 
 ### Toast Notifications
-**File**: `src/SendspinClient.Services/Notifications/WindowsToastNotificationService.cs`
+**File**: `src/Sendspin.Windows.Services/Notifications/WindowsToastNotificationService.cs`
 
 Uses Microsoft.Toolkit.Uwp.Notifications for Windows toast notifications:
 - Track change notifications
@@ -418,7 +418,7 @@ Uses Microsoft.Toolkit.Uwp.Notifications for Windows toast notifications:
 - Suppressed when main window is visible and active
 
 ### Discord Rich Presence
-**File**: `src/SendspinClient.Services/Discord/DiscordRichPresenceService.cs`
+**File**: `src/Sendspin.Windows.Services/Discord/DiscordRichPresenceService.cs`
 
 Shows currently playing track in Discord status using discord-rpc-csharp.
 
@@ -508,7 +508,7 @@ This matches the CLI's `UndefinedField` pattern in Python.
 ## Testing & Debugging
 
 ### Logs Location
-`%LOCALAPPDATA%\Sendspin\logs\windowsspin-{date}.log`
+`%LOCALAPPDATA%\Sendspin for Windows\logs\windowsspin-{date}.log`
 
 ### Stats Window
 The app includes a "Stats for Nerds" window showing:
@@ -517,7 +517,7 @@ The app includes a "Stats for Nerds" window showing:
 - Drop/insert counts
 - Clock offset and drift
 
-Access via Settings → Stats for Nerds (see `src/SendspinClient/ViewModels/StatsViewModel.cs`)
+Access via Settings → Stats for Nerds (see `src/Sendspin.Windows/ViewModels/StatsViewModel.cs`)
 
 ### Debug Logging
 Enable verbose logging in appsettings.json:
@@ -550,9 +550,9 @@ Enable verbose logging in appsettings.json:
 - Creates GitHub release with artifacts
 
 ### Build Artifacts
-- `WindowsSpin-{version}-Setup.exe` - Installer (requires .NET 10 runtime)
-- `WindowsSpin-{version}-Setup-SelfContained.exe` - Standalone installer
-- `WindowsSpin-{version}-portable-win-x64.zip` - Portable ZIP
+- `Sendspin.Windows-{version}-Setup.exe` - Installer (requires .NET 10 runtime)
+- `Sendspin.Windows-{version}-Setup-SelfContained.exe` - Standalone installer
+- `Sendspin.Windows-{version}-portable-win-x64.zip` - Portable ZIP
 
 ---
 
@@ -560,7 +560,7 @@ Enable verbose logging in appsettings.json:
 
 The SDK is consumed as a NuGet package. Source and publishing are managed in [Sendspin/sendspin-dotnet](https://github.com/Sendspin/sendspin-dotnet).
 
-To update the SDK version, change the `Version` in the `<PackageReference Include="Sendspin.SDK">` entries in both `SendspinClient.csproj` and `SendspinClient.Services.csproj`.
+To update the SDK version, change the `Version` in the `<PackageReference Include="Sendspin.SDK">` entries in both `Sendspin.Windows.csproj` and `Sendspin.Windows.Services.csproj`.
 
 ---
 
@@ -613,11 +613,11 @@ To update the SDK version, change the `Version` in the `<PackageReference Includ
 
 | File | Purpose |
 |------|---------|
-| `src/SendspinClient/App.xaml.cs` | DI setup, startup, shutdown |
-| `src/SendspinClient/ViewModels/MainViewModel.cs` | Primary UI state and commands |
-| `src/SendspinClient.Services/Audio/WasapiAudioPlayer.cs` | Windows audio output |
-| `src/SendspinClient.Services/Audio/DynamicResamplerSampleProvider.cs` | Playback rate resampling for sync |
-| `src/SendspinClient.Services/Audio/BufferedAudioSampleSource.cs` | Bridges SDK buffer to NAudio |
+| `src/Sendspin.Windows/App.xaml.cs` | DI setup, startup, shutdown |
+| `src/Sendspin.Windows/ViewModels/MainViewModel.cs` | Primary UI state and commands |
+| `src/Sendspin.Windows.Services/Audio/WasapiAudioPlayer.cs` | Windows audio output |
+| `src/Sendspin.Windows.Services/Audio/DynamicResamplerSampleProvider.cs` | Playback rate resampling for sync |
+| `src/Sendspin.Windows.Services/Audio/BufferedAudioSampleSource.cs` | Bridges SDK buffer to NAudio |
 
 SDK classes (in NuGet package — source at [sendspin-dotnet](https://github.com/Sendspin/sendspin-dotnet)):
 - `AudioPipeline` — Audio flow orchestration

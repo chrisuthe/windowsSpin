@@ -1,6 +1,6 @@
 name: CI (SDK dev source)
 
-# Manually-triggered build of WindowsSpin against the Sendspin SDK *source*
+# Manually-triggered build of Sendspin for Windows against the Sendspin SDK *source*
 # (default: the SDK's `dev` branch) instead of the published NuGet package.
 # Produces signed installers + a prerelease so in-flight SDK changes can be tested.
 # Normal CI (ci.yml) and releases are unaffected.
@@ -23,7 +23,7 @@ permissions:
 # boundary. Do not turn this into a configurable repository input.
 env:
   DOTNET_VERSION: '10.0.x'
-  PROJECT_PATH: 'src/SendspinClient/SendspinClient.csproj'
+  PROJECT_PATH: 'src/Sendspin.Windows/Sendspin.Windows.csproj'
   SDK_REPO: 'Sendspin/sendspin-dotnet'
 
 jobs:
@@ -31,7 +31,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout WindowsSpin
+      - name: Checkout Sendspin for Windows
         uses: actions/checkout@v4
 
       - name: Checkout SDK source
@@ -80,11 +80,11 @@ jobs:
 
       - name: Publish win-x64 (framework-dependent)
         run: |
-          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained false -p:UseSdkSource=true -p:SdkSourcePath=${{ github.workspace }}/sdk-src -p:Version=${{ steps.version.outputs.VERSION }} -p:AssemblyVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -p:FileVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -o src/SendspinClient/bin/publish/win-x64-framework
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained false -p:UseSdkSource=true -p:SdkSourcePath=${{ github.workspace }}/sdk-src -p:Version=${{ steps.version.outputs.VERSION }} -p:AssemblyVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -p:FileVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -o src/Sendspin.Windows/bin/publish/win-x64-framework
 
       - name: Publish win-x64 (self-contained)
         run: |
-          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:UseSdkSource=true -p:SdkSourcePath=${{ github.workspace }}/sdk-src -p:Version=${{ steps.version.outputs.VERSION }} -p:AssemblyVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -p:FileVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -o src/SendspinClient/bin/publish/win-x64-selfcontained
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:UseSdkSource=true -p:SdkSourcePath=${{ github.workspace }}/sdk-src -p:Version=${{ steps.version.outputs.VERSION }} -p:AssemblyVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -p:FileVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -o src/Sendspin.Windows/bin/publish/win-x64-selfcontained
 
       # Sign the main application EXEs before creating installers
       - name: Sign Application EXEs (framework-dependent)
@@ -96,7 +96,7 @@ jobs:
           endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
           trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
-          files-folder: src/SendspinClient/bin/publish/win-x64-framework
+          files-folder: src/Sendspin.Windows/bin/publish/win-x64-framework
           files-folder-filter: exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
@@ -111,7 +111,7 @@ jobs:
           endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
           trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
-          files-folder: src/SendspinClient/bin/publish/win-x64-selfcontained
+          files-folder: src/Sendspin.Windows/bin/publish/win-x64-selfcontained
           files-folder-filter: exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
@@ -125,11 +125,11 @@ jobs:
 
       - name: Build Installer (framework-dependent)
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} /DBuildType=framework installer/SendspinClient.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} /DBuildType=framework installer/Sendspin.Windows.iss
 
       - name: Build Installer (self-contained)
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} /DBuildType=selfcontained installer/SendspinClient.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} /DBuildType=selfcontained installer/Sendspin.Windows.iss
           # List output to verify
           Get-ChildItem -Path dist -Recurse
 
@@ -151,8 +151,8 @@ jobs:
 
       - name: Create portable ZIPs
         run: |
-          Compress-Archive -Path src/SendspinClient/bin/publish/win-x64-framework/* -DestinationPath dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
-          Compress-Archive -Path src/SendspinClient/bin/publish/win-x64-selfcontained/* -DestinationPath dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-selfcontained-win-x64.zip
+          Compress-Archive -Path src/Sendspin.Windows/bin/publish/win-x64-framework/* -DestinationPath dist/Sendspin.Windows-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+          Compress-Archive -Path src/Sendspin.Windows/bin/publish/win-x64-selfcontained/* -DestinationPath dist/Sendspin.Windows-${{ steps.version.outputs.VERSION }}-portable-selfcontained-win-x64.zip
 
       # Clean up old SDK-dev prereleases (keep last 5). Disjoint tag pattern from
       # ci.yml's v0.0.0-dev cleanup, so the two never delete each other's builds.
@@ -173,27 +173,27 @@ jobs:
           body: |
             ⚠️ **SDK-Source Development Build** - Not for production use
 
-            This build links WindowsSpin against the **Sendspin SDK source**, not the
+            This build links Sendspin for Windows against the **Sendspin SDK source**, not the
             published NuGet package.
 
             | Component | Source |
             |-----------|--------|
-            | WindowsSpin | [`${{ steps.version.outputs.APP_SHORT_SHA }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }}) |
+            | Sendspin for Windows | [`${{ steps.version.outputs.APP_SHORT_SHA }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }}) |
             | Sendspin SDK | `${{ env.SDK_REPO }}` @ `${{ inputs.sdk_ref }}` ([`${{ steps.version.outputs.SDK_SHORT_SHA }}`](https://github.com/${{ env.SDK_REPO }}/commit/${{ steps.version.outputs.SDK_SHORT_SHA }})) |
 
             ---
             📦 **Downloads:**
-            - `WindowsSpin-...-Setup.exe` - Requires [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
-            - `WindowsSpin-...-Setup-SelfContained.exe` - Standalone (no .NET required)
+            - `Sendspin.Windows-...-Setup.exe` - Requires [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
+            - `Sendspin.Windows-...-Setup-SelfContained.exe` - Standalone (no .NET required)
             - Portable ZIPs also available
 
             🔐 All executables are code-signed.
           draft: false
           prerelease: true
           files: |
-            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-Setup.exe
-            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-Setup-SelfContained.exe
-            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
-            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-selfcontained-win-x64.zip
+            dist/Sendspin.Windows-${{ steps.version.outputs.VERSION }}-Setup.exe
+            dist/Sendspin.Windows-${{ steps.version.outputs.VERSION }}-Setup-SelfContained.exe
+            dist/Sendspin.Windows-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+            dist/Sendspin.Windows-${{ steps.version.outputs.VERSION }}-portable-selfcontained-win-x64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

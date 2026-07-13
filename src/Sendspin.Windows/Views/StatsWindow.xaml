@@ -1,0 +1,307 @@
+<Window x:Class="Sendspin.Windows.Views.StatsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="Stats for Nerds"
+        Height="650" Width="420"
+        MinHeight="500" MinWidth="350"
+        Style="{StaticResource MainWindowStyle}"
+        WindowStartupLocation="CenterOwner">
+
+    <Window.Resources>
+        <!-- Local aliases derived from the shared design system (Resources/Styles/Controls.xaml).
+             Keep these BasedOn shared styles - no custom fonts/colors here. -->
+        <Style x:Key="StatLabel" TargetType="TextBlock" BasedOn="{StaticResource BodyText}"/>
+        <Style x:Key="StatValue" TargetType="TextBlock" BasedOn="{StaticResource BodyText}">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+        </Style>
+        <Style x:Key="SectionHeader" TargetType="TextBlock" BasedOn="{StaticResource CaptionText}">
+            <Setter Property="Margin" Value="0,16,0,8"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="Stats for Nerds" Style="{StaticResource SubHeaderText}"/>
+            <TextBlock Text="Real-time audio sync diagnostics" Style="{StaticResource CaptionText}" Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <!-- Stats Content -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,16,0,0"
+                      Style="{StaticResource DarkScrollViewer}">
+            <StackPanel>
+                <!-- Audio Format -->
+                <TextBlock Text="AUDIO FORMAT" Style="{StaticResource SectionHeader}" Margin="0,0,0,8"/>
+                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Input (Incoming) Section Header -->
+                        <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="Incoming Stream"
+                                   Style="{StaticResource CaptionText}" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,6"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Format" Style="{StaticResource StatLabel}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding InputFormatDisplay}"
+                                   Style="{StaticResource StatValue}" Foreground="{StaticResource SuccessBrush}"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Sample Rate" Style="{StaticResource StatLabel}" Margin="0,6,0,0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding InputSampleRateDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,6,0,0"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Channels" Style="{StaticResource StatLabel}" Margin="0,6,0,0"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding InputChannelsDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,6,0,0"/>
+
+                        <!-- Output Section Header -->
+                        <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Text="Output to Device"
+                                   Style="{StaticResource CaptionText}" Foreground="{StaticResource AccentBrush}" Margin="0,14,0,6"/>
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Format" Style="{StaticResource StatLabel}"/>
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding OutputFormatDisplay}"
+                                   Style="{StaticResource StatValue}" Foreground="{StaticResource PrimaryLightBrush}"/>
+
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Sample Rate" Style="{StaticResource StatLabel}" Margin="0,6,0,0"/>
+                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding OutputSampleRateDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,6,0,0"/>
+
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Bit Depth" Style="{StaticResource StatLabel}" Margin="0,6,0,0"/>
+                        <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding OutputBitDepthDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,6,0,0"/>
+                    </Grid>
+                </Border>
+
+                <!-- Advertised Capabilities -->
+                <TextBlock Text="ADVERTISED CAPABILITIES" Style="{StaticResource SectionHeader}"/>
+                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Codec Priority" Style="{StaticResource StatLabel}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding AdvertisedCodecOrder}"
+                                   Style="{StaticResource StatValue}" Foreground="{StaticResource PrimaryLightBrush}"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Supported Formats" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding AdvertisedFormatsDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,8,0,0" TextWrapping="Wrap" MaxWidth="200"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Device Native" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DeviceCapabilitiesDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,8,0,0"
+                                   Foreground="{Binding DeviceCapabilitiesColor}"/>
+                    </Grid>
+                </Border>
+
+                <!-- Sync Status -->
+                <TextBlock Text="SYNC STATUS" Style="{StaticResource SectionHeader}"/>
+                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Sync Error" Style="{StaticResource StatLabel}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SyncErrorDisplay}"
+                                   Style="{StaticResource StatValue}"
+                                   Foreground="{Binding SyncErrorColor}"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Correction Mode" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding CorrectionModeDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,8,0,0"
+                                   Foreground="{Binding CorrectionModeColor}"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Playback Active" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding IsPlaybackActive}"
+                                   Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Health" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding HealthDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,8,0,0"
+                                   Foreground="{Binding HealthColor}" TextWrapping="Wrap" MaxWidth="220"/>
+                    </Grid>
+                </Border>
+
+                <!-- Buffer Stats -->
+                <TextBlock Text="BUFFER" Style="{StaticResource SectionHeader}"/>
+                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Buffered" Style="{StaticResource StatLabel}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding BufferedMsDisplay}" Style="{StaticResource StatValue}"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Target" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding TargetMsDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Underruns" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding UnderrunCount}"
+                                   Style="{StaticResource StatValue}" Margin="0,8,0,0"
+                                   Foreground="{Binding UnderrunColor}"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Overruns" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding OverrunCount}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+                    </Grid>
+                </Border>
+
+                <!-- Correction Stats -->
+                <TextBlock Text="SYNC CORRECTION" Style="{StaticResource SectionHeader}"/>
+                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Playback Rate" Style="{StaticResource StatLabel}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding PlaybackRateDisplay}"
+                                   Style="{StaticResource StatValue}"
+                                   Foreground="{Binding PlaybackRateColor}"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Samples Dropped" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SamplesDroppedForSync}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Samples Inserted" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SamplesInsertedForSync}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Dropped Samples (overflow)" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DroppedSamples}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+                    </Grid>
+                </Border>
+
+                <!-- Clock Sync -->
+                <TextBlock Text="CLOCK SYNC" Style="{StaticResource SectionHeader}"/>
+                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Status" Style="{StaticResource StatLabel}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ClockSyncStatusDisplay}"
+                                   Style="{StaticResource StatValue}"
+                                   Foreground="{Binding ClockSyncStatusColor}"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Clock Offset" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ClockOffsetDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Uncertainty" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ClockUncertaintyDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Drift Rate" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DriftRateDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Drift Reliable" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding DriftReliableDisplay}"
+                                   Style="{StaticResource StatValue}" Margin="0,8,0,0"
+                                   Foreground="{Binding DriftReliableColor}"/>
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Measurements" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding MeasurementCount}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Output Latency" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding OutputLatencyDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"
+                                   Foreground="{StaticResource WarningBrush}"/>
+
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Static Delay" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding StaticDelayDisplay}" Style="{StaticResource StatValue}" Margin="0,8,0,0"
+                                   Foreground="{StaticResource AccentBrush}"/>
+                    </Grid>
+                </Border>
+
+                <!-- Throughput -->
+                <TextBlock Text="THROUGHPUT" Style="{StaticResource SectionHeader}"/>
+                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Total Samples Written" Style="{StaticResource StatLabel}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding TotalSamplesWritten}" Style="{StaticResource StatValue}"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Total Samples Read" Style="{StaticResource StatLabel}" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding TotalSamplesRead}" Style="{StaticResource StatValue}" Margin="0,8,0,0"/>
+                    </Grid>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <StackPanel Grid.Row="2" Margin="0,16,0,0">
+            <TextBlock Text="{Binding UpdateRateDisplay}" Style="{StaticResource StatLabel}" HorizontalAlignment="Center"/>
+            <Button Content="Close" Click="CloseButton_Click"
+                    Style="{StaticResource PrimaryButton}"
+                    HorizontalAlignment="Center" Margin="0,12,0,0"
+                    Padding="24,8"/>
+        </StackPanel>
+    </Grid>
+</Window>

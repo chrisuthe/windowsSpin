@@ -72,7 +72,7 @@ This project adheres to a code of conduct that we expect all contributors to fol
 
 4. **Run the application**:
    ```bash
-   dotnet run --project src/SendspinClient/SendspinClient.csproj
+   dotnet run --project src/Sendspin.Windows/Sendspin.Windows.csproj
    ```
 
 ### Setting Up a Music Assistant Server
@@ -97,8 +97,8 @@ windowsSpin/
 │   │   │   └── Messages/              # Protocol message types
 │   │   ├── Models/                    # Data models
 │   │   └── Synchronization/           # Clock synchronization
-│   ├── SendspinClient.Services/       # Windows-specific services (NAudio, notifications)
-│   └── SendspinClient/                # WPF desktop application
+│   ├── Sendspin.Windows.Services/     # Windows-specific services (NAudio, notifications)
+│   └── Sendspin.Windows/              # WPF desktop application
 │       ├── ViewModels/                # MVVM view models
 │       ├── Views/                     # XAML views
 │       ├── Resources/                 # UI resources and converters
@@ -108,7 +108,7 @@ windowsSpin/
 ├── stylecop.json                      # StyleCop settings
 ├── CodeAnalysis.ruleset               # Analyzer configuration
 ├── Directory.Build.props              # Shared MSBuild properties
-└── SendspinClient.sln                 # Solution file
+└── Sendspin.Windows.sln               # Solution file
 ```
 
 ## Code Style Guidelines

@@ -154,3 +154,6 @@ secrets.json
 # Windows temp/short filenames
 *~*
 *.mp4
+
+# Stray agent-workspace scaffold (not part of the product)
+WindowSpin/

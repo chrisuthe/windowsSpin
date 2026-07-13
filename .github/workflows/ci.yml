@@ -12,7 +12,7 @@ permissions:
 
 env:
   DOTNET_VERSION: '10.0.x'
-  PROJECT_PATH: 'src/SendspinClient/SendspinClient.csproj'
+  PROJECT_PATH: 'src/Sendspin.Windows/Sendspin.Windows.csproj'
 
 jobs:
   build:
@@ -68,11 +68,11 @@ jobs:
 
       - name: Publish win-x64 (framework-dependent)
         run: |
-          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained false -p:Version=${{ steps.version.outputs.VERSION }} -p:AssemblyVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -p:FileVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -o src/SendspinClient/bin/publish/win-x64-framework
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained false -p:Version=${{ steps.version.outputs.VERSION }} -p:AssemblyVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -p:FileVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -o src/Sendspin.Windows/bin/publish/win-x64-framework
 
       - name: Publish win-x64 (self-contained)
         run: |
-          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:Version=${{ steps.version.outputs.VERSION }} -p:AssemblyVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -p:FileVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -o src/SendspinClient/bin/publish/win-x64-selfcontained
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:Version=${{ steps.version.outputs.VERSION }} -p:AssemblyVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -p:FileVersion=${{ steps.version.outputs.NUMERIC_VERSION }} -o src/Sendspin.Windows/bin/publish/win-x64-selfcontained
 
       # Sign the main application EXEs before creating installers
       - name: Sign Application EXEs (framework-dependent)
@@ -84,7 +84,7 @@ jobs:
           endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
           trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
-          files-folder: src/SendspinClient/bin/publish/win-x64-framework
+          files-folder: src/Sendspin.Windows/bin/publish/win-x64-framework
           files-folder-filter: exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
@@ -99,7 +99,7 @@ jobs:
           endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
           trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
-          files-folder: src/SendspinClient/bin/publish/win-x64-selfcontained
+          files-folder: src/Sendspin.Windows/bin/publish/win-x64-selfcontained
           files-folder-filter: exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
@@ -113,11 +113,11 @@ jobs:
 
       - name: Build Installer (framework-dependent)
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} /DBuildType=framework installer/SendspinClient.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} /DBuildType=framework installer/Sendspin.Windows.iss
 
       - name: Build Installer (self-contained)
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} /DBuildType=selfcontained installer/SendspinClient.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.VERSION }} /DBuildType=selfcontained installer/Sendspin.Windows.iss
           # List output to verify
           Get-ChildItem -Path dist -Recurse
 
@@ -139,8 +139,8 @@ jobs:
 
       - name: Create portable ZIPs
         run: |
-          Compress-Archive -Path src/SendspinClient/bin/publish/win-x64-framework/* -DestinationPath dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
-          Compress-Archive -Path src/SendspinClient/bin/publish/win-x64-selfcontained/* -DestinationPath dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-selfcontained-win-x64.zip
+          Compress-Archive -Path src/Sendspin.Windows/bin/publish/win-x64-framework/* -DestinationPath dist/Sendspin.Windows-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+          Compress-Archive -Path src/Sendspin.Windows/bin/publish/win-x64-selfcontained/* -DestinationPath dist/Sendspin.Windows-${{ steps.version.outputs.VERSION }}-portable-selfcontained-win-x64.zip
 
       # Clean up old dev prereleases (keep last 5)
       - name: Clean up old dev prereleases
@@ -167,17 +167,17 @@ jobs:
 
             ---
             📦 **Downloads:**
-            - `WindowsSpin-...-Setup.exe` - Requires [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
-            - `WindowsSpin-...-Setup-SelfContained.exe` - Standalone (no .NET required)
+            - `Sendspin.Windows-...-Setup.exe` - Requires [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
+            - `Sendspin.Windows-...-Setup-SelfContained.exe` - Standalone (no .NET required)
             - Portable ZIPs also available
 
             🔐 All executables are code-signed.
           draft: false
           prerelease: true
           files: |
-            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-Setup.exe
-            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-Setup-SelfContained.exe
-            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
-            dist/WindowsSpin-${{ steps.version.outputs.VERSION }}-portable-selfcontained-win-x64.zip
+            dist/Sendspin.Windows-${{ steps.version.outputs.VERSION }}-Setup.exe
+            dist/Sendspin.Windows-${{ steps.version.outputs.VERSION }}-Setup-SelfContained.exe
+            dist/Sendspin.Windows-${{ steps.version.outputs.VERSION }}-portable-win-x64.zip
+            dist/Sendspin.Windows-${{ steps.version.outputs.VERSION }}-portable-selfcontained-win-x64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
