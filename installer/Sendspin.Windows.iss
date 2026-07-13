@@ -1,7 +1,7 @@
 ; Sendspin Windows Client - Inno Setup Script
 ; https://jrsoftware.org/isinfo.php
 
-#define MyAppName "WindowsSpin"
+#define MyAppName "Sendspin for Windows"
 ; Version can be overridden from command line: /DMyAppVersion=x.x.x
 #ifndef MyAppVersion
   #define MyAppVersion "1.0.0"
@@ -13,8 +13,8 @@
 #endif
 #define MyAppPublisher "chrisuthe"
 #define MyAppURL "https://github.com/chrisuthe/windowsSpin"
-#define MyAppExeName "SendspinClient.exe"
-#define MyAppAssocName "WindowsSpin Client"
+#define MyAppExeName "Sendspin.Windows.exe"
+#define MyAppAssocName "Sendspin for Windows"
 #define IsSelfContained BuildType == "selfcontained"
 
 [Setup]
@@ -36,11 +36,11 @@ DisableProgramGroupPage=yes
 ; Output settings
 OutputDir=..\dist
 #if IsSelfContained
-OutputBaseFilename=WindowsSpin-{#MyAppVersion}-Setup-SelfContained
+OutputBaseFilename=Sendspin.Windows-{#MyAppVersion}-Setup-SelfContained
 #else
-OutputBaseFilename=WindowsSpin-{#MyAppVersion}-Setup
+OutputBaseFilename=Sendspin.Windows-{#MyAppVersion}-Setup
 #endif
-SetupIconFile=..\src\SendspinClient\Resources\Icons\sendspinTray.ico
+SetupIconFile=..\src\Sendspin.Windows\Resources\Icons\sendspinTray.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 ; Compression
@@ -70,10 +70,18 @@ Name: "startupicon"; Description: "Start with Windows"; GroupDescription: "Start
 [Files]
 ; Main application files
 #if IsSelfContained
-Source: "..\src\SendspinClient\bin\publish\win-x64-selfcontained\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\src\Sendspin.Windows\bin\publish\win-x64-selfcontained\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 #else
-Source: "..\src\SendspinClient\bin\publish\win-x64-framework\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\src\Sendspin.Windows\bin\publish\win-x64-framework\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
+
+[InstallDelete]
+; Remove pre-rebrand exe and shortcuts left behind by an in-place upgrade
+Type: files; Name: "{app}\SendspinClient.exe"
+Type: files; Name: "{group}\WindowsSpin.lnk"
+Type: files; Name: "{group}\Uninstall WindowsSpin.lnk"
+Type: files; Name: "{autodesktop}\WindowsSpin.lnk"
+Type: files; Name: "{userstartup}\WindowsSpin.lnk"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -99,7 +107,9 @@ begin
   // PowerShell script to update or create user settings with logging disabled
   // This properly merges with existing settings, preserving other user preferences
   PowerShellScript :=
-    '$settingsDir = "$env:LOCALAPPDATA\WindowsSpin"; ' +
+    '$legacyDir = "$env:LOCALAPPDATA\WindowsSpin"; ' +
+    '$newDir = "$env:LOCALAPPDATA\Sendspin for Windows"; ' +
+    '$settingsDir = if (Test-Path $newDir) { $newDir } elseif (Test-Path $legacyDir) { $legacyDir } else { $newDir }; ' +
     '$settingsPath = "$settingsDir\appsettings.json"; ' +
     'if (-not (Test-Path $settingsDir)) { New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null }; ' +
     'if (Test-Path $settingsPath) { ' +
