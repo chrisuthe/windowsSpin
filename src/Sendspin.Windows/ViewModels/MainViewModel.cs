@@ -24,6 +24,7 @@ using Sendspin.Windows.Services.Diagnostics;
 using Sendspin.Windows.Services.Discord;
 using Sendspin.Windows.Services.MediaControls;
 using Sendspin.Windows.Services.Notifications;
+using Sendspin.Windows.Services.Playback;
 using Sendspin.Windows.Views;
 
 namespace Sendspin.Windows.ViewModels;
@@ -118,16 +119,10 @@ public partial class MainViewModel : ViewModelBase
     private readonly DispatcherTimer _positionTimer;
 
     /// <summary>
-    /// The last position value received from the server.
-    /// Used as anchor point for local interpolation.
+    /// Owns the seek bar position/duration state: progress tri-state handling,
+    /// track-change resets, and extrapolation between server updates.
     /// </summary>
-    private double _lastServerPosition;
-
-    /// <summary>
-    /// Timestamp when we received the last server position update.
-    /// Used to calculate elapsed time for interpolation.
-    /// </summary>
-    private DateTime _lastServerPositionUpdate = DateTime.MinValue;
+    private readonly TrackProgressTracker _progressTracker;
 
     /// <summary>
     /// Gets the application version string for display in the UI.
@@ -540,6 +535,7 @@ public partial class MainViewModel : ViewModelBase
         _ambient = ambient;
         _settingsService = settingsService;
         _syncHealthMonitor = syncHealthMonitor;
+        _progressTracker = new TrackProgressTracker(clockSynchronizer);
 
         _mediaControlsService.PlayPauseRequested += (_, _) =>
             App.Current.Dispatcher.InvokeAsync(() =>
@@ -586,27 +582,35 @@ public partial class MainViewModel : ViewModelBase
 
     /// <summary>
     /// Timer tick handler for smooth position interpolation.
-    /// Calculates current position based on last server update + elapsed time.
+    /// Asks the progress tracker to extrapolate from the last server anchor.
     /// </summary>
     private void OnPositionTimerTick(object? sender, EventArgs e)
     {
-        // Only interpolate when playing and we have valid anchor data
-        if (PlaybackState != PlaybackState.Playing ||
-            _lastServerPositionUpdate == DateTime.MinValue ||
-            Duration <= 0)
+        // Only interpolate while playing; the tracker returns null when it has no anchor.
+        if (PlaybackState != PlaybackState.Playing)
         {
             return;
         }
 
-        // Calculate interpolated position
-        var elapsed = (DateTime.UtcNow - _lastServerPositionUpdate).TotalSeconds;
-        var interpolatedPosition = _lastServerPosition + elapsed;
+        var position = _progressTracker.Tick(HighPrecisionTimer.Shared.GetCurrentTimeMicroseconds());
+        if (position.HasValue)
+        {
+            // Update position (this triggers OnPositionChanged which updates UI bindings)
+            Position = position.Value;
+        }
+    }
 
-        // Clamp to valid range (don't exceed duration)
-        interpolatedPosition = Math.Min(interpolatedPosition, Duration);
-
-        // Update position (this triggers OnPositionChanged which updates UI bindings)
-        Position = interpolatedPosition;
+    /// <summary>
+    /// Routes a merged metadata snapshot through the progress tracker and reflects the
+    /// resulting position/duration in the UI. Shared by both connection-mode handlers so
+    /// the progress tri-state (value / explicit null / absent) and track-change resets
+    /// behave identically in client-initiated and server-initiated modes.
+    /// </summary>
+    private void ApplyTrackProgress(TrackMetadata? metadata)
+    {
+        _progressTracker.ApplyMetadata(metadata, HighPrecisionTimer.Shared.GetCurrentTimeMicroseconds());
+        Duration = _progressTracker.DurationSeconds;
+        Position = _progressTracker.PositionSeconds;
     }
 
     public async Task InitializeAsync()
@@ -687,6 +691,11 @@ public partial class MainViewModel : ViewModelBase
     {
         if (!IsConnected) return;
 
+        // Optimistic reset: snap the seek bar to zero now; the next fresh server
+        // progress re-anchors it authoritatively.
+        _progressTracker.ResetForPendingTrackChange();
+        Position = 0;
+
         try
         {
             await SendCommandToActiveClientAsync(Commands.Next);
@@ -701,6 +710,12 @@ public partial class MainViewModel : ViewModelBase
     private async Task PreviousTrackAsync()
     {
         if (!IsConnected) return;
+
+        // Optimistic reset: snap the seek bar to zero now; the next fresh server
+        // progress re-anchors it. Covers the server restarting the SAME track at zero,
+        // where no track-identity change would ever reset the bar.
+        _progressTracker.ResetForPendingTrackChange();
+        Position = 0;
 
         try
         {
@@ -1120,18 +1135,8 @@ public partial class MainViewModel : ViewModelBase
                 IsShuffleEnabled = group.Shuffle;
                 RepeatMode = group.Repeat ?? "off";
 
-                if (group.Metadata?.Duration.HasValue == true)
-                {
-                    Duration = group.Metadata.Duration.Value;
-                }
-
-                // Update position from server and set anchor for interpolation
-                if (group.Metadata?.Position.HasValue == true)
-                {
-                    _lastServerPosition = group.Metadata.Position.Value;
-                    _lastServerPositionUpdate = DateTime.UtcNow;
-                    Position = _lastServerPosition;
-                }
+                // Position/duration: tri-state progress handling and track-change resets
+                ApplyTrackProgress(group.Metadata);
 
                 if (CurrentTrack != null)
                 {
@@ -1319,32 +1324,8 @@ public partial class MainViewModel : ViewModelBase
                 IsShuffleEnabled = group.Shuffle;
                 RepeatMode = group.Repeat ?? "off";
 
-                // Handle progress updates OR clearing
-                // Progress can be:
-                //   - Non-null: update position/duration and enable interpolation
-                //   - Null: track ended - stop interpolation but keep final position visible
-                if (group.Metadata?.Progress is not null)
-                {
-                    // Progress exists - update position/duration
-                    if (group.Metadata.Duration.HasValue)
-                    {
-                        Duration = group.Metadata.Duration.Value;
-                    }
-
-                    if (group.Metadata.Position.HasValue)
-                    {
-                        _lastServerPosition = group.Metadata.Position.Value;
-                        _lastServerPositionUpdate = DateTime.UtcNow;
-                        Position = _lastServerPosition;
-                    }
-                }
-                else if (group.Metadata is not null)
-                {
-                    // Progress explicitly cleared (track ended)
-                    // Keep final position visible, but stop interpolation timer
-                    // The PlaybackState change (via group/update) handles the play/pause button
-                    _lastServerPositionUpdate = DateTime.MinValue;
-                }
+                // Position/duration: tri-state progress handling and track-change resets
+                ApplyTrackProgress(group.Metadata);
 
                 // Update status with now playing info
                 if (CurrentTrack != null)
@@ -1713,10 +1694,10 @@ public partial class MainViewModel : ViewModelBase
 
         _mediaControlsService.UpdateState(value);
 
-        // Reset position interpolation anchor when playback stops
+        // Stop position extrapolation when playback stops; the bar keeps its last value
         if (value != PlaybackState.Playing)
         {
-            _lastServerPositionUpdate = DateTime.MinValue;
+            _progressTracker.Freeze();
         }
     }
 
@@ -1788,9 +1769,7 @@ public partial class MainViewModel : ViewModelBase
             AlbumArtwork = null;
             _lastArtworkUrl = null;
             _previousTrackId = null;
-            Position = 0;
-            Duration = 0;
-            _lastServerPositionUpdate = DateTime.MinValue;
+            ApplyTrackProgress(null);
 
             // Clear Discord presence when track is cleared
             _discordService.ClearPresence();
