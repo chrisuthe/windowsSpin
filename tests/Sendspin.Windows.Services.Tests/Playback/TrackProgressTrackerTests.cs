@@ -388,6 +388,51 @@ public class TrackProgressTrackerTests
         Assert.Equal(124.0, position!.Value, 3); // anchor undisturbed
     }
 
+    [Fact]
+    public void FreshProgress_NullDuration_KeepsPreviousDuration()
+    {
+        // Duration tri-state: the SDK models unknown duration as null, so fresh progress
+        // with TrackDuration = null keeps the previously known duration.
+        var tracker = CreateTracker();
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
+
+        tracker.ApplyMetadata(Track("A", Progress(130_000, durationMs: null)), PlaybackState.Playing, T0 + Second);
+
+        Assert.Equal(300.0, tracker.DurationSeconds, 3);
+        Assert.Equal(130.0, tracker.PositionSeconds, 3);
+        var position = tracker.Tick(T0 + (3 * Second));
+        Assert.Equal(132.0, position!.Value, 3); // re-anchored and still advancing
+    }
+
+    [Fact]
+    public void FreshProgress_ZeroDuration_SetsDurationToZero()
+    {
+        // Unlike null (unknown), an explicit 0 is a value and must be adopted.
+        var tracker = CreateTracker();
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
+
+        tracker.ApplyMetadata(Track("A", Progress(130_000, 0)), PlaybackState.Playing, T0 + Second);
+
+        Assert.Equal(0.0, tracker.DurationSeconds);
+        Assert.Equal(130.0, tracker.PositionSeconds, 3);
+        Assert.Null(tracker.Tick(T0 + (3 * Second))); // no extrapolation without a duration
+    }
+
+    [Fact]
+    public void NullDurationFromTrackStart_ShowsStaticPosition()
+    {
+        // Radio case: the track never reports a duration. Same static display as an
+        // explicit 0 duration — position shows the server value and does not advance.
+        var tracker = CreateTracker();
+
+        tracker.ApplyMetadata(Track("A", Progress(120_000, durationMs: null)), PlaybackState.Playing, T0);
+
+        Assert.Equal(0.0, tracker.DurationSeconds);
+        Assert.Equal(120.0, tracker.PositionSeconds, 3);
+        Assert.Null(tracker.Tick(T0 + (2 * Second)));
+        Assert.Equal(120.0, tracker.PositionSeconds, 3);
+    }
+
     private static TrackProgressTracker CreateTracker(IClockSynchronizer? clockSynchronizer = null) =>
         new TrackProgressTracker(clockSynchronizer, NullLogger<TrackProgressTracker>.Instance);
 
