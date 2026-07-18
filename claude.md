@@ -113,7 +113,7 @@ Offset:       can be billions of microseconds - THIS IS NORMAL
 ```
 
 The `IClockSynchronizer` interface provides:
-- `ServerToLocalTime(serverTimestamp)` - Convert server time to local playback time
+- `ServerToClientTime(serverTimestamp)` - Convert server time to local playback time (subtracts the configured static delay — audio scheduling semantics)
 - `GetStatus()` - Current offset, drift rate, and convergence status
 
 **Kalman Configuration** (via appsettings.json):
@@ -267,7 +267,8 @@ server/time         - Clock sync response with 4 timestamps
 stream/start        - New audio stream beginning
 stream/end          - Audio stream ended
 stream/clear        - Clear buffer (track change)
-group/update        - Playback state change (play/pause/stop, metadata)
+group/update        - Group playback state and identity (playback state, group id/name)
+server/state        - Delta-merged server state (metadata/progress, volume, mute)
 client/command      - Client sends command (play, pause, volume, etc.)
 ```
 
@@ -637,7 +638,7 @@ SDK classes (in NuGet package — source at [sendspin-dotnet](https://github.com
 - `TimedAudioBuffer` — Sync-aware sample buffer
 - `KalmanClockSynchronizer` — Clock sync algorithm
 - `HighPrecisionTimer` — Microsecond-precision timing
-- `SendSpinHostService` / `SendSpinClient` — Connection modes
+- `SendspinHostService` / `SendspinClientService` — Connection modes (declared in `SendSpinHostService.cs` / `SendSpinClient.cs`)
 - `SyncCorrectionOptions` — Configurable sync correction parameters
 - `Optional<T>` — JSON absent vs null distinction
 
