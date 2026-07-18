@@ -55,10 +55,7 @@ public sealed class TrackProgressTracker
 
     private string? _trackIdentity;
     private PlaybackProgress? _lastProgress;
-    private double _anchorPositionSeconds;
-    private long _anchorMicroseconds;
-    private double _speedFactor = 1.0;
-    private bool _hasAnchor;
+    private Anchor? _anchor;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TrackProgressTracker"/> class.
@@ -138,19 +135,19 @@ public sealed class TrackProgressTracker
 
         if (progress.TrackProgress.HasValue)
         {
-            _anchorPositionSeconds = Math.Max(0, progress.TrackProgress.Value / 1000.0);
-
             // The update's playback state overrides the progress object's speed: while not
             // playing the effective speed is 0, so a pause update carrying fresh progress
             // (with or without playback_speed) anchors frozen, and a later resume without
             // fresh progress stays at the paused position instead of jumping forward by
             // the pause duration.
-            _speedFactor = playbackState == PlaybackState.Playing
+            var speedFactor = playbackState == PlaybackState.Playing
                 ? Math.Max(0, (progress.PlaybackSpeed ?? 1000.0) / 1000.0)
                 : 0;
-            _anchorMicroseconds = ResolveAnchor(metadata.Timestamp, nowMicroseconds);
-            _hasAnchor = true;
-            PositionSeconds = ExtrapolateAt(nowMicroseconds);
+            _anchor = new Anchor(
+                ResolveAnchor(metadata.Timestamp, nowMicroseconds),
+                Math.Max(0, progress.TrackProgress.Value / 1000.0),
+                speedFactor);
+            PositionSeconds = ExtrapolateAt(_anchor.Value, nowMicroseconds);
         }
     }
 
@@ -164,7 +161,7 @@ public sealed class TrackProgressTracker
     public void ResetForPendingTrackChange()
     {
         PositionSeconds = 0;
-        _hasAnchor = false;
+        _anchor = null;
 
         // _lastProgress is intentionally kept: a group/update echoing the pre-change
         // state carries the same stale progress instance and must not look fresh.
@@ -177,7 +174,7 @@ public sealed class TrackProgressTracker
     /// </summary>
     public void Freeze()
     {
-        _hasAnchor = false;
+        _anchor = null;
     }
 
     /// <summary>
@@ -188,12 +185,12 @@ public sealed class TrackProgressTracker
     /// (no anchor, or the duration is unknown).</returns>
     public double? Tick(long nowMicroseconds)
     {
-        if (!_hasAnchor || DurationSeconds <= 0)
+        if (_anchor is not { } anchor || DurationSeconds <= 0)
         {
             return null;
         }
 
-        PositionSeconds = ExtrapolateAt(nowMicroseconds);
+        PositionSeconds = ExtrapolateAt(anchor, nowMicroseconds);
         return PositionSeconds;
     }
 
@@ -201,14 +198,13 @@ public sealed class TrackProgressTracker
     {
         PositionSeconds = 0;
         DurationSeconds = 0;
-        _speedFactor = 1.0;
-        _hasAnchor = false;
+        _anchor = null;
     }
 
-    private double ExtrapolateAt(long nowMicroseconds)
+    private double ExtrapolateAt(Anchor anchor, long nowMicroseconds)
     {
-        var elapsedSeconds = Math.Max(0, nowMicroseconds - _anchorMicroseconds) / 1_000_000.0;
-        var position = _anchorPositionSeconds + (elapsedSeconds * _speedFactor);
+        var elapsedSeconds = Math.Max(0, nowMicroseconds - anchor.AtMicroseconds) / 1_000_000.0;
+        var position = anchor.PositionSeconds + (elapsedSeconds * anchor.SpeedFactor);
         return DurationSeconds > 0 ? Math.Clamp(position, 0, DurationSeconds) : Math.Max(0, position);
     }
 
@@ -226,4 +222,11 @@ public sealed class TrackProgressTracker
 
         return nowMicroseconds;
     }
+
+    /// <summary>
+    /// Extrapolation anchor captured from fresh progress: the track position at a
+    /// client-domain instant, plus the effective speed. Null whenever extrapolation
+    /// is stopped (no fresh progress yet, frozen, or reset).
+    /// </summary>
+    private readonly record struct Anchor(long AtMicroseconds, double PositionSeconds, double SpeedFactor);
 }
