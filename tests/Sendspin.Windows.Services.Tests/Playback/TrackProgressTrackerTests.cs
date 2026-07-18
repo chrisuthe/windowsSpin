@@ -435,14 +435,93 @@ public class TrackProgressTrackerTests
         Assert.Equal(120.0, tracker.PositionSeconds, 3);
     }
 
+    [Fact]
+    public void StaticDelay_DoesNotShiftDisplayAnchor()
+    {
+        // ServerToClientTime targets audio scheduling and subtracts the configured static
+        // delay; the display anchor adds it back so the seek bar reflects measurement time.
+        var sync = new FakeClockSynchronizer { OffsetMicroseconds = 7_000_000_000_000L, IsConverged = true, StaticDelayMs = 400 };
+        var tracker = CreateTracker(sync);
+        var measuredAt = sync.ClientToServerTime(T0 - 200_000);
+
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000), timestamp: measuredAt), PlaybackState.Playing, T0);
+
+        Assert.Equal(120.2, tracker.PositionSeconds, 3); // identical to the zero-delay case
+    }
+
+    [Fact]
+    public void NegativeStaticDelay_StillUsesServerAnchor()
+    {
+        // A negative delay used to push every converted anchor into the future, tripping
+        // the plausibility guard so the spec-anchor path silently never engaged.
+        var sync = new FakeClockSynchronizer { OffsetMicroseconds = 7_000_000_000_000L, IsConverged = true, StaticDelayMs = -400 };
+        var tracker = CreateTracker(sync);
+        var measuredAt = sync.ClientToServerTime(T0 - 200_000);
+
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000), timestamp: measuredAt), PlaybackState.Playing, T0);
+
+        Assert.Equal(120.2, tracker.PositionSeconds, 3);
+    }
+
+    [Fact]
+    public void IdentityCollision_DelimiterAmbiguity_TreatedAsDifferentTracks()
+    {
+        // "A|B" + "C" and "A" + "B|C" collided under a joined-string identity; the tuple
+        // identity must treat them as different tracks and reset the stale position.
+        var tracker = CreateTracker();
+        var stale = Progress(120_000, 300_000);
+        tracker.ApplyMetadata(Track("A|B", stale, artist: "C"), PlaybackState.Playing, T0);
+
+        tracker.ApplyMetadata(Track("A", stale, artist: "B|C"), PlaybackState.Playing, T0 + Second);
+
+        Assert.Equal(0.0, tracker.PositionSeconds);
+        Assert.Equal(0.0, tracker.DurationSeconds);
+        Assert.Null(tracker.Tick(T0 + (2 * Second)));
+    }
+
+    [Fact]
+    public void AnchorAge_ExactlyAtBoundary_UsesServerAnchor()
+    {
+        var sync = new FakeClockSynchronizer { OffsetMicroseconds = 7_000_000_000_000L, IsConverged = true };
+        var tracker = CreateTracker(sync);
+        var measuredAt = sync.ClientToServerTime(T0 - (5 * Second));
+
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000), timestamp: measuredAt), PlaybackState.Playing, T0);
+
+        Assert.Equal(125.0, tracker.PositionSeconds, 3); // 5 s of network-delay compensation
+    }
+
+    [Fact]
+    public void NegativePlaybackSpeed_ClampsToZero()
+    {
+        var tracker = CreateTracker();
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000, speed: -500)), PlaybackState.Playing, T0);
+
+        var position = tracker.Tick(T0 + (30 * Second));
+
+        Assert.Equal(120.0, position!.Value, 3); // the bar never runs backwards
+    }
+
+    [Fact]
+    public void NegativeProgressAndDuration_ClampToZero()
+    {
+        var tracker = CreateTracker();
+
+        tracker.ApplyMetadata(Track("A", Progress(-5_000, -10_000)), PlaybackState.Playing, T0);
+
+        Assert.Equal(0.0, tracker.PositionSeconds);
+        Assert.Equal(0.0, tracker.DurationSeconds);
+        Assert.Null(tracker.Tick(T0 + (2 * Second)));
+    }
+
     private static TrackProgressTracker CreateTracker(IClockSynchronizer? clockSynchronizer = null) =>
         new TrackProgressTracker(clockSynchronizer, NullLogger<TrackProgressTracker>.Instance);
 
-    private static TrackMetadata Track(string title, PlaybackProgress? progress, long? timestamp = null) => new TrackMetadata
+    private static TrackMetadata Track(string title, PlaybackProgress? progress, long? timestamp = null, string? artist = "Artist", string? album = "Album") => new TrackMetadata
     {
         Title = title,
-        Artist = "Artist",
-        Album = "Album",
+        Artist = artist,
+        Album = album,
         Progress = progress,
         Timestamp = timestamp,
     };
@@ -456,6 +535,10 @@ public class TrackProgressTrackerTests
 
     /// <summary>
     /// Minimal clock synchronizer with a fixed offset: server = client + offset.
+    /// Mirrors the real Kalman contract where <see cref="ServerToClientTime"/> also
+    /// subtracts the configured static delay (audio-scheduling compensation), while
+    /// <see cref="ClientToServerTime"/> is the pure domain shift used to fabricate
+    /// server-side measurement timestamps.
     /// </summary>
     private sealed class FakeClockSynchronizer : IClockSynchronizer
     {
@@ -469,7 +552,7 @@ public class TrackProgressTrackerTests
 
         public long ClientToServerTime(long clientTime) => clientTime + OffsetMicroseconds;
 
-        public long ServerToClientTime(long serverTime) => serverTime - OffsetMicroseconds;
+        public long ServerToClientTime(long serverTime) => serverTime - OffsetMicroseconds - (long)(StaticDelayMs * 1000);
 
         public void ProcessMeasurement(long t1, long t2, long t3, long t4)
         {

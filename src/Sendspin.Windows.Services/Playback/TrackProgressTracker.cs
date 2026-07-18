@@ -58,7 +58,7 @@ public sealed class TrackProgressTracker
     private readonly IClockSynchronizer? _clockSynchronizer;
     private readonly ILogger<TrackProgressTracker> _logger;
 
-    private string? _trackIdentity;
+    private (string? Title, string? Artist, string? Album)? _trackIdentity;
     private PlaybackProgress? _lastProgress;
     private Anchor? _anchor;
 
@@ -104,9 +104,10 @@ public sealed class TrackProgressTracker
             return;
         }
 
-        // Same identity convention as the track-change notification logic: TrackMetadata
-        // has no track id/URI, so title+artist+album is the best available identity.
-        var identity = $"{metadata.Title}|{metadata.Artist}|{metadata.Album}";
+        // Same identity fields as the track-change notification logic: TrackMetadata has
+        // no track id/URI, so title+artist+album is the best available identity. A tuple
+        // avoids the delimiter collisions a joined string would have.
+        var identity = (metadata.Title, metadata.Artist, metadata.Album);
         var identityChanged = identity != _trackIdentity;
         var previousIdentity = _trackIdentity;
         _trackIdentity = identity;
@@ -120,8 +121,17 @@ public sealed class TrackProgressTracker
             // New track: never trust position state that belonged to the previous track.
             _logger.LogDebug(
                 "Track identity changed ({PreviousIdentity} -> {Identity}); resetting seek bar position",
-                previousIdentity ?? "(none)",
-                identity);
+                previousIdentity?.ToString() ?? "(none)",
+                identity.ToString());
+            if (string.IsNullOrEmpty(metadata.Title)
+                && string.IsNullOrEmpty(metadata.Artist)
+                && string.IsNullOrEmpty(metadata.Album))
+            {
+                // Untagged content collapses to one identity, so consecutive such tracks
+                // cannot trigger this reset; only fresh progress re-anchors them.
+                _logger.LogDebug("New track has no title/artist/album; identity-based resets cannot distinguish consecutive untagged tracks");
+            }
+
             ResetPosition();
         }
 
@@ -241,7 +251,13 @@ public sealed class TrackProgressTracker
             return nowMicroseconds;
         }
 
-        var converted = _clockSynchronizer.ServerToClientTime(serverTimestampMicroseconds.Value);
+        // ServerToClientTime targets audio scheduling and subtracts the configured static
+        // delay (hardware compensation); add it back so the display anchor reflects the
+        // measurement time. Without this, a positive delay runs the bar ahead by the delay
+        // and a negative delay pushes every conversion into the future, permanently
+        // tripping the plausibility guard below.
+        var converted = _clockSynchronizer.ServerToClientTime(serverTimestampMicroseconds.Value)
+            + (long)(_clockSynchronizer.StaticDelayMs * 1000);
         var age = nowMicroseconds - converted;
         if (age < 0 || age > MaxAnchorAgeMicroseconds)
         {
