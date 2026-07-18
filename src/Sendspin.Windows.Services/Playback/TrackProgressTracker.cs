@@ -2,7 +2,6 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
-using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
@@ -256,9 +255,18 @@ public sealed class TrackProgressTracker
     /// client-domain instant, plus the effective speed. Null whenever extrapolation
     /// is stopped (no fresh progress yet, frozen, or reset).
     /// </summary>
-    [SuppressMessage(
-        "StyleCop.CSharp.NamingRules",
-        "SA1313:Parameter names should begin with lower-case letter",
-        Justification = "Positional record parameters become properties and follow property naming.")]
-    private readonly record struct Anchor(long AtMicroseconds, double PositionSeconds, double SpeedFactor);
+    /// <remarks>
+    /// A plain readonly struct rather than the equivalent positional record struct:
+    /// the StyleCop version in use crashes on record struct declarations (AD0001 from
+    /// SA1201) and flags positional parameters as SA1313, which would push the build's
+    /// warning count above its baseline. Value equality is not needed here.
+    /// </remarks>
+    private readonly struct Anchor(long atMicroseconds, double positionSeconds, double speedFactor)
+    {
+        public long AtMicroseconds { get; } = atMicroseconds;
+
+        public double PositionSeconds { get; } = positionSeconds;
+
+        public double SpeedFactor { get; } = speedFactor;
+    }
 }
