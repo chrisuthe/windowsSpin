@@ -535,7 +535,9 @@ public partial class MainViewModel : ViewModelBase
         _ambient = ambient;
         _settingsService = settingsService;
         _syncHealthMonitor = syncHealthMonitor;
-        _progressTracker = new TrackProgressTracker(clockSynchronizer);
+        _progressTracker = new TrackProgressTracker(
+            clockSynchronizer,
+            loggerFactory.CreateLogger<TrackProgressTracker>());
 
         _mediaControlsService.PlayPauseRequested += (_, _) =>
             App.Current.Dispatcher.InvokeAsync(() =>
@@ -704,7 +706,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send next command");
+            _logger.LogError(ex, "Failed to send next command; seek bar was already optimistically reset to zero");
         }
     }
 
@@ -725,7 +727,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send previous command");
+            _logger.LogError(ex, "Failed to send previous command; seek bar was already optimistically reset to zero");
         }
     }
 

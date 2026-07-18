@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
+using Microsoft.Extensions.Logging.Abstractions;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
@@ -18,7 +19,7 @@ public class TrackProgressTrackerTests
     [Fact]
     public void NoMetadataYet_DefaultsToZero()
     {
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
 
         Assert.Equal(0.0, tracker.PositionSeconds);
         Assert.Equal(0.0, tracker.DurationSeconds);
@@ -28,7 +29,7 @@ public class TrackProgressTrackerTests
     [Fact]
     public void FreshProgress_AdoptsPositionAndDuration()
     {
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
 
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
 
@@ -39,7 +40,7 @@ public class TrackProgressTrackerTests
     [Fact]
     public void Tick_AdvancesWithElapsedTime()
     {
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
 
         var position = tracker.Tick(T0 + (2 * Second));
@@ -51,7 +52,7 @@ public class TrackProgressTrackerTests
     [Fact]
     public void Tick_ClampsToDuration()
     {
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(299_000, 300_000)), PlaybackState.Playing, T0);
 
         var position = tracker.Tick(T0 + (5 * Second));
@@ -63,7 +64,7 @@ public class TrackProgressTrackerTests
     public void Tick_WithoutDuration_DoesNotAdvance()
     {
         // Preserved behavior: duration-less streams show a static server position.
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 0)), PlaybackState.Playing, T0);
 
         Assert.Equal(120.0, tracker.PositionSeconds, 3);
@@ -76,7 +77,7 @@ public class TrackProgressTrackerTests
     {
         // The SDK's Optional merge carries the same PlaybackProgress instance forward
         // when a message omits the progress field.
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         var progress = Progress(120_000, 300_000);
         tracker.ApplyMetadata(Track("A", progress), PlaybackState.Playing, T0);
         tracker.Tick(T0 + (2 * Second)); // interpolated to 122
@@ -94,7 +95,7 @@ public class TrackProgressTrackerTests
     {
         // The reported bug: track changes but the merged metadata still carries the OLD
         // track's progress instance (server sent no progress field for the new track).
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         var stale = Progress(120_000, 300_000);
         tracker.ApplyMetadata(Track("A", stale), PlaybackState.Playing, T0);
 
@@ -108,7 +109,7 @@ public class TrackProgressTrackerTests
     [Fact]
     public void TrackChange_WithFreshProgress_AdoptsNewTrackPosition()
     {
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
 
         tracker.ApplyMetadata(Track("B", Progress(0, 200_000)), PlaybackState.Playing, T0 + Second);
@@ -122,7 +123,7 @@ public class TrackProgressTrackerTests
     [Fact]
     public void TrackChange_WithNullProgress_ResetsToZero()
     {
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
 
         tracker.ApplyMetadata(Track("B", progress: null), PlaybackState.Playing, T0 + Second);
@@ -136,7 +137,7 @@ public class TrackProgressTrackerTests
     public void ExplicitNullProgress_SameTrack_ClearsPosition()
     {
         // Matches the CLI's update_metadata: explicit null clears progress AND duration.
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(295_000, 300_000)), PlaybackState.Playing, T0);
 
         tracker.ApplyMetadata(Track("A", progress: null), PlaybackState.Playing, T0 + (5 * Second));
@@ -149,7 +150,7 @@ public class TrackProgressTrackerTests
     [Fact]
     public void NullMetadata_ClearsEverything()
     {
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
 
         tracker.ApplyMetadata(null, PlaybackState.Playing, T0 + Second);
@@ -162,7 +163,7 @@ public class TrackProgressTrackerTests
     [Fact]
     public void ResetForPendingTrackChange_ZeroesPositionAndStopsExtrapolation()
     {
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
 
         tracker.ResetForPendingTrackChange();
@@ -177,7 +178,7 @@ public class TrackProgressTrackerTests
     {
         // After the optimistic reset, a group/update echoing the pre-change merged state
         // (same identity, same stale progress instance) must not resurrect the old anchor.
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         var progress = Progress(120_000, 300_000);
         tracker.ApplyMetadata(Track("A", progress), PlaybackState.Playing, T0);
 
@@ -193,7 +194,7 @@ public class TrackProgressTrackerTests
     {
         // "Previous" can legitimately restart the SAME track at 0 — identity unchanged,
         // so only fresh progress can re-anchor after the optimistic reset.
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
 
         tracker.ResetForPendingTrackChange();
@@ -207,7 +208,7 @@ public class TrackProgressTrackerTests
     [Fact]
     public void Freeze_StopsExtrapolation_KeepsLastPosition()
     {
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
         tracker.Tick(T0 + (2 * Second));
 
@@ -220,7 +221,7 @@ public class TrackProgressTrackerTests
     [Fact]
     public void PlaybackSpeed_ScalesExtrapolation()
     {
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000, speed: 500)), PlaybackState.Playing, T0);
 
         var position = tracker.Tick(T0 + (2 * Second));
@@ -231,7 +232,7 @@ public class TrackProgressTrackerTests
     [Fact]
     public void PlaybackSpeedZero_FreezesAtServerPosition()
     {
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000, speed: 0)), PlaybackState.Playing, T0);
 
         var position = tracker.Tick(T0 + (30 * Second));
@@ -244,7 +245,7 @@ public class TrackProgressTrackerTests
     {
         // A pause update often carries fresh progress WITHOUT playback_speed. The paused
         // state must override the speed default (1.0): the bar stays at the paused position.
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
 
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Paused, T0 + Second);
@@ -259,7 +260,7 @@ public class TrackProgressTrackerTests
     {
         // Resume often arrives with the carried-forward progress instance only. The bar
         // must stay at the paused position instead of jumping by the pause duration.
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
         var pausedProgress = Progress(120_000, 300_000);
         tracker.ApplyMetadata(Track("A", pausedProgress), PlaybackState.Paused, T0 + Second);
@@ -274,7 +275,7 @@ public class TrackProgressTrackerTests
     [Fact]
     public void ResumeWithFreshProgress_Reanchors()
     {
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Paused, T0 + Second);
 
@@ -290,7 +291,7 @@ public class TrackProgressTrackerTests
     {
         // Even when the paused progress carries an explicit playback_speed of 1000, the
         // not-playing state wins: anchoring uses effective speed 0.
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
 
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000, speed: 1000)), PlaybackState.Paused, T0);
 
@@ -302,7 +303,7 @@ public class TrackProgressTrackerTests
     [Fact]
     public void Freeze_ThenFreshProgress_ResumesExtrapolation()
     {
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
         tracker.Tick(T0 + (2 * Second)); // 122
 
@@ -320,7 +321,7 @@ public class TrackProgressTrackerTests
         // Progress was measured 200 ms (server time) before we received it; the displayed
         // position starts 200 ms ahead of track_progress (network-delay compensation).
         var sync = new FakeClockSynchronizer { OffsetMicroseconds = 7_000_000_000_000L, IsConverged = true };
-        var tracker = new TrackProgressTracker(sync);
+        var tracker = CreateTracker(sync);
         var measuredAt = sync.ClientToServerTime(T0 - 200_000);
 
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000), timestamp: measuredAt), PlaybackState.Playing, T0);
@@ -334,7 +335,7 @@ public class TrackProgressTrackerTests
     public void UnconvergedClock_FallsBackToReceiptAnchor()
     {
         var sync = new FakeClockSynchronizer { OffsetMicroseconds = 7_000_000_000_000L, IsConverged = false };
-        var tracker = new TrackProgressTracker(sync);
+        var tracker = CreateTracker(sync);
         var measuredAt = sync.ClientToServerTime(T0 - 200_000);
 
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000), timestamp: measuredAt), PlaybackState.Playing, T0);
@@ -348,7 +349,7 @@ public class TrackProgressTrackerTests
         // The SDK merges metadata fields independently, so fresh progress can arrive next
         // to a stale carried-forward timestamp. Distrust anything older than a few seconds.
         var sync = new FakeClockSynchronizer { OffsetMicroseconds = 7_000_000_000_000L, IsConverged = true };
-        var tracker = new TrackProgressTracker(sync);
+        var tracker = CreateTracker(sync);
         var measuredAt = sync.ClientToServerTime(T0 - (10 * Second));
 
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000), timestamp: measuredAt), PlaybackState.Playing, T0);
@@ -362,7 +363,7 @@ public class TrackProgressTrackerTests
     public void FutureTimestamp_FallsBackToReceiptAnchor()
     {
         var sync = new FakeClockSynchronizer { OffsetMicroseconds = 7_000_000_000_000L, IsConverged = true };
-        var tracker = new TrackProgressTracker(sync);
+        var tracker = CreateTracker(sync);
         var measuredAt = sync.ClientToServerTime(T0 + (3 * Second));
 
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000), timestamp: measuredAt), PlaybackState.Playing, T0);
@@ -375,7 +376,7 @@ public class TrackProgressTrackerTests
     [Fact]
     public void FreshProgressWithoutTrackProgress_UpdatesDurationOnly()
     {
-        var tracker = new TrackProgressTracker(clockSynchronizer: null);
+        var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
         tracker.Tick(T0 + (2 * Second)); // 122
 
@@ -386,6 +387,9 @@ public class TrackProgressTrackerTests
         var position = tracker.Tick(T0 + (4 * Second));
         Assert.Equal(124.0, position!.Value, 3); // anchor undisturbed
     }
+
+    private static TrackProgressTracker CreateTracker(IClockSynchronizer? clockSynchronizer = null) =>
+        new TrackProgressTracker(clockSynchronizer, NullLogger<TrackProgressTracker>.Instance);
 
     private static TrackMetadata Track(string title, PlaybackProgress? progress, long? timestamp = null) => new TrackMetadata
     {

@@ -2,6 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
+using System.Diagnostics.CodeAnalysis;
+using Microsoft.Extensions.Logging;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
@@ -52,6 +54,7 @@ public sealed class TrackProgressTracker
     private const long MaxAnchorAgeMicroseconds = 5_000_000;
 
     private readonly IClockSynchronizer? _clockSynchronizer;
+    private readonly ILogger<TrackProgressTracker> _logger;
 
     private string? _trackIdentity;
     private PlaybackProgress? _lastProgress;
@@ -63,9 +66,12 @@ public sealed class TrackProgressTracker
     /// <param name="clockSynchronizer">Optional clock synchronizer used to anchor fresh
     /// progress at its server timestamp. When null or not converged, anchors fall back to
     /// the receipt time.</param>
-    public TrackProgressTracker(IClockSynchronizer? clockSynchronizer)
+    /// <param name="logger">Logger for anchor and reset diagnostics (Debug level; these
+    /// fire on every progress update).</param>
+    public TrackProgressTracker(IClockSynchronizer? clockSynchronizer, ILogger<TrackProgressTracker> logger)
     {
         _clockSynchronizer = clockSynchronizer;
+        _logger = logger;
     }
 
     /// <summary>
@@ -100,6 +106,7 @@ public sealed class TrackProgressTracker
         // has no track id/URI, so title+artist+album is the best available identity.
         var identity = $"{metadata.Title}|{metadata.Artist}|{metadata.Album}";
         var identityChanged = identity != _trackIdentity;
+        var previousIdentity = _trackIdentity;
         _trackIdentity = identity;
 
         var progress = metadata.Progress;
@@ -109,6 +116,10 @@ public sealed class TrackProgressTracker
         if (identityChanged)
         {
             // New track: never trust position state that belonged to the previous track.
+            _logger.LogDebug(
+                "Track identity changed ({PreviousIdentity} -> {Identity}); resetting seek bar position",
+                previousIdentity ?? "(none)",
+                identity);
             ResetPosition();
         }
 
@@ -116,6 +127,7 @@ public sealed class TrackProgressTracker
         {
             // Explicit-null progress (track ended) or no progress yet: clear position and
             // duration, matching the CLI's update_metadata handling.
+            _logger.LogDebug("Progress is null (track ended or none yet); clearing position and duration");
             ResetPosition();
             return;
         }
@@ -160,6 +172,9 @@ public sealed class TrackProgressTracker
     /// </summary>
     public void ResetForPendingTrackChange()
     {
+        _logger.LogDebug(
+            "Optimistic seek bar reset pending track change (position was {PositionSeconds}s)",
+            PositionSeconds);
         PositionSeconds = 0;
         _anchor = null;
 
@@ -210,17 +225,30 @@ public sealed class TrackProgressTracker
 
     private long ResolveAnchor(long? serverTimestampMicroseconds, long nowMicroseconds)
     {
-        if (serverTimestampMicroseconds.HasValue && _clockSynchronizer?.IsConverged == true)
+        if (!serverTimestampMicroseconds.HasValue)
         {
-            var converted = _clockSynchronizer.ServerToClientTime(serverTimestampMicroseconds.Value);
-            var age = nowMicroseconds - converted;
-            if (age >= 0 && age <= MaxAnchorAgeMicroseconds)
-            {
-                return converted;
-            }
+            _logger.LogDebug("Anchor fell back to receipt time: metadata carries no server timestamp");
+            return nowMicroseconds;
         }
 
-        return nowMicroseconds;
+        if (_clockSynchronizer?.IsConverged != true)
+        {
+            _logger.LogDebug("Anchor fell back to receipt time: clock synchronizer not converged");
+            return nowMicroseconds;
+        }
+
+        var converted = _clockSynchronizer.ServerToClientTime(serverTimestampMicroseconds.Value);
+        var age = nowMicroseconds - converted;
+        if (age < 0 || age > MaxAnchorAgeMicroseconds)
+        {
+            _logger.LogDebug(
+                "Anchor fell back to receipt time: converted timestamp age {AgeMicroseconds}µs outside [0, {MaxAgeMicroseconds}µs]",
+                age,
+                MaxAnchorAgeMicroseconds);
+            return nowMicroseconds;
+        }
+
+        return converted;
     }
 
     /// <summary>
@@ -228,5 +256,9 @@ public sealed class TrackProgressTracker
     /// client-domain instant, plus the effective speed. Null whenever extrapolation
     /// is stopped (no fresh progress yet, frozen, or reset).
     /// </summary>
+    [SuppressMessage(
+        "StyleCop.CSharp.NamingRules",
+        "SA1313:Parameter names should begin with lower-case letter",
+        Justification = "Positional record parameters become properties and follow property naming.")]
     private readonly record struct Anchor(long AtMicroseconds, double PositionSeconds, double SpeedFactor);
 }
