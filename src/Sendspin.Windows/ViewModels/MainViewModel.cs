@@ -604,11 +604,13 @@ public partial class MainViewModel : ViewModelBase
     /// Routes a merged metadata snapshot through the progress tracker and reflects the
     /// resulting position/duration in the UI. Shared by both connection-mode handlers so
     /// the progress tri-state (value / explicit null / absent) and track-change resets
-    /// behave identically in client-initiated and server-initiated modes.
+    /// behave identically in client-initiated and server-initiated modes. The playback
+    /// state comes from the same group update (not the VM property) so the tracker sees
+    /// a consistent snapshot regardless of handler assignment order.
     /// </summary>
-    private void ApplyTrackProgress(TrackMetadata? metadata)
+    private void ApplyTrackProgress(TrackMetadata? metadata, PlaybackState playbackState)
     {
-        _progressTracker.ApplyMetadata(metadata, HighPrecisionTimer.Shared.GetCurrentTimeMicroseconds());
+        _progressTracker.ApplyMetadata(metadata, playbackState, HighPrecisionTimer.Shared.GetCurrentTimeMicroseconds());
         Duration = _progressTracker.DurationSeconds;
         Position = _progressTracker.PositionSeconds;
     }
@@ -1136,7 +1138,7 @@ public partial class MainViewModel : ViewModelBase
                 RepeatMode = group.Repeat ?? "off";
 
                 // Position/duration: tri-state progress handling and track-change resets
-                ApplyTrackProgress(group.Metadata);
+                ApplyTrackProgress(group.Metadata, group.PlaybackState);
 
                 if (CurrentTrack != null)
                 {
@@ -1325,7 +1327,7 @@ public partial class MainViewModel : ViewModelBase
                 RepeatMode = group.Repeat ?? "off";
 
                 // Position/duration: tri-state progress handling and track-change resets
-                ApplyTrackProgress(group.Metadata);
+                ApplyTrackProgress(group.Metadata, group.PlaybackState);
 
                 // Update status with now playing info
                 if (CurrentTrack != null)
@@ -1765,11 +1767,12 @@ public partial class MainViewModel : ViewModelBase
         }
         else if (value == null)
         {
-            // Track cleared - reset artwork and progress
+            // Track cleared - reset artwork and progress. Null metadata resets the
+            // tracker unconditionally, so the playback state is incidental here.
             AlbumArtwork = null;
             _lastArtworkUrl = null;
             _previousTrackId = null;
-            ApplyTrackProgress(null);
+            ApplyTrackProgress(null, PlaybackState);
 
             // Clear Discord presence when track is cleared
             _discordService.ClearPresence();

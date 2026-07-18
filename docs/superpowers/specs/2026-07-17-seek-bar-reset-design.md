@@ -32,7 +32,11 @@ Extract one shared, plain, unit-testable class — `TrackProgressTracker`
 (`src/Sendspin.Windows.Services/Playback/`) — that owns all position/duration/anchor state.
 `MainViewModel` becomes a thin caller: both group-state handlers call `ApplyMetadata`, the
 250 ms UI timer calls `Tick`, next/previous call `ResetForPendingTrackChange`, and the
-pause/stop transition calls `Freeze`. Fresh progress is distinguished from carried-forward
+pause/stop transition calls `Freeze`. `ApplyMetadata` also receives the playback state from
+the **same group update** (not the VM property): fresh progress arriving while the group is
+not playing anchors with effective speed 0, so a pause update cannot silently un-freeze the
+bar and the handlers' assignment order (`PlaybackState` before/after progress) stops
+mattering. Fresh progress is distinguished from carried-forward
 stale progress by reference: the SDK deserializes a **new** `PlaybackProgress` instance
 exactly when the server sent the field, and carries the **same** instance forward when absent.
 
@@ -46,9 +50,10 @@ exactly when the server sent the field, and carries the **same** instance forwar
 | Track change **without** progress (carried stale ref or null) | Kept old position; timer crept vs old duration (**the bug**) | Position 0, Duration 0, frozen until first fresh progress |
 | Explicit-null progress, same track (track ended) | Host: kept final position; manual: kept anchor | Position 0, Duration 0, frozen (matches CLI clearing) |
 | Previous/Next clicked | Nothing until server progress | Optimistic: Position 0 immediately, frozen; next fresh progress re-anchors (covers server restarting the *same* track at 0) |
-| Pause → resume without fresh progress | Frozen at last position | Same (`Freeze` clears the anchor) |
+| Pause update **with** fresh progress (speed absent or explicit) | (initial tracker implementation) anchor re-armed at the progress speed (default 1.0), undoing `Freeze`; a later resume without fresh progress jumped the bar by the whole pause duration | Anchored at the paused position with effective speed 0 — the update's playback state overrides the progress speed |
+| Pause → resume without fresh progress | Frozen at last position | Frozen at the paused position until fresh progress re-anchors (`Freeze` clears the anchor; not-playing updates anchor at speed 0) |
 | Metadata null (track cleared) | Zeroed | Same, via tracker |
-| Paused progress with `playback_speed` 0 | n/a | Anchored but frozen (speed scales extrapolation) |
+| Paused progress with `playback_speed` 0 | n/a | Anchored but frozen (state and speed agree) |
 
 Preserved quirk: extrapolation still only advances when duration > 0 (same gate as the old
 timer tick), so duration-less streams keep today's static display.
@@ -67,7 +72,8 @@ compensation per spec), displayed position = anchor position + elapsed × speed,
 [0, duration]. Fallback to receipt-time anchoring when: no timestamp, clock not converged,
 converted time implausibly old (> 5 s before receipt — guards against a stale carried-forward
 timestamp merged next to fresh progress), or converted time in the future. Speed defaults to
-1.0 when absent.
+1.0 when absent, but the update's playback state overrides it: any not-playing state anchors
+with effective speed 0.
 
 ## Out of Scope / Deferred
 

@@ -27,10 +27,14 @@ namespace Sendspin.Windows.Services.Playback;
 /// <para>
 /// Extrapolation follows the spec formula: displayed position is the anchored
 /// <c>track_progress</c> plus elapsed time scaled by <c>playback_speed</c> (0 freezes the
-/// position), clamped to <c>[0, duration]</c>. When the clock synchronizer has converged
-/// and the metadata carries a plausible server timestamp, the anchor is that timestamp
-/// converted to client time (compensating network delay); otherwise the anchor falls back
-/// to the receipt time.
+/// position), clamped to <c>[0, duration]</c>. The playback state carried by the same
+/// update overrides the progress object's speed: whenever the group is not playing, fresh
+/// progress anchors with an effective speed of 0, so a pause update cannot silently
+/// un-freeze the bar and a later resume without fresh progress stays at the paused
+/// position instead of jumping forward by the pause duration. When the clock synchronizer
+/// has converged and the metadata carries a plausible server timestamp, the anchor is that
+/// timestamp converted to client time (compensating network delay); otherwise the anchor
+/// falls back to the receipt time.
 /// </para>
 /// <para>
 /// All times are client-domain microseconds from <see cref="IHighPrecisionTimer"/>.
@@ -81,8 +85,11 @@ public sealed class TrackProgressTracker
     /// Applies a merged metadata snapshot from a group state update.
     /// </summary>
     /// <param name="metadata">The merged track metadata, or null when no track is active.</param>
+    /// <param name="playbackState">The group playback state carried by the same update.
+    /// When not <see cref="PlaybackState.Playing"/>, fresh progress anchors with an
+    /// effective speed of 0 regardless of the progress object's <c>playback_speed</c>.</param>
     /// <param name="nowMicroseconds">Current client time in microseconds.</param>
-    public void ApplyMetadata(TrackMetadata? metadata, long nowMicroseconds)
+    public void ApplyMetadata(TrackMetadata? metadata, PlaybackState playbackState, long nowMicroseconds)
     {
         if (metadata is null)
         {
@@ -132,7 +139,15 @@ public sealed class TrackProgressTracker
         if (progress.TrackProgress.HasValue)
         {
             _anchorPositionSeconds = Math.Max(0, progress.TrackProgress.Value / 1000.0);
-            _speedFactor = Math.Max(0, (progress.PlaybackSpeed ?? 1000.0) / 1000.0);
+
+            // The update's playback state overrides the progress object's speed: while not
+            // playing the effective speed is 0, so a pause update carrying fresh progress
+            // (with or without playback_speed) anchors frozen, and a later resume without
+            // fresh progress stays at the paused position instead of jumping forward by
+            // the pause duration.
+            _speedFactor = playbackState == PlaybackState.Playing
+                ? Math.Max(0, (progress.PlaybackSpeed ?? 1000.0) / 1000.0)
+                : 0;
             _anchorMicroseconds = ResolveAnchor(metadata.Timestamp, nowMicroseconds);
             _hasAnchor = true;
             PositionSeconds = ExtrapolateAt(nowMicroseconds);
