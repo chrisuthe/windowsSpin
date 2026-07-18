@@ -28,7 +28,8 @@ namespace Sendspin.Windows.Services.Playback;
 /// <para>
 /// Extrapolation follows the spec formula: displayed position is the anchored
 /// <c>track_progress</c> plus elapsed time scaled by <c>playback_speed</c> (0 freezes the
-/// position), clamped to <c>[0, duration]</c>. The playback state carried by the same
+/// position), clamped to <c>[0, duration]</c> when the duration is known. The playback
+/// state carried by the same
 /// update overrides the progress object's speed: whenever the group is not playing, fresh
 /// progress anchors with an effective speed of 0, so a pause update cannot silently
 /// un-freeze the bar and a later resume without fresh progress stays at the paused
@@ -38,7 +39,9 @@ namespace Sendspin.Windows.Services.Playback;
 /// falls back to the receipt time.
 /// </para>
 /// <para>
-/// All times are client-domain microseconds from <see cref="IHighPrecisionTimer"/>.
+/// The <c>nowMicroseconds</c> parameters are client-domain microseconds from
+/// <see cref="IHighPrecisionTimer"/>; <see cref="TrackMetadata.Timestamp"/> is
+/// server-domain and converted internally.
 /// The class is not thread-safe; callers are expected to invoke it from the UI dispatcher.
 /// </para>
 /// </remarks>
@@ -177,8 +180,10 @@ public sealed class TrackProgressTracker
         PositionSeconds = 0;
         _anchor = null;
 
-        // _lastProgress is intentionally kept: a group/update echoing the pre-change
-        // state carries the same stale progress instance and must not look fresh.
+        // _lastProgress is intentionally kept: any group-state event echoing the
+        // pre-change merged state carries the same stale progress instance and must
+        // not look fresh (metadata travels in server/state; group/update only carries
+        // playback state and group identity, but both re-emit the merged snapshot).
     }
 
     /// <summary>

@@ -19,12 +19,13 @@ and pins near the end until the server happens to send a progress object.
    The Python CLI clears progress *and* duration in this case (`update_metadata` in
    `sendspin/tui/app.py`).
 
-An SDK-level detail sharpens cause 1: `SendSpinClient.HandleServerState` merges metadata with
+An SDK-level detail sharpens cause 1: `SendspinClientService.HandleServerState` (declared in
+`SendSpinClient.cs`) merges metadata with
 `Optional<T>` semantics and **carries the previous `PlaybackProgress` instance forward** when
 the field is absent. A track change whose `server/state` lacks progress therefore arrives as
 *new identity + the old track's stale progress object*, and the old code re-anchored to that
-stale position. Both connection modes flow through `SendSpinClient` (the host service wraps
-one per incoming connection), so the same semantics apply everywhere.
+stale position. Both connection modes flow through `SendspinClientService` (the host service
+wraps one per incoming connection), so the same semantics apply everywhere.
 
 ## Fix
 

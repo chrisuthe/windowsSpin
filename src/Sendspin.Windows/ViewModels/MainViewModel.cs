@@ -588,7 +588,8 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     private void OnPositionTimerTick(object? sender, EventArgs e)
     {
-        // Only interpolate while playing; the tracker returns null when it has no anchor.
+        // Only interpolate while playing; the tracker returns null when it has no
+        // anchor or no known duration.
         if (PlaybackState != PlaybackState.Playing)
         {
             return;

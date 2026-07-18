@@ -82,7 +82,8 @@ public class TrackProgressTrackerTests
         tracker.ApplyMetadata(Track("A", progress), PlaybackState.Playing, T0);
         tracker.Tick(T0 + (2 * Second)); // interpolated to 122
 
-        // A group/update re-emits the merged state: same identity, same progress instance.
+        // A group-state event re-emits the merged state: same identity, same progress
+        // instance (metadata travels in server/state; group/update carries none).
         tracker.ApplyMetadata(Track("A", progress), PlaybackState.Playing, T0 + (2 * Second));
 
         Assert.Equal(122.0, tracker.PositionSeconds, 3);
@@ -176,8 +177,9 @@ public class TrackProgressTrackerTests
     [Fact]
     public void ResetForPendingTrackChange_CarriedProgressEcho_StaysAtZero()
     {
-        // After the optimistic reset, a group/update echoing the pre-change merged state
-        // (same identity, same stale progress instance) must not resurrect the old anchor.
+        // After the optimistic reset, a group-state event echoing the pre-change merged
+        // state (same identity, same stale progress instance) must not resurrect the
+        // old anchor.
         var tracker = CreateTracker();
         var progress = Progress(120_000, 300_000);
         tracker.ApplyMetadata(Track("A", progress), PlaybackState.Playing, T0);
