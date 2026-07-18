@@ -503,6 +503,12 @@ Progress = meta.Progress.IsPresent ? meta.Progress.Value : existing.Progress;
 
 This matches the CLI's `UndefinedField` pattern in Python.
 
+**Corollary the app depends on**: when the progress field is absent, the SDK's
+carry-forward keeps the **same** `PlaybackProgress` instance (verified in 9.1.0's
+`SendspinClientService.HandleServerState`), and deserializes a **new** instance exactly
+when the server sent the field. `TrackProgressTracker` relies on this reference identity
+to distinguish fresh progress from carried-forward stale progress.
+
 ---
 
 ## Testing & Debugging
@@ -561,6 +567,13 @@ Enable verbose logging in appsettings.json:
 The SDK is consumed as a NuGet package. Source and publishing are managed in [Sendspin/sendspin-dotnet](https://github.com/Sendspin/sendspin-dotnet).
 
 To update the SDK version, change the `Version` in the `<PackageReference Include="Sendspin.SDK">` entries in both `Sendspin.Windows.csproj` and `Sendspin.Windows.Services.csproj`.
+
+When bumping the SDK version, also verify that the carry-forward-by-reference behavior
+still holds: `SendspinClientService.HandleServerState` must reuse the **same**
+`PlaybackProgress` instance when the progress field is absent from a message —
+`TrackProgressTracker`'s freshness detection depends on it (see gotcha #7). An upstream
+contract test is being added to sendspin-dotnet; until it exists, this must be checked
+manually against the SDK source.
 
 ---
 
