@@ -588,13 +588,10 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     private void OnPositionTimerTick(object? sender, EventArgs e)
     {
-        // Only interpolate while playing; the tracker returns null when it has no
-        // anchor or no known duration.
-        if (PlaybackState != PlaybackState.Playing)
-        {
-            return;
-        }
-
+        // The tracker is authoritative for whether the position advances: it returns null
+        // when it has no anchor (frozen/reset) or no known duration, and holds the position
+        // still on a speed-0 anchor. Gating on PlaybackState here would be redundant and
+        // would re-introduce the state coupling that froze the bar.
         var position = _progressTracker.Tick(HighPrecisionTimer.Shared.GetCurrentTimeMicroseconds());
         if (position.HasValue)
         {
@@ -1699,8 +1696,16 @@ public partial class MainViewModel : ViewModelBase
 
         _mediaControlsService.UpdateState(value);
 
-        // Stop position extrapolation when playback stops; the bar keeps its last value
-        if (value != PlaybackState.Playing)
+        // Stop position extrapolation when playback stops (the bar keeps its last value)
+        // and restart it from that value when playback returns. Resuming here is what makes
+        // the bar survive a state round-trip that carries no fresh progress — the SDK
+        // synthesizes Idle/Playing around stream/end and stream/start, so a stream restart
+        // would otherwise leave the bar frozen for the rest of the track.
+        if (value == PlaybackState.Playing)
+        {
+            _progressTracker.Resume(HighPrecisionTimer.Shared.GetCurrentTimeMicroseconds());
+        }
+        else
         {
             _progressTracker.Freeze();
         }

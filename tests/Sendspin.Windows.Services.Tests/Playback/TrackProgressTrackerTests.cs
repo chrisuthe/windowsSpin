@@ -243,14 +243,15 @@ public class TrackProgressTrackerTests
     }
 
     [Fact]
-    public void PauseWithFreshProgress_OmittingSpeed_StaysFrozen()
+    public void ConformantPause_SpeedZeroWhilePlaying_StaysFrozen()
     {
-        // A pause update often carries fresh progress WITHOUT playback_speed. The paused
-        // state must override the speed default (1.0): the bar stays at the paused position.
+        // Spec: there is no 'paused' playback_state (README:681); playback_speed = 0 is the
+        // protocol's only pause signal (README:1448) and stays inside a 'playing' group.
+        // Deriving the freeze from the speed alone must therefore still freeze a real pause.
         var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
 
-        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Paused, T0 + Second);
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000, speed: 0)), PlaybackState.Playing, T0 + Second);
 
         Assert.Equal(120.0, tracker.PositionSeconds, 3);
         var position = tracker.Tick(T0 + (60 * Second));
@@ -260,12 +261,12 @@ public class TrackProgressTrackerTests
     [Fact]
     public void ResumeWithoutFreshProgress_StaysAtPausedPosition()
     {
-        // Resume often arrives with the carried-forward progress instance only. The bar
-        // must stay at the paused position instead of jumping by the pause duration.
+        // Resume can arrive with the carried-forward progress instance only. The bar must
+        // stay at the paused position instead of jumping by the pause duration.
         var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
-        var pausedProgress = Progress(120_000, 300_000);
-        tracker.ApplyMetadata(Track("A", pausedProgress), PlaybackState.Paused, T0 + Second);
+        var pausedProgress = Progress(120_000, 300_000, speed: 0);
+        tracker.ApplyMetadata(Track("A", pausedProgress), PlaybackState.Playing, T0 + Second);
 
         tracker.ApplyMetadata(Track("A", pausedProgress), PlaybackState.Playing, T0 + (30 * Second));
 
@@ -279,7 +280,7 @@ public class TrackProgressTrackerTests
     {
         var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
-        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Paused, T0 + Second);
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000, speed: 0)), PlaybackState.Playing, T0 + Second);
 
         tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0 + (30 * Second));
 
@@ -289,17 +290,20 @@ public class TrackProgressTrackerTests
     }
 
     [Fact]
-    public void PauseWithFreshProgress_ExplicitNormalSpeed_StaysFrozen()
+    public void FreshProgressWithSpeed_AdvancesRegardlessOfGroupState()
     {
-        // Even when the paused progress carries an explicit playback_speed of 1000, the
-        // not-playing state wins: anchoring uses effective speed 0.
+        // The group playback state no longer overrides the progress object's speed: per
+        // spec (README:1446-1448) playback_speed is required whenever progress is sent and
+        // is the authority on whether the position advances. A carried-forward group state
+        // (e.g. the SDK's synthesized Idle on stream/end) must not silently freeze fresh,
+        // explicitly-advancing progress.
         var tracker = CreateTracker();
 
-        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000, speed: 1000)), PlaybackState.Paused, T0);
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000, speed: 1000)), PlaybackState.Idle, T0);
 
         Assert.Equal(120.0, tracker.PositionSeconds, 3);
         var position = tracker.Tick(T0 + (30 * Second));
-        Assert.Equal(120.0, position!.Value, 3);
+        Assert.Equal(150.0, position!.Value, 3);
     }
 
     [Fact]
@@ -512,6 +516,110 @@ public class TrackProgressTrackerTests
         Assert.Equal(0.0, tracker.PositionSeconds);
         Assert.Equal(0.0, tracker.DurationSeconds);
         Assert.Null(tracker.Tick(T0 + (2 * Second)));
+    }
+
+    [Fact]
+    public void StreamRestart_IdleThenPlayingWithCarriedProgress_ResumesFromSamePosition()
+    {
+        // The reported freeze: a stream restart (format renegotiation, or a server that
+        // implements seek as stream/end + stream/start) makes the SDK synthesize Idle then
+        // Playing, BOTH carrying the same PlaybackProgress instance. Nothing is fresh, so
+        // only Resume() can rebuild the anchor Freeze() dropped.
+        var tracker = CreateTracker();
+        var progress = Progress(120_000, 300_000, speed: 1000);
+        tracker.ApplyMetadata(Track("A", progress), PlaybackState.Playing, T0);
+
+        tracker.Tick(T0 + Second); // the 250 ms UI timer has carried the bar to 121 s
+        tracker.ApplyMetadata(Track("A", progress), PlaybackState.Idle, T0 + Second);
+        tracker.Freeze();
+        tracker.ApplyMetadata(Track("A", progress), PlaybackState.Playing, T0 + (2 * Second));
+        tracker.Resume(T0 + (2 * Second));
+
+        // Resumed from where the bar was (121 s at the freeze), not jumped by the gap.
+        Assert.Equal(121.0, tracker.PositionSeconds, 3);
+        var position = tracker.Tick(T0 + (4 * Second));
+        Assert.Equal(123.0, position!.Value, 3);
+    }
+
+    [Fact]
+    public void ResumeAfterFreeze_WithoutFreshProgress_ResumesFromFrozenPosition()
+    {
+        var tracker = CreateTracker();
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
+        tracker.Freeze();
+
+        tracker.Resume(T0 + (30 * Second));
+
+        // No jump by the 30 s of paused wall time.
+        Assert.Equal(120.0, tracker.PositionSeconds, 3);
+        var position = tracker.Tick(T0 + (32 * Second));
+        Assert.Equal(122.0, position!.Value, 3);
+    }
+
+    [Fact]
+    public void Resume_WithSpeedZeroAnchor_ResumesAtNormalSpeed()
+    {
+        // A speed-0 anchor is frozen but present; Resume must restart it at 1.0 rather
+        // than leaving it stuck at 0.
+        var tracker = CreateTracker();
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000, speed: 0)), PlaybackState.Playing, T0);
+
+        tracker.Resume(T0 + (30 * Second));
+
+        var position = tracker.Tick(T0 + (32 * Second));
+        Assert.Equal(122.0, position!.Value, 3);
+    }
+
+    [Fact]
+    public void Resume_WithSpeedZeroAnchor_ResumesAtLastKnownSpeed()
+    {
+        var tracker = CreateTracker();
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000, speed: 500)), PlaybackState.Playing, T0);
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000, speed: 0)), PlaybackState.Playing, T0 + Second);
+
+        tracker.Resume(T0 + (30 * Second));
+
+        var position = tracker.Tick(T0 + (32 * Second));
+        Assert.Equal(121.0, position!.Value, 3); // 2 s wall x 0.5
+    }
+
+    [Fact]
+    public void Resume_WhileAlreadyAdvancing_DoesNotReanchor()
+    {
+        var tracker = CreateTracker();
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
+
+        tracker.Resume(T0 + (2 * Second));
+
+        var position = tracker.Tick(T0 + (4 * Second));
+        Assert.Equal(124.0, position!.Value, 3); // original anchor kept
+    }
+
+    [Fact]
+    public void Resume_WithNoPriorProgress_IsNoOp()
+    {
+        var tracker = CreateTracker();
+
+        tracker.Resume(T0);
+
+        Assert.Equal(0.0, tracker.PositionSeconds);
+        Assert.Equal(0.0, tracker.DurationSeconds);
+        Assert.Null(tracker.Tick(T0 + (10 * Second)));
+    }
+
+    [Fact]
+    public void Resume_AfterPendingTrackChangeReset_IsNoOp()
+    {
+        // The optimistic reset deliberately stops extrapolation until the server confirms
+        // the new track with fresh progress; Resume must not restart it from zero.
+        var tracker = CreateTracker();
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 300_000)), PlaybackState.Playing, T0);
+        tracker.ResetForPendingTrackChange();
+
+        tracker.Resume(T0 + Second);
+
+        Assert.Equal(0.0, tracker.PositionSeconds);
+        Assert.Null(tracker.Tick(T0 + (3 * Second)));
     }
 
     private static TrackProgressTracker CreateTracker(IClockSynchronizer? clockSynchronizer = null) =>
