@@ -515,6 +515,9 @@
                                    Foreground="{StaticResource TextSecondaryBrush}"
                                    VerticalAlignment="Center"/>
 
+                        <!-- Hidden for unbounded streams (live radio): a percentage of an
+                             unknown duration is meaningless, so only the elapsed time and
+                             the "LIVE" label remain. -->
                         <ProgressBar Grid.Column="1"
                                      Margin="12,0"
                                      Value="{Binding ProgressPercent, Mode=OneWay}"
@@ -522,7 +525,8 @@
                                      Height="4"
                                      VerticalAlignment="Center"
                                      Foreground="{StaticResource TextPrimaryBrush}"
-                                     Background="#40FFFFFF"/>
+                                     Background="#40FFFFFF"
+                                     Visibility="{Binding HasKnownDuration, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
                         <TextBlock Grid.Column="2"
                                    Text="{Binding DurationFormatted}"

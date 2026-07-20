@@ -480,14 +480,25 @@ public partial class MainViewModel : ViewModelBase
     public string PositionFormatted => FormatTime(Position);
 
     /// <summary>
-    /// Gets the total duration formatted as a time string (e.g., "3:45" or "1:23:45").
+    /// Gets a value indicating whether the current track has a known, bounded duration.
+    /// Per the Sendspin spec a <c>track_duration</c> of 0 means unlimited/unknown (live
+    /// radio); the tracker maps the SDK's null duration to the same 0. Single source of
+    /// truth for the unbounded-stream presentation in the progress row.
     /// </summary>
-    public string DurationFormatted => FormatTime(Duration);
+    public bool HasKnownDuration => Duration > 0;
 
     /// <summary>
-    /// Gets the progress percentage (0-100) for progress bar display.
+    /// Gets the total duration formatted as a time string (e.g., "3:45" or "1:23:45"),
+    /// or "LIVE" for an unbounded stream. The "LIVE" label is a product choice, not a
+    /// spec requirement.
     /// </summary>
-    public double ProgressPercent => Duration > 0 ? (Position / Duration) * 100 : 0;
+    public string DurationFormatted => HasKnownDuration ? FormatTime(Duration) : "LIVE";
+
+    /// <summary>
+    /// Gets the progress percentage (0-100) for progress bar display. Always 0 for an
+    /// unbounded stream, where the bar is hidden and the value is unused.
+    /// </summary>
+    public double ProgressPercent => HasKnownDuration ? (Position / Duration) * 100 : 0;
 
     /// <summary>
     /// Formats seconds as a time string (M:SS or H:MM:SS for long tracks).
@@ -1727,6 +1738,7 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     partial void OnDurationChanged(double value)
     {
+        OnPropertyChanged(nameof(HasKnownDuration));
         OnPropertyChanged(nameof(DurationFormatted));
         OnPropertyChanged(nameof(ProgressPercent));
     }
