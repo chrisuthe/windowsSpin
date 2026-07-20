@@ -61,15 +61,66 @@ public class TrackProgressTrackerTests
     }
 
     [Fact]
-    public void Tick_WithoutDuration_DoesNotAdvance()
+    public void Tick_ZeroDuration_AdvancesUnclamped()
     {
-        // Preserved behavior: duration-less streams show a static server position.
+        // Spec (README:1447, 1454-1461): track_duration = 0 means unlimited/unknown (live
+        // radio). The position MUST still advance; only the upper clamp is skipped.
         var tracker = CreateTracker();
         tracker.ApplyMetadata(Track("A", Progress(120_000, 0)), PlaybackState.Playing, T0);
 
         Assert.Equal(120.0, tracker.PositionSeconds, 3);
-        Assert.Null(tracker.Tick(T0 + (2 * Second)));
-        Assert.Equal(120.0, tracker.PositionSeconds, 3);
+        var position = tracker.Tick(T0 + (5 * Second));
+
+        Assert.Equal(125.0, position!.Value, 3);
+        var later = tracker.Tick(T0 + (10 * Second));
+        Assert.Equal(130.0, later!.Value, 3);
+    }
+
+    [Fact]
+    public void Tick_NullDuration_AdvancesUnclamped()
+    {
+        // The SDK models unknown duration as null as well as 0; both must advance.
+        var tracker = CreateTracker();
+        tracker.ApplyMetadata(Track("A", Progress(120_000, durationMs: null)), PlaybackState.Playing, T0);
+
+        Assert.Equal(0.0, tracker.DurationSeconds);
+        var position = tracker.Tick(T0 + (5 * Second));
+
+        Assert.Equal(125.0, position!.Value, 3);
+    }
+
+    [Fact]
+    public void Tick_UnknownDuration_GrowsWithoutBound()
+    {
+        // No plausible track length caps a live stream: two hours in, still counting.
+        var tracker = CreateTracker();
+        tracker.ApplyMetadata(Track("A", Progress(0, 0)), PlaybackState.Playing, T0);
+
+        var position = tracker.Tick(T0 + (7200 * Second));
+
+        Assert.Equal(7200.0, position!.Value, 3);
+    }
+
+    [Fact]
+    public void Tick_UnknownDuration_ScalesWithPlaybackSpeed()
+    {
+        var tracker = CreateTracker();
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 0, speed: 500)), PlaybackState.Playing, T0);
+
+        var position = tracker.Tick(T0 + (2 * Second));
+
+        Assert.Equal(121.0, position!.Value, 3); // 2 s wall x 0.5
+    }
+
+    [Fact]
+    public void Tick_UnknownDuration_SpeedZeroStaysFrozen()
+    {
+        var tracker = CreateTracker();
+        tracker.ApplyMetadata(Track("A", Progress(120_000, 0, speed: 0)), PlaybackState.Playing, T0);
+
+        var position = tracker.Tick(T0 + (30 * Second));
+
+        Assert.Equal(120.0, position!.Value, 3);
     }
 
     [Fact]
@@ -421,22 +472,23 @@ public class TrackProgressTrackerTests
 
         Assert.Equal(0.0, tracker.DurationSeconds);
         Assert.Equal(130.0, tracker.PositionSeconds, 3);
-        Assert.Null(tracker.Tick(T0 + (3 * Second))); // no extrapolation without a duration
+        var position = tracker.Tick(T0 + (3 * Second));
+        Assert.Equal(132.0, position!.Value, 3); // unbounded from here on
     }
 
     [Fact]
-    public void NullDurationFromTrackStart_ShowsStaticPosition()
+    public void NullDurationFromTrackStart_AdvancesFromServerPosition()
     {
-        // Radio case: the track never reports a duration. Same static display as an
-        // explicit 0 duration — position shows the server value and does not advance.
+        // Radio case: the track never reports a duration. The position still advances,
+        // and the duration stays 0 so the UI can render it as unbounded.
         var tracker = CreateTracker();
 
         tracker.ApplyMetadata(Track("A", Progress(120_000, durationMs: null)), PlaybackState.Playing, T0);
 
         Assert.Equal(0.0, tracker.DurationSeconds);
         Assert.Equal(120.0, tracker.PositionSeconds, 3);
-        Assert.Null(tracker.Tick(T0 + (2 * Second)));
-        Assert.Equal(120.0, tracker.PositionSeconds, 3);
+        var position = tracker.Tick(T0 + (2 * Second));
+        Assert.Equal(122.0, position!.Value, 3);
     }
 
     [Fact]
@@ -515,7 +567,11 @@ public class TrackProgressTrackerTests
 
         Assert.Equal(0.0, tracker.PositionSeconds);
         Assert.Equal(0.0, tracker.DurationSeconds);
-        Assert.Null(tracker.Tick(T0 + (2 * Second)));
+
+        // A non-positive duration is indistinguishable from "unknown", so the position
+        // advances from the clamped zero rather than freezing.
+        var position = tracker.Tick(T0 + (2 * Second));
+        Assert.Equal(2.0, position!.Value, 3);
     }
 
     [Fact]

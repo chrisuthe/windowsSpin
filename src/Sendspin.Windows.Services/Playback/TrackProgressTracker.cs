@@ -284,11 +284,17 @@ public sealed class TrackProgressTracker
     /// Recomputes the extrapolated position. Call periodically while playing.
     /// </summary>
     /// <param name="nowMicroseconds">Current client time in microseconds.</param>
-    /// <returns>The updated position in seconds, or null when there is nothing to advance
-    /// (no anchor, or the duration is unknown).</returns>
+    /// <returns>The updated position in seconds, or null when there is no anchor to
+    /// extrapolate from.</returns>
+    /// <remarks>
+    /// An unknown duration (spec: <c>track_duration</c> = 0 for live/unbounded streams,
+    /// which the SDK also models as null) does not stop extrapolation — per the spec
+    /// formula it only skips the upper clamp, which <see cref="ExtrapolateAt"/> already
+    /// handles.
+    /// </remarks>
     public double? Tick(long nowMicroseconds)
     {
-        if (_anchor is not { } anchor || DurationSeconds <= 0)
+        if (_anchor is not { } anchor)
         {
             return null;
         }
