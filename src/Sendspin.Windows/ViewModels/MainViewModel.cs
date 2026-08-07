@@ -2715,6 +2715,29 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Opens the pairing token dialog. The token contains the Pairing PSK, so it is
+    /// handled entirely inside the dialog and never logged.
+    /// </summary>
+    [RelayCommand]
+    private void OpenPairingDialog()
+    {
+        try
+        {
+            var dialog = new PairingTokenDialog(_hostService)
+            {
+                Owner = App.Current.MainWindow,
+            };
+            _logger.LogDebug("Pairing token dialog opened");
+            dialog.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to open pairing token dialog");
+            SetError($"Failed to open pairing dialog: {ex.Message}");
+        }
+    }
+
     #endregion
 
     #region System Tray Support

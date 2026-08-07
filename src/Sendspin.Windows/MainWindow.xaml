@@ -351,6 +351,13 @@
                                        Visibility="{Binding IsConnecting, Converter={StaticResource BoolToVisibilityConverter}}"/>
                         </StackPanel>
                     </Expander>
+
+                    <!-- Section 4: Pairing token (needed when the server requires pairing) -->
+                    <Button Content="Show Pairing Token"
+                            Command="{Binding OpenPairingDialogCommand}"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            HorizontalAlignment="Center"
+                            Margin="16,0,16,16"/>
                 </StackPanel>
             </ScrollViewer>
 
