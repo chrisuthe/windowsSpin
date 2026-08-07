@@ -351,13 +351,6 @@
                                        Visibility="{Binding IsConnecting, Converter={StaticResource BoolToVisibilityConverter}}"/>
                         </StackPanel>
                     </Expander>
-
-                    <!-- Section 4: Pairing token (needed when the server requires pairing) -->
-                    <Button Content="Show Pairing Token"
-                            Command="{Binding OpenPairingDialogCommand}"
-                            Style="{StaticResource SecondaryButtonStyle}"
-                            HorizontalAlignment="Center"
-                            Margin="16,0,16,16"/>
                 </StackPanel>
             </ScrollViewer>
 
@@ -879,6 +872,21 @@
                                         </Style>
                                     </TextBlock.Style>
                                 </TextBlock>
+                            </StackPanel>
+
+                            <!-- Pairing Token -->
+                            <StackPanel Margin="0,0,0,16">
+                                <TextBlock Text="Pairing Token" Style="{StaticResource BodyText}"/>
+                                <TextBlock Text="Show this player's pairing token — needed if your server reports that pairing is required"
+                                           Style="{StaticResource CaptionText}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Margin="0,2,0,0"
+                                           TextWrapping="Wrap"/>
+                                <Button Content="Show Pairing Token"
+                                        Command="{Binding OpenPairingDialogCommand}"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        HorizontalAlignment="Left"
+                                        Margin="0,8,0,0"/>
                             </StackPanel>
 
                             <!-- Audio Section -->
