@@ -34,6 +34,152 @@ public class DynamicResamplerSampleProviderTests
         }
     }
 
+    /// <summary>
+    /// A continuous sine source; phase carries across reads so the signal itself has no
+    /// discontinuities. Any output step above the sine's per-sample slope bound was
+    /// manufactured by the resampler.
+    /// </summary>
+    private sealed class SineSampleProvider : ISampleProvider
+    {
+        private readonly double _phaseIncrement;
+        private double _phase;
+
+        public SineSampleProvider(int sampleRate, int channels, double frequencyHz)
+        {
+            WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
+            _phaseIncrement = 2 * Math.PI * frequencyHz / sampleRate;
+        }
+
+        public WaveFormat WaveFormat { get; }
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            var channels = WaveFormat.Channels;
+            for (var i = 0; i < count; i += channels)
+            {
+                var sample = (float)(0.5 * Math.Sin(_phase));
+                for (var c = 0; c < channels; c++)
+                {
+                    buffer[offset + i + c] = sample;
+                }
+
+                _phase += _phaseIncrement;
+            }
+
+            return count;
+        }
+    }
+
+    /// <summary>
+    /// Regression test for issue #63's audible click. WDL's IIR low-pass chain runs only while
+    /// the resample ratio is off 1.0, and its filter history is never cleared. Toggling the
+    /// playback rate between exactly 1.0 and 1.0+e - the corrector's None/Resampling limit
+    /// cycle under ordinary clock drift - re-engages the chain against seconds-stale history,
+    /// producing a signal-proportional broadband transient (the reported "soft click").
+    /// A 101 Hz sine moves at most ~0.0066/sample, so any output step well above that bound
+    /// is a manufactured discontinuity. 101 Hz and the 47-callback toggle period are chosen
+    /// incommensurate so the stale history is never phase-aligned with the live signal.
+    /// </summary>
+    [Fact]
+    public void RateCorrection_TogglingAcrossUnity_DoesNotProduceClicks()
+    {
+        const int sampleRate = 48000;
+        const int channels = 2;
+        const double frequency = 101.0;
+        const int count = 960; // one 10 ms callback at 48 kHz stereo
+
+        var source = new SineSampleProvider(sampleRate, channels, frequency);
+
+        // targetSampleRate == source rate => identity resampling, sync-correction only.
+        using var resampler = new DynamicResamplerSampleProvider(source, correctionProvider: null, targetSampleRate: sampleRate);
+
+        var maxDelta = MeasureMaxSampleDelta(
+            resampler, count, channels, callbacks: 1000,
+            rateForCallback: cb => (cb / 47) % 2 == 0 ? 1.0 : 1.0004);
+
+        var sineSlopeBound = 0.5 * 2 * Math.PI * frequency / sampleRate;
+        Assert.True(
+            maxDelta < 3 * sineSlopeBound,
+            $"resampler manufactured a discontinuity of {maxDelta:F4} (sine slope bound {sineSlopeBound:F4}) - the issue #63 click");
+    }
+
+    /// <summary>
+    /// Companion guard for the conversion branch: with genuine sample-rate conversion the
+    /// ratio never reaches 1.0 at any correction rate, the low-pass chain stays continuously
+    /// engaged (history stays warm), and rate toggling is click-free. Pins that path so an
+    /// identity-only filter change cannot regress it.
+    /// </summary>
+    [Fact]
+    public void RateCorrection_TogglingDuringCompoundConversion_DoesNotProduceClicks()
+    {
+        const int sourceRate = 48000;
+        const int targetRate = 44100;
+        const int channels = 2;
+        const double frequency = 101.0;
+        const int count = 882; // one 10 ms callback at 44.1 kHz stereo
+
+        var source = new SineSampleProvider(sourceRate, channels, frequency);
+        using var resampler = new DynamicResamplerSampleProvider(source, correctionProvider: null, targetSampleRate: targetRate);
+
+        var maxDelta = MeasureMaxSampleDelta(
+            resampler, count, channels, callbacks: 1000,
+            rateForCallback: cb => (cb / 47) % 2 == 0 ? 1.0 : 1.0004);
+
+        var sineSlopeBound = 0.5 * 2 * Math.PI * frequency / targetRate;
+        Assert.True(
+            maxDelta < 3 * sineSlopeBound,
+            $"compound conversion manufactured a discontinuity of {maxDelta:F4} (sine slope bound {sineSlopeBound:F4})");
+    }
+
+    /// <summary>
+    /// Drives the resampler through <paramref name="callbacks"/> read cycles, setting the
+    /// playback rate per callback, and returns the largest same-channel sample-to-sample
+    /// step in the output (measured across callback boundaries too). The first two callbacks
+    /// are excluded as filter/priming warm-up.
+    /// </summary>
+    private static double MeasureMaxSampleDelta(
+        DynamicResamplerSampleProvider resampler,
+        int count,
+        int channels,
+        int callbacks,
+        Func<int, double> rateForCallback)
+    {
+        var buffer = new float[count];
+        var previous = new float[channels];
+        var maxDelta = 0.0;
+
+        for (var cb = 0; cb < callbacks; cb++)
+        {
+            resampler.PlaybackRate = rateForCallback(cb);
+            resampler.Read(buffer, 0, count);
+
+            if (cb >= 2)
+            {
+                for (var c = 0; c < channels; c++)
+                {
+                    var prev = previous[c];
+                    for (var i = c; i < count; i += channels)
+                    {
+                        var delta = Math.Abs(buffer[i] - prev);
+                        if (delta > maxDelta)
+                        {
+                            maxDelta = delta;
+                        }
+
+                        prev = buffer[i];
+                    }
+                }
+            }
+
+            for (var c = 0; c < channels; c++)
+            {
+                previous[c] = buffer[count - channels + c];
+            }
+        }
+
+        return maxDelta;
+    }
+
     [Fact]
     public void RateCorrection_ConcealsShortfalls_WithoutSilenceGaps()
     {
