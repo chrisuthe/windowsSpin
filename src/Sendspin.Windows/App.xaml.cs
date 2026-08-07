@@ -9,6 +9,7 @@ using Sendspin.Windows.Configuration;
 using Sendspin.Windows.Views;
 using Sendspin.SDK.Audio;
 using Sendspin.SDK.Client;
+using Sendspin.SDK.Connection.Noise;
 using Sendspin.SDK.Discovery;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
@@ -197,9 +198,6 @@ public partial class App : Application
         // Get app version for device info
         var appVersion = GetAppVersion();
 
-        // Get persistent client ID (generated once per installation, survives reinstalls)
-        var clientId = ClientIdService.GetOrCreateClientId();
-
         // Read audio device ID from configuration (null = system default)
         var audioDeviceId = _configuration!.GetValue<string?>("Audio:DeviceId");
 
@@ -250,7 +248,6 @@ public partial class App : Application
 
         var clientCapabilities = new ClientCapabilities
         {
-            ClientId = clientId,
             ClientName = playerName,
             ProductName = "Sendspin for Windows",
             Manufacturer = null, // Set by SDK consumers as needed
@@ -386,6 +383,27 @@ public partial class App : Application
         // Discovers Music Assistant servers via mDNS and auto-connects
         services.AddSingleton<MdnsServerDiscovery>();
 
+        // Encrypted-protocol identity and pairing state, shared by both connection modes.
+        // The identity's public key IS the client_id, so host mode and manual mode must
+        // present the same keypair — and it must persist across restarts or every pairing
+        // is lost. FromStore generates and persists on first run, loads thereafter.
+        services.AddSingleton<ISendspinIdentityStore>(new FileSendspinIdentityStore(AppPaths.IdentityPath));
+        services.AddSingleton(sp => SendspinIdentity.FromStore(sp.GetRequiredService<ISendspinIdentityStore>()));
+        services.AddSingleton<IPairingRecordStore>(sp => new FilePairingRecordStore(
+            AppPaths.PairingRecordsPath,
+            sp.GetRequiredService<ILogger<FilePairingRecordStore>>()));
+
+        // Client options shared by both connection modes (host service and manual client),
+        // so both present the same identity, pairing records, capabilities, and audio pipeline
+        services.AddSingleton(sp => new SendspinClientOptions
+        {
+            Identity = sp.GetRequiredService<SendspinIdentity>(),
+            PairingRecordStore = sp.GetRequiredService<IPairingRecordStore>(),
+            Capabilities = sp.GetRequiredService<ClientCapabilities>(),
+            ClockSynchronizer = sp.GetRequiredService<IClockSynchronizer>(),
+            AudioPipeline = sp.GetRequiredService<IAudioPipeline>(),
+        });
+
         // Host service for server-initiated mode
         // The host runs a WebSocket server and advertises via mDNS
         // Music Assistant servers discover and connect to us
@@ -393,14 +411,10 @@ public partial class App : Application
         services.AddSingleton<SendspinHostService>(sp =>
         {
             var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            var capabilities = sp.GetRequiredService<ClientCapabilities>();
-            var audioPipeline = sp.GetRequiredService<IAudioPipeline>();
-            var clockSynchronizer = sp.GetRequiredService<IClockSynchronizer>();
+            var options = sp.GetRequiredService<SendspinClientOptions>();
             return new SendspinHostService(
                 loggerFactory,
-                capabilities,
-                audioPipeline: audioPipeline,
-                clockSynchronizer: clockSynchronizer,
+                options,
                 lastPlayedServerId: string.IsNullOrEmpty(lastPlayedServerId) ? null : lastPlayedServerId);
         });
 

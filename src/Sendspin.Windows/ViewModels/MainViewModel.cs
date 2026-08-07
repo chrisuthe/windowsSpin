@@ -83,6 +83,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly IMediaTransportControlsService _mediaControlsService;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ClientCapabilities _clientCapabilities;
+    private readonly SendspinClientOptions _clientOptions;
     private readonly SyncHealthMonitor _syncHealthMonitor;
     private readonly AmbientBackdropViewModel _ambient;
 
@@ -98,7 +99,6 @@ public partial class MainViewModel : ViewModelBase
 
     private readonly IUserSettingsService _settingsService;
     private SendspinClientService? _manualClient;
-    private ISendspinConnection? _manualConnection;
     private readonly SemaphoreSlim _cleanupLock = new(1, 1);
     private string? _lastArtworkUrl;
     private string? _autoConnectedServerId;
@@ -527,6 +527,7 @@ public partial class MainViewModel : ViewModelBase
         IMediaTransportControlsService mediaControlsService,
         IHttpClientFactory httpClientFactory,
         ClientCapabilities clientCapabilities,
+        SendspinClientOptions clientOptions,
         AmbientBackdropViewModel ambient,
         IUserSettingsService settingsService,
         SyncHealthMonitor syncHealthMonitor)
@@ -543,6 +544,7 @@ public partial class MainViewModel : ViewModelBase
         _mediaControlsService = mediaControlsService;
         _httpClientFactory = httpClientFactory;
         _clientCapabilities = clientCapabilities;
+        _clientOptions = clientOptions;
         _ambient = ambient;
         _settingsService = settingsService;
         _syncHealthMonitor = syncHealthMonitor;
@@ -640,7 +642,7 @@ public partial class MainViewModel : ViewModelBase
             {
                 StatusMessage = "Starting host service...";
                 await _hostService.StartAsync();
-                ClientId = _hostService.ClientId;
+                ClientId = _clientOptions.Identity.PeerId;
                 IsHosting = true;
                 _logger.LogInformation("Host service started, advertising as {ClientId}", ClientId);
             }
@@ -892,20 +894,16 @@ public partial class MainViewModel : ViewModelBase
 
     /// <summary>
     /// Creates and configures the manual client for connecting to a server.
-    /// This handles creation of the connection, client service, and event subscriptions.
+    /// This handles creation of the client service (which owns its connection) and event
+    /// subscriptions. Uses the shared client options so the manual client presents the
+    /// same identity and pairing records as the host service.
     /// </summary>
     private void CreateAndConfigureManualClient()
     {
-        _manualConnection = new SendspinConnection(
-            _loggerFactory.CreateLogger<SendspinConnection>(),
+        _manualClient = SendspinClientService.CreateForDial(
+            _loggerFactory,
+            _clientOptions,
             new ConnectionOptions { AutoReconnect = false });
-
-        _manualClient = new SendspinClientService(
-            _loggerFactory.CreateLogger<SendspinClientService>(),
-            _manualConnection,
-            clockSynchronizer: _clockSynchronizer,
-            capabilities: _clientCapabilities,
-            audioPipeline: _audioPipeline);
 
         _manualClient.ConnectionStateChanged += OnManualClientConnectionStateChanged;
         _manualClient.GroupStateChanged += OnManualClientGroupStateChanged;
@@ -1062,7 +1060,6 @@ public partial class MainViewModel : ViewModelBase
             }
 
             _manualClient = null;
-            _manualConnection = null;
         }
         finally
         {
@@ -2124,7 +2121,7 @@ public partial class MainViewModel : ViewModelBase
             try
             {
                 await _hostService.StartAsync();
-                ClientId = _hostService.ClientId;
+                ClientId = _clientOptions.Identity.PeerId;
                 IsHosting = true;
                 _logger.LogInformation("Host service started, advertising as {ClientId}", ClientId);
             }
