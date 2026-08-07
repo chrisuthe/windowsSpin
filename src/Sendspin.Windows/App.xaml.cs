@@ -246,6 +246,11 @@ public partial class App : Application
         var visualizerRateMax = _configuration!.GetValue<int>("Visualizer:RateMax", 30);
         var visualizerBufferCapacity = _configuration!.GetValue<int>("Visualizer:BufferCapacity", 4096);
 
+        // Unpaired access: when true, the client admits servers it has no pairing record for
+        // over the encrypted protocol, which leaves the session open to a man-in-the-middle
+        // on the local network. Off by default; exists for bring-up and testing only.
+        var unpairedAccessEnabled = _configuration!.GetValue<bool>("Connection:UnpairedAccessEnabled", false);
+
         var clientCapabilities = new ClientCapabilities
         {
             ClientName = playerName,
@@ -256,6 +261,7 @@ public partial class App : Application
             InitialVolume = playerVolume,
             InitialMuted = playerMuted,
             BufferCapacity = bufferCapacityBytes,
+            UnpairedAccessEnabled = unpairedAccessEnabled,
             VisualizerSupport = new VisualizerSupport
             {
                 Types = new List<string> { VisualizerTypes.Loudness, VisualizerTypes.Beat },
