@@ -166,12 +166,23 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposabl
 
         _lastFrame = new float[WaveFormat.Channels];
 
-        // Initialize WDL resampler
-        // Reduced from 32 to 16 taps - 32-tap was causing audible artifacts during
-        // dynamic rate changes. 16-tap provides good quality with faster adaptation
-        // and less ringing on transients.
+        // Initialize WDL resampler: linear interpolation plus an optional IIR low-pass chain.
+        // (SetMode's second argument is NOT a sinc tap count - with sinc=false it is the
+        // number of biquad passes, and WDL clamps it to 4.)
+        //
+        // The low-pass chain only runs while the resample ratio is off 1.0, and WDL never
+        // clears its filter history. With identity conversion the sync corrector parks the
+        // rate at exactly 1.0 whenever the error is inside the deadband, so every
+        // None -> Resampling flip re-engaged the chain against seconds-stale history - a
+        // signal-proportional broadband transient heard as a soft click (issue #63).
+        // Enable the chain only when the nominal conversion keeps the ratio off unity across
+        // the entire correction range [MinRate, MaxRate], i.e. the filters can never toggle
+        // mid-stream. For identity conversion, linear interpolation alone is used: a <=4%
+        // trim folds only content above 0.96x Nyquist, so no anti-alias filtering is needed.
+        var nominalRatio = (double)source.WaveFormat.SampleRate / _targetSampleRate;
+        var ratioCanCrossUnity = nominalRatio * MaxRate >= 1.0 && nominalRatio * MinRate <= 1.0;
         _resampler = new WdlResampler();
-        _resampler.SetMode(true, 16, false); // Interpolating, 16-tap sinc, no filter on output
+        _resampler.SetMode(true, ratioCanCrossUnity ? 0 : 4, false);
         _resampler.SetFilterParms(0.90f, 0.60f); // 90% Nyquist, sharper transition (less processing)
         _resampler.SetFeedMode(true); // We're in output-driven mode (request N output samples)
         UpdateResamplerRates();
