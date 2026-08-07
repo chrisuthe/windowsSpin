@@ -10,6 +10,7 @@ using Sendspin.Windows.Views;
 using Sendspin.SDK.Audio;
 using Sendspin.SDK.Client;
 using Sendspin.SDK.Connection.Noise;
+using Sendspin.SDK.Connection.Noise.Pairing;
 using Sendspin.SDK.Discovery;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
@@ -262,6 +263,11 @@ public partial class App : Application
             InitialMuted = playerMuted,
             BufferCapacity = bufferCapacityBytes,
             UnpairedAccessEnabled = unpairedAccessEnabled,
+
+            // Offer dynamic PIN pairing alongside the mandatory Pairing PSK method: the
+            // operator reads a PIN off this app's dialog and types it into the server.
+            // MinPinLength (6) and PinOutChannels (["display"]) keep their SDK defaults.
+            PinPairingMethods = new List<string> { "dynamic_pin" },
             VisualizerSupport = new VisualizerSupport
             {
                 Types = new List<string> { VisualizerTypes.Loudness, VisualizerTypes.Beat },
@@ -399,6 +405,14 @@ public partial class App : Application
             AppPaths.PairingRecordsPath,
             sp.GetRequiredService<ILogger<FilePairingRecordStore>>()));
 
+        // PIN pairing support: the lockout store persists failed-attempt counters across
+        // restarts (a six-digit secret needs the spec's terminal lockout after 10 failures
+        // to hold) — the SDK refuses to offer the PIN methods without it. The presenter
+        // shows the derived PIN in a modal dialog; see PinPairingPresenter for the
+        // threading contract.
+        services.AddSingleton<IPinLockoutStore>(new FilePinLockoutStore(AppPaths.PinLockoutPath));
+        services.AddSingleton<PinPairingPresenter>();
+
         // Client options shared by both connection modes (host service and manual client),
         // so both present the same identity, pairing records, capabilities, and audio pipeline
         services.AddSingleton(sp => new SendspinClientOptions
@@ -408,6 +422,8 @@ public partial class App : Application
             Capabilities = sp.GetRequiredService<ClientCapabilities>(),
             ClockSynchronizer = sp.GetRequiredService<IClockSynchronizer>(),
             AudioPipeline = sp.GetRequiredService<IAudioPipeline>(),
+            PinLockoutStore = sp.GetRequiredService<IPinLockoutStore>(),
+            PresentPinAsync = sp.GetRequiredService<PinPairingPresenter>().PresentPinAsync,
         });
 
         // Host service for server-initiated mode

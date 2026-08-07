@@ -85,6 +85,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly ClientCapabilities _clientCapabilities;
     private readonly SendspinClientOptions _clientOptions;
     private readonly SyncHealthMonitor _syncHealthMonitor;
+    private readonly PinPairingPresenter _pinPairingPresenter;
     private readonly AmbientBackdropViewModel _ambient;
 
     // Ambient Glow diagnostics: rate-limited Debug logging of the visualizer data path.
@@ -530,7 +531,8 @@ public partial class MainViewModel : ViewModelBase
         SendspinClientOptions clientOptions,
         AmbientBackdropViewModel ambient,
         IUserSettingsService settingsService,
-        SyncHealthMonitor syncHealthMonitor)
+        SyncHealthMonitor syncHealthMonitor,
+        PinPairingPresenter pinPairingPresenter)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -548,6 +550,7 @@ public partial class MainViewModel : ViewModelBase
         _ambient = ambient;
         _settingsService = settingsService;
         _syncHealthMonitor = syncHealthMonitor;
+        _pinPairingPresenter = pinPairingPresenter;
         _progressTracker = new TrackProgressTracker(
             clockSynchronizer,
             loggerFactory.CreateLogger<TrackProgressTracker>());
@@ -578,6 +581,7 @@ public partial class MainViewModel : ViewModelBase
         _hostService.ColorChanged += OnColorChanged;
         _hostService.VisualizationReceived += OnVisualizationReceived;
         _hostService.LastPlayedServerIdChanged += OnLastPlayedServerIdChanged;
+        _hostService.PairingCompleted += OnPairingCompleted;
 
         // Subscribe to server discovery events (client-initiated mode - primary)
         _serverDiscovery.ServerFound += OnDiscoveredServerFound;
@@ -912,6 +916,7 @@ public partial class MainViewModel : ViewModelBase
         _manualClient.ArtworkCleared += OnArtworkCleared;
         _manualClient.ColorChanged += OnColorChanged;
         _manualClient.VisualizationReceived += OnVisualizationReceived;
+        _manualClient.PairingCompleted += OnPairingCompleted;
     }
 
     /// <summary>
@@ -1047,6 +1052,7 @@ public partial class MainViewModel : ViewModelBase
             _manualClient.ArtworkCleared -= OnArtworkCleared;
             _manualClient.ColorChanged -= OnColorChanged;
             _manualClient.VisualizationReceived -= OnVisualizationReceived;
+            _manualClient.PairingCompleted -= OnPairingCompleted;
             _ambient.Reset();
 
             try
@@ -1522,6 +1528,18 @@ public partial class MainViewModel : ViewModelBase
     private void OnLastPlayedServerIdChanged(object? sender, string serverId)
     {
         SaveLastPlayedServerIdAsync(serverId).SafeFireAndForget(_logger);
+    }
+
+    /// <summary>
+    /// Handles a completed pairing exchange (Pairing PSK or PIN) in either connection
+    /// mode. Closes the PIN dialog: once the record is persisted the displayed PIN is
+    /// spent. Raised on a connection's receive thread; the presenter marshals its own
+    /// UI work to the dispatcher.
+    /// </summary>
+    private void OnPairingCompleted(object? sender, string serverId)
+    {
+        _logger.LogInformation("Pairing completed with server {ServerId}", serverId);
+        _pinPairingPresenter.CloseDialog();
     }
 
     /// <summary>
