@@ -132,6 +132,51 @@ public class DynamicResamplerSampleProviderTests
     }
 
     /// <summary>
+    /// Pins the other half of the ratio-can-cross-unity branch: compound conversion must
+    /// keep the WDL low-pass chain ENGAGED. The click tests cannot see this - a low-frequency
+    /// sine is click-free with the chain removed too. Observable: for 48 kHz -> 44.1 kHz the
+    /// chain's cutoff sits at ~19.9 kHz (0.90 x Nyquist / ratio), so a 21 kHz tone emerges
+    /// near-silent with the chain engaged (~0.005 RMS, about -37 dB) but at ~0.21 RMS through
+    /// bare linear interpolation. The 0.05 threshold sits 10x above the engaged level and 4x
+    /// below the disengaged level.
+    /// </summary>
+    [Fact]
+    public void CompoundConversion_AttenuatesContentAboveFilterCutoff()
+    {
+        const int sourceRate = 48000;
+        const int targetRate = 44100;
+        const int channels = 2;
+        const double frequency = 21000.0;
+        const int count = 882; // one 10 ms callback at 44.1 kHz stereo
+
+        var source = new SineSampleProvider(sourceRate, channels, frequency);
+        using var resampler = new DynamicResamplerSampleProvider(source, correctionProvider: null, targetSampleRate: targetRate);
+
+        var buffer = new float[count];
+        double sumSquares = 0;
+        long samples = 0;
+        for (var cb = 0; cb < 300; cb++)
+        {
+            resampler.Read(buffer, 0, count);
+            if (cb < 50)
+            {
+                continue; // let the filter chain settle before measuring
+            }
+
+            foreach (var sample in buffer)
+            {
+                sumSquares += (double)sample * sample;
+                samples++;
+            }
+        }
+
+        var rms = Math.Sqrt(sumSquares / samples);
+        Assert.True(
+            rms < 0.05,
+            $"21 kHz tone passed compound conversion at RMS {rms:F4} - the anti-alias chain is not engaged (engaged ~0.005, bare interpolation ~0.21)");
+    }
+
+    /// <summary>
     /// Drives the resampler through <paramref name="callbacks"/> read cycles, setting the
     /// playback rate per callback, and returns the largest same-channel sample-to-sample
     /// step in the output (measured across callback boundaries too). The first two callbacks
