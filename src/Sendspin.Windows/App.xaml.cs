@@ -32,6 +32,13 @@ namespace Sendspin.Windows;
 /// </summary>
 public partial class App : Application
 {
+    /// <summary>
+    /// How long exit waits for a graceful shutdown — long enough for client/goodbye to reach
+    /// the server on a local network, short enough that an unresponsive server cannot leave
+    /// the app un-closable.
+    /// </summary>
+    private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(3);
+
     private SingleInstanceGuard? _singleInstanceGuard;
     private ServiceProvider? _serviceProvider;
     private IConfiguration? _configuration;
@@ -689,7 +696,16 @@ public partial class App : Application
         }
     }
 
-    protected override async void OnExit(ExitEventArgs e)
+    /// <summary>
+    /// Deliberately synchronous. As <c>async void</c>, WPF resumed its own shutdown at the
+    /// first await and the process exited before the continuation ran — so the SDK never got
+    /// to send <c>client/goodbye</c>, and a server that sees a client vanish without one is
+    /// told to assume 'restart' and auto-reconnect. That left Music Assistant reconnecting to
+    /// an app that had already exited, then colliding with the app's own connection on the
+    /// next launch. The waits below are bounded so a wedged server cannot block exit, and run
+    /// via Task.Run so the awaited continuations do not need this (blocked) UI thread.
+    /// </summary>
+    protected override void OnExit(ExitEventArgs e)
     {
         try
         {
@@ -704,7 +720,14 @@ public partial class App : Application
             {
                 try
                 {
-                    await _mainViewModel.ShutdownAsync();
+                    // Task.Run escapes the UI SynchronizationContext: blocking this thread on
+                    // a continuation that wants to come back to it would deadlock instead.
+                    if (!Task.Run(() => _mainViewModel.ShutdownAsync()).Wait(ShutdownTimeout))
+                    {
+                        Log.Warning(
+                            "Shutdown did not complete within {Timeout}s; exiting anyway. The server may not have received client/goodbye",
+                            ShutdownTimeout.TotalSeconds);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -727,7 +750,7 @@ public partial class App : Application
             Log.Information("Sendspin for Windows shutting down");
             try
             {
-                await Log.CloseAndFlushAsync();
+                Log.CloseAndFlush();
             }
             catch
             {
