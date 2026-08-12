@@ -420,6 +420,15 @@ public partial class App : Application
         services.AddSingleton<IPinLockoutStore>(new FilePinLockoutStore(AppPaths.PinLockoutPath));
         services.AddSingleton<PinPairingPresenter>();
 
+        // One window per device, not per connection: the SDK admits exactly one pairing
+        // attempt per opening no matter how many servers are connected, so the host service
+        // and the manual client must share this instance. Without it every gesture-gated
+        // attempt waits forever — a null window reads as permanently closed, and the SDK
+        // arms no timeout for the wait, so the app would sit on client/pair-pending with
+        // nothing shown to the operator. dynamic_pin is gated once its failure counter
+        // reaches 10, and FilePinLockoutStore persists that across restarts.
+        services.AddSingleton<PairingWindow>();
+
         // Client options shared by both connection modes (host service and manual client),
         // so both present the same identity, pairing records, capabilities, and audio pipeline
         services.AddSingleton(sp => new SendspinClientOptions
@@ -431,6 +440,7 @@ public partial class App : Application
             AudioPipeline = sp.GetRequiredService<IAudioPipeline>(),
             PinLockoutStore = sp.GetRequiredService<IPinLockoutStore>(),
             PresentPinAsync = sp.GetRequiredService<PinPairingPresenter>().PresentPinAsync,
+            PairingWindow = sp.GetRequiredService<PairingWindow>(),
         });
 
         // Host service for server-initiated mode

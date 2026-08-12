@@ -1,5 +1,6 @@
 using System.Windows;
 using Microsoft.Extensions.Logging;
+using Sendspin.SDK.Client;
 using Sendspin.SDK.Extensions;
 using Sendspin.Windows.Views;
 
@@ -53,8 +54,16 @@ public sealed class PinPairingPresenter
     /// logged. The cancellation token belongs to the pairing attempt: its cancellation
     /// closes the dialog, since the displayed PIN is dead once the attempt is torn down.
     /// </summary>
-    public async ValueTask PresentPinAsync(string pin, CancellationToken cancellationToken)
+    /// <param name="presentation">
+    /// The derived PIN and the server's language hints. The hints are informational — the
+    /// spec makes emitting in another language a non-error — and this dialog renders in the
+    /// app's own UI language, so only <see cref="PinPresentation.Pin"/> is used today.
+    /// </param>
+    /// <param name="cancellationToken">The pairing attempt's token; see the remarks above.</param>
+    public async ValueTask PresentPinAsync(PinPresentation presentation, CancellationToken cancellationToken)
     {
+        string pin = presentation.Pin;
+
         var generation = Interlocked.Increment(ref _generation);
         var dispatcher = Application.Current?.Dispatcher
             ?? throw new InvalidOperationException("Cannot present a pairing PIN: no WPF application is running");

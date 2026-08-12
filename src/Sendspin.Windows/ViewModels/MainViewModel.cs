@@ -582,6 +582,7 @@ public partial class MainViewModel : ViewModelBase
         _hostService.VisualizationReceived += OnVisualizationReceived;
         _hostService.LastPlayedServerIdChanged += OnLastPlayedServerIdChanged;
         _hostService.PairingCompleted += OnPairingCompleted;
+        _hostService.PairingGestureRequested += OnPairingGestureRequested;
 
         // Subscribe to server discovery events (client-initiated mode - primary)
         _serverDiscovery.ServerFound += OnDiscoveredServerFound;
@@ -917,6 +918,7 @@ public partial class MainViewModel : ViewModelBase
         _manualClient.ColorChanged += OnColorChanged;
         _manualClient.VisualizationReceived += OnVisualizationReceived;
         _manualClient.PairingCompleted += OnPairingCompleted;
+        _manualClient.PairingGestureRequested += OnPairingGestureRequested;
     }
 
     /// <summary>
@@ -1053,6 +1055,7 @@ public partial class MainViewModel : ViewModelBase
             _manualClient.ColorChanged -= OnColorChanged;
             _manualClient.VisualizationReceived -= OnVisualizationReceived;
             _manualClient.PairingCompleted -= OnPairingCompleted;
+            _manualClient.PairingGestureRequested -= OnPairingGestureRequested;
             _ambient.Reset();
 
             try
@@ -1540,6 +1543,32 @@ public partial class MainViewModel : ViewModelBase
     {
         _logger.LogInformation("Pairing completed with server {ServerId}", serverId);
         _pinPairingPresenter.CloseDialog();
+    }
+
+    /// <summary>
+    /// A server asked to pair with a method that needs a deliberate operator gesture, and no
+    /// pairing window is open. The SDK has sent client/pair-pending and is waiting: it arms no
+    /// timeout for this wait, so without a prompt the attempt would sit silently until the
+    /// server gave up. Tell the operator to open the pairing dialog, which opens the window.
+    /// </summary>
+    /// <remarks>
+    /// dynamic_pin reaches here once its failure counter hits the spec's escalation threshold
+    /// of 10, and FilePinLockoutStore persists that across restarts — so this fires on a
+    /// device that paired fine for weeks, not only on a fresh one.
+    /// Raised on a connection's receive thread; SetError marshals its own UI work.
+    /// </remarks>
+    private void OnPairingGestureRequested(object? sender, PairingGestureRequestedEventArgs e)
+    {
+        _logger.LogInformation(
+            "Pairing gesture required for {Method} (pairing index {PairingIndex}): waiting for the operator to open the pairing window",
+            e.Method,
+            e.PairingIndex);
+
+        SetError("A server is asking to pair. Open Settings → Pairing to allow it.");
+
+        _notificationService.ShowInfo(
+            "Pairing request",
+            "A server is asking to pair. Open Settings → Pairing to allow it.");
     }
 
     /// <summary>
@@ -2742,6 +2771,13 @@ public partial class MainViewModel : ViewModelBase
     {
         try
         {
+            // Opening this dialog IS the operator gesture the spec asks for: a deliberate,
+            // local action that cannot be induced remotely. It admits exactly one gesture-gated
+            // attempt (static_pin always, dynamic_pin once escalated) and lapses after the
+            // window's lifetime, so leaving it open is not a standing invitation.
+            _clientOptions.PairingWindow?.Open();
+            _logger.LogInformation("Pairing window opened by operator gesture");
+
             var dialog = new PairingTokenDialog(_hostService)
             {
                 Owner = App.Current.MainWindow,
