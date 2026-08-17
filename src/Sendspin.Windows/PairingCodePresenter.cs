@@ -7,66 +7,66 @@ using Sendspin.Windows.Views;
 namespace Sendspin.Windows;
 
 /// <summary>
-/// Bridges the SDK's dynamic-PIN presenter (<c>SendspinClientOptions.PresentPinAsync</c>)
-/// to a modal <see cref="PinPairingDialog"/>, tracking a single dialog instance.
+/// Bridges the SDK's dynamic-pairing code presenter (<c>SendspinClientOptions.PresentPairingCodeAsync</c>)
+/// to a modal <see cref="PairingCodeDialog"/>, tracking a single dialog instance.
 /// </summary>
 /// <remarks>
-/// Threading contract: the SDK invokes <see cref="PresentPinAsync"/> on a connection's
+/// Threading contract: the SDK invokes <see cref="PresentPairingCodeAsync"/> on a connection's
 /// receive thread and awaits it before sending <c>client/pair-auth</c>, and the server's
-/// PIN-request feedback timeout is short - so the presenter must complete as soon as the
-/// PIN is on screen, never when the dialog is dismissed. <c>ShowDialog()</c> runs a nested
+/// pairing code-request feedback timeout is short - so the presenter must complete as soon as the
+/// pairing code is on screen, never when the dialog is dismissed. <c>ShowDialog()</c> runs a nested
 /// message loop and does not return until the dialog closes, so the modal show is posted
 /// to the dispatcher WITHOUT awaiting the dispatcher operation; the presenter instead
 /// awaits a completion source resolved by the dialog's <c>ContentRendered</c> (or by the
-/// in-place PIN update on retry). All UI access happens in dispatcher-posted delegates.
+/// in-place pairing code update on retry). All UI access happens in dispatcher-posted delegates.
 /// </remarks>
-public sealed class PinPairingPresenter
+public sealed class PairingCodePresenter
 {
     /// <summary>
-    /// How long a torn-down attempt's dialog lingers before closing. A wrong PIN makes
+    /// How long a torn-down attempt's dialog lingers before closing. A wrong pairing code makes
     /// the server abort and immediately re-activate with fresh nonces (retry-in-place),
-    /// which cancels the failed attempt's token milliseconds before the new PIN arrives;
+    /// which cancels the failed attempt's token milliseconds before the new pairing code arrives;
     /// waiting lets the retry update the open dialog instead of closing and reopening it.
     /// A genuine abort has no successor, so the deferred close proceeds.
     /// </summary>
     private static readonly TimeSpan RetryGracePeriod = TimeSpan.FromSeconds(2);
 
-    private readonly ILogger<PinPairingPresenter> _logger;
+    private readonly ILogger<PairingCodePresenter> _logger;
 
     /// <summary>The open dialog, if any. Touched only on the dispatcher thread.</summary>
-    private PinPairingDialog? _dialog;
+    private PairingCodeDialog? _dialog;
 
     /// <summary>
-    /// Monotonic id of the latest presented PIN. Incremented by <see cref="PresentPinAsync"/>
+    /// Monotonic id of the latest presented pairing code. Incremented by <see cref="PresentPairingCodeAsync"/>
     /// (receive thread), read by the deferred close to detect that a retry superseded the
     /// attempt whose cancellation scheduled it.
     /// </summary>
     private int _generation;
 
-    public PinPairingPresenter(ILogger<PinPairingPresenter> logger)
+    public PairingCodePresenter(ILogger<PairingCodePresenter> logger)
     {
         _logger = logger;
     }
 
     /// <summary>
-    /// SDK presenter callback. Shows the PIN in a modal dialog (updating the open dialog
-    /// in place on retry) and completes once the PIN is on screen. The PIN itself is never
+    /// SDK presenter callback. Shows the pairing code in a modal dialog (updating the open dialog
+    /// in place on retry) and completes once the pairing code is on screen. The pairing code itself is never
     /// logged. The cancellation token belongs to the pairing attempt: its cancellation
-    /// closes the dialog, since the displayed PIN is dead once the attempt is torn down.
+    /// closes the dialog, since the displayed pairing code is dead once the attempt is torn down.
     /// </summary>
     /// <param name="presentation">
-    /// The derived PIN and the server's language hints. The hints are informational — the
+    /// The derived pairing code and the server's language hints. The hints are informational — the
     /// spec makes emitting in another language a non-error — and this dialog renders in the
-    /// app's own UI language, so only <see cref="PinPresentation.Pin"/> is used today.
+    /// app's own UI language, so only <see cref="PairingCodePresentation.PairingCode"/> is used today.
     /// </param>
     /// <param name="cancellationToken">The pairing attempt's token; see the remarks above.</param>
-    public async ValueTask PresentPinAsync(PinPresentation presentation, CancellationToken cancellationToken)
+    public async ValueTask PresentPairingCodeAsync(PairingCodePresentation presentation, CancellationToken cancellationToken)
     {
-        string pin = presentation.Pin;
+        string pairingCode = presentation.PairingCode;
 
         var generation = Interlocked.Increment(ref _generation);
         var dispatcher = Application.Current?.Dispatcher
-            ?? throw new InvalidOperationException("Cannot present a pairing PIN: no WPF application is running");
+            ?? throw new InvalidOperationException("Cannot present a pairing pairing code: no WPF application is running");
 
         var shown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -84,15 +84,15 @@ public sealed class PinPairingPresenter
         // Post the modal show WITHOUT awaiting the dispatcher operation: its delegate
         // does not return until the dialog closes (nested message loop), but the dialog
         // is on screen - and 'shown' completed - long before that.
-        _ = dispatcher.InvokeAsync(() => ShowOrUpdate(pin, cancellationToken, shown));
+        _ = dispatcher.InvokeAsync(() => ShowOrUpdate(pairingCode, cancellationToken, shown));
 
         await shown.Task.ConfigureAwait(false);
-        _logger.LogInformation("Pairing PIN presented to the operator");
+        _logger.LogInformation("Pairing pairing code presented to the operator");
     }
 
     /// <summary>
-    /// Closes the PIN dialog if it is open. Safe to call from any thread; used when
-    /// pairing completes, at which point the displayed PIN is spent.
+    /// Closes the pairing code dialog if it is open. Safe to call from any thread; used when
+    /// pairing completes, at which point the displayed pairing code is spent.
     /// </summary>
     public void CloseDialog()
     {
@@ -106,7 +106,7 @@ public sealed class PinPairingPresenter
     }
 
     /// <summary>
-    /// Surfaces the main window so the modal PIN dialog has a visible owner and gets
+    /// Surfaces the main window so the modal pairing code dialog has a visible owner and gets
     /// noticed: the app normally lives in the tray (MainWindow hides on close), and a
     /// modal owned by a hidden window is itself effectively invisible. Pairing is
     /// deliberate one-time setup, so pulling the app forward is desirable here.
@@ -132,10 +132,10 @@ public sealed class PinPairingPresenter
     /// <summary>
     /// Runs on the dispatcher thread. Updates the open dialog in place (retry), or brings
     /// the app forward and shows a new modal dialog. <paramref name="shown"/> completes as
-    /// soon as the PIN is visible - on update immediately, on first show when the dialog
+    /// soon as the pairing code is visible - on update immediately, on first show when the dialog
     /// has rendered - so the awaiting presenter never waits for dismissal.
     /// </summary>
-    private void ShowOrUpdate(string pin, CancellationToken cancellationToken, TaskCompletionSource shown)
+    private void ShowOrUpdate(string pairingCode, CancellationToken cancellationToken, TaskCompletionSource shown)
     {
         try
         {
@@ -148,14 +148,14 @@ public sealed class PinPairingPresenter
 
             if (_dialog is { } open)
             {
-                // Retry-in-place: same window, new PIN. Never a second window.
-                open.UpdatePin(pin);
+                // Retry-in-place: same window, new pairing code. Never a second window.
+                open.UpdatePairingCode(pairingCode);
                 shown.TrySetResult();
                 return;
             }
 
             var owner = BringMainWindowForward();
-            var dialog = new PinPairingDialog();
+            var dialog = new PairingCodeDialog();
             if (owner is not null)
             {
                 dialog.Owner = owner;
@@ -165,7 +165,7 @@ public sealed class PinPairingPresenter
                 dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
             }
 
-            dialog.UpdatePin(pin);
+            dialog.UpdatePairingCode(pairingCode);
             dialog.ContentRendered += (_, _) => shown.TrySetResult();
             dialog.Closed += (_, _) =>
             {
@@ -185,16 +185,16 @@ public sealed class PinPairingPresenter
                 _dialog = null;
             }
 
-            _logger.LogError(ex, "Failed to show the pairing PIN dialog");
+            _logger.LogError(ex, "Failed to show the pairing pairing code dialog");
             shown.TrySetException(ex);
         }
     }
 
     /// <summary>
     /// Deferred close scheduled by an attempt's cancellation: waits out
-    /// <see cref="RetryGracePeriod"/>, then closes the dialog unless a newer PIN has been
+    /// <see cref="RetryGracePeriod"/>, then closes the dialog unless a newer pairing code has been
     /// presented in the meantime (server retry-in-place), in which case the dialog now
-    /// shows the live PIN and must stay.
+    /// shows the live pairing code and must stay.
     /// </summary>
     private async Task CloseAfterRetryGraceAsync(int generation)
     {
@@ -225,7 +225,7 @@ public sealed class PinPairingPresenter
             return;
         }
 
-        _logger.LogInformation("Closing the pairing PIN dialog ({Reason})", reason);
+        _logger.LogInformation("Closing the pairing pairing code dialog ({Reason})", reason);
         dialog.Close();
     }
 }

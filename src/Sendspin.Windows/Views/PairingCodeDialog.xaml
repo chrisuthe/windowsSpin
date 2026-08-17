@@ -1,7 +1,7 @@
-<Window x:Class="Sendspin.Windows.Views.PinPairingDialog"
+<Window x:Class="Sendspin.Windows.Views.PairingCodeDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Pairing PIN"
+        Title="Pairing pairing code"
         Width="450"
         SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
@@ -20,25 +20,25 @@
         <!-- Key Icon and Title -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,16">
             <TextBlock Text="&#x1F511;" FontSize="24" Foreground="#F9E2AF" VerticalAlignment="Center" Margin="0,0,12,0"/>
-            <TextBlock Text="Pairing PIN" FontSize="16" FontWeight="SemiBold" Foreground="#CDD6F4" VerticalAlignment="Center"/>
+            <TextBlock Text="Pairing pairing code" FontSize="16" FontWeight="SemiBold" Foreground="#CDD6F4" VerticalAlignment="Center"/>
         </StackPanel>
 
         <!-- Explanation -->
         <TextBlock Grid.Row="1"
-                   Text="A server is pairing with this player. Enter the PIN below into the server's pairing prompt (e.g. Music Assistant) to finish. The PIN belongs to this pairing attempt only; if the server retries, a new PIN appears here."
+                   Text="A server is pairing with this player. Enter the pairing code below into the server's pairing prompt (e.g. Music Assistant) to finish. The pairing code belongs to this pairing attempt only; if the server retries, a new pairing code appears here."
                    TextWrapping="Wrap"
                    Foreground="#A6ADC8"
                    FontSize="13"
                    LineHeight="20"
                    Margin="0,0,0,12"/>
 
-        <!-- PIN (display only; the operator types it into the server) -->
+        <!-- pairing code (display only; the operator types it into the server) -->
         <Border Grid.Row="2"
                 Background="#11111B"
                 BorderBrush="#45475A"
                 BorderThickness="1"
                 Padding="10,16">
-            <TextBlock x:Name="PinText"
+            <TextBlock x:Name="PairingCodeText"
                        FontFamily="Consolas"
                        FontSize="36"
                        FontWeight="SemiBold"
@@ -46,7 +46,7 @@
                        HorizontalAlignment="Center"/>
         </Border>
 
-        <!-- Notice (PIN replaced by a retry) -->
+        <!-- Notice (pairing code replaced by a retry) -->
         <TextBlock Grid.Row="3"
                    x:Name="NoticeText"
                    TextWrapping="Wrap"

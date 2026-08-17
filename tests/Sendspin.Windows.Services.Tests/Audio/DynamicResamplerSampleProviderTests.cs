@@ -106,7 +106,7 @@ public class DynamicResamplerSampleProviderTests
     /// <summary>
     /// Companion guard for the conversion branch: with genuine sample-rate conversion the
     /// ratio never reaches 1.0 at any correction rate, the low-pass chain stays continuously
-    /// engaged (history stays warm), and rate toggling is click-free. Pins that path so an
+    /// engaged (history stays warm), and rate toggling is click-free. PairingCodes that path so an
     /// identity-only filter change cannot regress it.
     /// </summary>
     [Fact]
@@ -132,7 +132,7 @@ public class DynamicResamplerSampleProviderTests
     }
 
     /// <summary>
-    /// Pins the other half of the ratio-can-cross-unity branch: compound conversion must
+    /// PairingCodes the other half of the ratio-can-cross-unity branch: compound conversion must
     /// keep the WDL low-pass chain ENGAGED. The click tests cannot see this - a low-frequency
     /// sine is click-free with the chain removed too. Observable: for 48 kHz -> 44.1 kHz the
     /// chain's cutoff sits at ~19.9 kHz (0.90 x Nyquist / ratio), so a 21 kHz tone emerges
