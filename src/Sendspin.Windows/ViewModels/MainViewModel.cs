@@ -85,7 +85,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly ClientCapabilities _clientCapabilities;
     private readonly SendspinClientOptions _clientOptions;
     private readonly SyncHealthMonitor _syncHealthMonitor;
-    private readonly PinPairingPresenter _pinPairingPresenter;
+    private readonly PairingCodePresenter _pairingCodePresenter;
     private readonly AmbientBackdropViewModel _ambient;
 
     // Ambient Glow diagnostics: rate-limited Debug logging of the visualizer data path.
@@ -532,7 +532,7 @@ public partial class MainViewModel : ViewModelBase
         AmbientBackdropViewModel ambient,
         IUserSettingsService settingsService,
         SyncHealthMonitor syncHealthMonitor,
-        PinPairingPresenter pinPairingPresenter)
+        PairingCodePresenter pairingCodePresenter)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -550,7 +550,7 @@ public partial class MainViewModel : ViewModelBase
         _ambient = ambient;
         _settingsService = settingsService;
         _syncHealthMonitor = syncHealthMonitor;
-        _pinPairingPresenter = pinPairingPresenter;
+        _pairingCodePresenter = pairingCodePresenter;
         _progressTracker = new TrackProgressTracker(
             clockSynchronizer,
             loggerFactory.CreateLogger<TrackProgressTracker>());
@@ -1534,15 +1534,15 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Handles a completed pairing exchange (Pairing PSK or PIN) in either connection
-    /// mode. Closes the PIN dialog: once the record is persisted the displayed PIN is
+    /// Handles a completed pairing exchange (Pairing PSK or pairing code) in either connection
+    /// mode. Closes the pairing code dialog: once the record is persisted the displayed pairing code is
     /// spent. Raised on a connection's receive thread; the presenter marshals its own
     /// UI work to the dispatcher.
     /// </summary>
     private void OnPairingCompleted(object? sender, string serverId)
     {
         _logger.LogInformation("Pairing completed with server {ServerId}", serverId);
-        _pinPairingPresenter.CloseDialog();
+        _pairingCodePresenter.CloseDialog();
     }
 
     /// <summary>
@@ -1553,7 +1553,7 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     /// <remarks>
     /// dynamic_pin reaches here once its failure counter hits the spec's escalation threshold
-    /// of 10, and FilePinLockoutStore persists that across restarts — so this fires on a
+    /// of 10, and FilePairingCodeLockoutStore persists that across restarts — so this fires on a
     /// device that paired fine for weeks, not only on a fresh one.
     /// Raised on a connection's receive thread; SetError marshals its own UI work.
     /// </remarks>

@@ -53,11 +53,11 @@ public static class AppPaths
     public static string PairingRecordsPath { get; } = Path.Combine(UserDataDirectory, "pairing_records.json");
 
     /// <summary>
-    /// Gets the path to the PIN pairing lockout store (failed-attempt counters). Must
-    /// survive restarts so the spec's terminal lockout after 10 failed PIN attempts holds.
+    /// Gets the path to the pairing code lockout store (failed-attempt counters). Must
+    /// survive restarts so the spec's terminal lockout after 10 failed pairing code attempts holds.
     /// Located at %LocalAppData%\Sendspin for Windows\pin_lockout.json.
     /// </summary>
-    public static string PinLockoutPath { get; } = Path.Combine(UserDataDirectory, "pin_lockout.json");
+    public static string PairingCodeLockoutPath { get; } = Path.Combine(UserDataDirectory, "pin_lockout.json");
 
     /// <summary>
     /// Gets the installation directory where the application executable is located.

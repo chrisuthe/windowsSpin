@@ -271,10 +271,10 @@ public partial class App : Application
             BufferCapacity = bufferCapacityBytes,
             UnpairedAccessEnabled = unpairedAccessEnabled,
 
-            // Offer dynamic PIN pairing alongside the mandatory Pairing PSK method: the
-            // operator reads a PIN off this app's dialog and types it into the server.
-            // MinPinLength (6) and PinOutChannels (["display"]) keep their SDK defaults.
-            PinPairingMethods = new List<string> { "dynamic_pin" },
+            // Offer dynamic pairing code alongside the mandatory Pairing PSK method: the
+            // operator reads a pairing code off this app's dialog and types it into the server.
+            // MinPairingCodeLength (6) and PairingCodeOutChannels (["display"]) keep their SDK defaults.
+            PairingCodeMethods = new List<string> { "dynamic_pin" },
             VisualizerSupport = new VisualizerSupport
             {
                 Types = new List<string> { VisualizerTypes.Loudness, VisualizerTypes.Beat },
@@ -412,13 +412,13 @@ public partial class App : Application
             AppPaths.PairingRecordsPath,
             sp.GetRequiredService<ILogger<FilePairingRecordStore>>()));
 
-        // PIN pairing support: the lockout store persists failed-attempt counters across
+        // pairing code support: the lockout store persists failed-attempt counters across
         // restarts (a six-digit secret needs the spec's terminal lockout after 10 failures
-        // to hold) — the SDK refuses to offer the PIN methods without it. The presenter
-        // shows the derived PIN in a modal dialog; see PinPairingPresenter for the
+        // to hold) — the SDK refuses to offer the pairing code methods without it. The presenter
+        // shows the derived pairing code in a modal dialog; see PairingCodePresenter for the
         // threading contract.
-        services.AddSingleton<IPinLockoutStore>(new FilePinLockoutStore(AppPaths.PinLockoutPath));
-        services.AddSingleton<PinPairingPresenter>();
+        services.AddSingleton<IPairingCodeLockoutStore>(new FilePairingCodeLockoutStore(AppPaths.PairingCodeLockoutPath));
+        services.AddSingleton<PairingCodePresenter>();
 
         // One window per device, not per connection: the SDK admits exactly one pairing
         // attempt per opening no matter how many servers are connected, so the host service
@@ -426,7 +426,7 @@ public partial class App : Application
         // attempt waits forever — a null window reads as permanently closed, and the SDK
         // arms no timeout for the wait, so the app would sit on client/pair-pending with
         // nothing shown to the operator. dynamic_pin is gated once its failure counter
-        // reaches 10, and FilePinLockoutStore persists that across restarts.
+        // reaches 10, and FilePairingCodeLockoutStore persists that across restarts.
         services.AddSingleton<PairingWindow>();
 
         // Client options shared by both connection modes (host service and manual client),
@@ -438,8 +438,8 @@ public partial class App : Application
             Capabilities = sp.GetRequiredService<ClientCapabilities>(),
             ClockSynchronizer = sp.GetRequiredService<IClockSynchronizer>(),
             AudioPipeline = sp.GetRequiredService<IAudioPipeline>(),
-            PinLockoutStore = sp.GetRequiredService<IPinLockoutStore>(),
-            PresentPinAsync = sp.GetRequiredService<PinPairingPresenter>().PresentPinAsync,
+            PairingCodeLockoutStore = sp.GetRequiredService<IPairingCodeLockoutStore>(),
+            PresentPairingCodeAsync = sp.GetRequiredService<PairingCodePresenter>().PresentPairingCodeAsync,
             PairingWindow = sp.GetRequiredService<PairingWindow>(),
         });
 
