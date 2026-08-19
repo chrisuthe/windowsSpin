@@ -2,6 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
+using Sendspin.SDK.Audio;
+
 namespace Sendspin.Windows.Services.Diagnostics;
 
 /// <summary>
@@ -10,9 +12,20 @@ namespace Sendspin.Windows.Services.Diagnostics;
 /// after <see cref="QuietCloseSeconds"/> with no triggers, or at the <see cref="HardCapSeconds"/> cap.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Single-threaded by contract: <see cref="Observe"/> is only called from the monitor's timer tick.
 /// Triggers are audibility-anchored (see design spec): correction activity, deadband crossings,
 /// callback gaps, and saturated correction rate.
+/// </para>
+/// <para>
+/// One-shot hard syncs (<see cref="SyncCorrectionMode.HardSync"/>) are counted separately from
+/// continuous correction. The SDK applies a snap by splicing samples out of, or silence into,
+/// the buffer timeline, which advances the same drop/insert counters the continuous corrector
+/// uses — but it is a single deliberate discontinuity, not a sustained grind, and the
+/// SDK's own corrector stands down while one is in flight. Folding a snap into the continuous
+/// aggregates would fabricate direction flips (reading as clock-sync instability) and inflate
+/// the drop/insert rate the skew rule turns into a ppm estimate.
+/// </para>
 /// </remarks>
 public sealed class EpisodeDetector
 {
@@ -109,6 +122,7 @@ public sealed class EpisodeDetector
         || s.SamplesInsertedForSync > prev.SamplesInsertedForSync
         || s.UnderrunCount > prev.UnderrunCount
         || s.ReanchorCount > prev.ReanchorCount
+        || s.HardSyncCount > prev.HardSyncCount
         || s.CallbackGapCount > prev.CallbackGapCount
         || Math.Abs(s.SmoothedSyncErrorMs) > _deadbandMs
         || Math.Abs(s.TargetPlaybackRate - 1.0) >= 0.9 * _maxSpeedCorrection;
@@ -173,7 +187,8 @@ public sealed class EpisodeDetector
         private int _directionFlips;
         private int _lastDirection;             // +1 dropping, -1 inserting, 0 none yet
         private bool _rateSaturated;
-        private long _endDrops, _endInserts, _endUnderruns, _endReanchors, _endCallbackGaps;
+        private long _hardSyncDrops, _hardSyncInserts;  // snap-attributed portion of the counters
+        private long _endDrops, _endInserts, _endUnderruns, _endReanchors, _endCallbackGaps, _endHardSyncs;
         private int _endForgetting;
         private long _bytesAtOpen, _bytesAtEnd;
         private int _sampleRate, _channels;
@@ -220,35 +235,60 @@ public sealed class EpisodeDetector
                 _rateSaturated = true;
             }
 
-            var dropped = s.SamplesDroppedForSync > prev.SamplesDroppedForSync;
-            var inserted = s.SamplesInsertedForSync > prev.SamplesInsertedForSync;
-            var direction = dropped ? 1 : inserted ? -1 : 0;
-            if (direction != 0)
-            {
-                if (_lastDirection != 0 && direction != _lastDirection)
-                {
-                    _directionFlips++;
-                }
+            var dropDelta = s.SamplesDroppedForSync - prev.SamplesDroppedForSync;
+            var insertDelta = s.SamplesInsertedForSync - prev.SamplesInsertedForSync;
 
-                _lastDirection = direction;
+            if (IsHardSyncInterval(in s, in prev))
+            {
+                // The snap owns this interval's movement: bank it separately and leave the
+                // direction history alone, so one deliberate discontinuity cannot read as the
+                // corrector hunting back and forth.
+                _hardSyncDrops += dropDelta;
+                _hardSyncInserts += insertDelta;
+            }
+            else
+            {
+                var direction = dropDelta > 0 ? 1 : insertDelta > 0 ? -1 : 0;
+                if (direction != 0)
+                {
+                    if (_lastDirection != 0 && direction != _lastDirection)
+                    {
+                        _directionFlips++;
+                    }
+
+                    _lastDirection = direction;
+                }
             }
 
             _endDrops = s.SamplesDroppedForSync;
             _endInserts = s.SamplesInsertedForSync;
             _endUnderruns = s.UnderrunCount;
             _endReanchors = s.ReanchorCount;
+            _endHardSyncs = s.HardSyncCount;
             _endCallbackGaps = s.CallbackGapCount;
             _endForgetting = s.AdaptiveForgettingTriggerCount;
             _bytesAtEnd = s.BytesReceived;
         }
+
+        /// <summary>
+        /// Whether the drop/insert movement between two samples belongs to a one-shot hard sync.
+        /// A snap can straddle several ticks (inserting silence is capped at one callback's worth
+        /// per read), so the mode flag on either end of the interval counts, not just the moment
+        /// the counter advanced.
+        /// </summary>
+        private static bool IsHardSyncInterval(in SyncHealthSample s, in SyncHealthSample prev) =>
+            s.HardSyncCount > prev.HardSyncCount
+            || s.CurrentCorrectionMode == SyncCorrectionMode.HardSync
+            || prev.CurrentCorrectionMode == SyncCorrectionMode.HardSync;
 
         /// <summary>Builds a closed <see cref="EpisodeRecord"/> from accumulated state.</summary>
         public readonly EpisodeRecord Build(double durationSeconds) => new()
         {
             StartedAt = _startedAt,
             DurationSeconds = durationSeconds,
-            Drops = _endDrops - _baseline.SamplesDroppedForSync,
-            Inserts = _endInserts - _baseline.SamplesInsertedForSync,
+            Drops = _endDrops - _baseline.SamplesDroppedForSync - _hardSyncDrops,
+            Inserts = _endInserts - _baseline.SamplesInsertedForSync - _hardSyncInserts,
+            HardSyncs = _endHardSyncs - _baseline.HardSyncCount,
             Underruns = _endUnderruns - _baseline.UnderrunCount,
             Reanchors = _endReanchors - _baseline.ReanchorCount,
             CallbackGaps = _endCallbackGaps - _baseline.CallbackGapCount,

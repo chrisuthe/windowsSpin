@@ -126,7 +126,7 @@ public static class EpisodeClassifier
         {
             Verdict = SyncHealthVerdict.Unknown,
             Evidence = string.Create(ci,
-                $"drops={e.Drops} inserts={e.Inserts} underruns={e.Underruns} reanchors={e.Reanchors} maxSyncErr={e.MaxAbsSyncErrorMs:F1}ms minBuffer={e.MinBufferedMs:F0}ms maxChunkGap={e.MaxChunkGapMs:F0}ms rttJitter={e.MaxRttJitterMs:F1}ms dirFlips={e.DirectionFlips} cbGaps={e.CallbackGaps} rateSaturated={e.RateSaturated}"),
+                $"drops={e.Drops} inserts={e.Inserts} hardSyncs={e.HardSyncs} underruns={e.Underruns} reanchors={e.Reanchors} maxSyncErr={e.MaxAbsSyncErrorMs:F1}ms minBuffer={e.MinBufferedMs:F0}ms maxChunkGap={e.MaxChunkGapMs:F0}ms rttJitter={e.MaxRttJitterMs:F1}ms dirFlips={e.DirectionFlips} cbGaps={e.CallbackGaps} rateSaturated={e.RateSaturated}"),
         };
     }
 }

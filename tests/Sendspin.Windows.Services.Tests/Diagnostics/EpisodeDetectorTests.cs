@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
+using Sendspin.SDK.Audio;
 using Sendspin.Windows.Services.Diagnostics;
 using Xunit;
 
@@ -23,6 +24,8 @@ public class EpisodeDetectorTests
         long underruns = 0,
         long reanchors = 0,
         long cbGaps = 0,
+        long hardSyncs = 0,
+        SyncCorrectionMode mode = SyncCorrectionMode.None,
         double rate = 1.0,
         double bufferedMs = 250,
         long totalWritten = 1_000_000) => new()
@@ -34,6 +37,8 @@ public class EpisodeDetectorTests
         UnderrunCount = underruns,
         ReanchorCount = reanchors,
         CallbackGapCount = cbGaps,
+        HardSyncCount = hardSyncs,
+        CurrentCorrectionMode = mode,
         TargetPlaybackRate = rate,
         BufferedMs = bufferedMs,
         TargetMs = 250,
@@ -59,6 +64,7 @@ public class EpisodeDetectorTests
     [InlineData("underruns")]
     [InlineData("reanchors")]
     [InlineData("cbGaps")]
+    [InlineData("hardSyncs")]
     [InlineData("syncErr")]
     [InlineData("rateSaturated")]
     public void EachTrigger_OpensEpisode_AndClosesAfterQuietPeriod(string trigger)
@@ -74,6 +80,7 @@ public class EpisodeDetectorTests
             "underruns" => Sample(100, underruns: 1),
             "reanchors" => Sample(100, reanchors: 1),
             "cbGaps" => Sample(100, cbGaps: 1),
+            "hardSyncs" => Sample(100, hardSyncs: 1),
             "syncErr" => Sample(100, syncErrMs: 2.5),       // > 2.0 deadband
             "rateSaturated" => Sample(100, rate: 1.019),    // ≥ 0.9 * 0.02 away from 1.0
             _ => throw new InvalidOperationException(),
@@ -88,6 +95,7 @@ public class EpisodeDetectorTests
             "underruns" => Sample(0, underruns: 1),
             "reanchors" => Sample(0, reanchors: 1),
             "cbGaps" => Sample(0, cbGaps: 1),
+            "hardSyncs" => Sample(0, hardSyncs: 1),
             _ => Sample(0),
         };
 
@@ -122,6 +130,32 @@ public class EpisodeDetectorTests
         Assert.Equal(40, closed.MinBufferedMs);
         Assert.Equal(25, closed.MaxAbsSyncErrorMs);
         Assert.Equal(1, closed.DirectionFlips);
+    }
+
+    [Fact]
+    public void HardSync_CountedSeparately_NotAsContinuousCorrection()
+    {
+        // The SDK applies a one-shot snap by splicing the buffer timeline, which advances the
+        // same drop/insert counters as continuous correction. Folding it in would invent a
+        // direction flip (reading as clock-sync instability) and inflate the drop/insert rate
+        // the skew rule turns into a ppm estimate — so the snap gets its own counter.
+        var d = NewDetector();
+        d.Observe(Sample(0));
+        d.Observe(Sample(100, drops: 480));                                            // continuous: dropping
+        d.Observe(Sample(200, drops: 480, inserts: 48_000, hardSyncs: 1, mode: SyncCorrectionMode.HardSync));
+        d.Observe(Sample(300, drops: 480, inserts: 52_800, hardSyncs: 1));             // snap tail drains
+
+        EpisodeRecord? closed = null;
+        for (long t = 400; t <= 3_800 && closed is null; t += 100)
+        {
+            closed = d.Observe(Sample(t, drops: 480, inserts: 52_800, hardSyncs: 1));
+        }
+
+        Assert.NotNull(closed);
+        Assert.Equal(1, closed!.HardSyncs);
+        Assert.Equal(480, closed.Drops);
+        Assert.Equal(0, closed.Inserts);
+        Assert.Equal(0, closed.DirectionFlips);
     }
 
     [Fact]

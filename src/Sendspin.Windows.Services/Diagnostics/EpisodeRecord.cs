@@ -17,11 +17,26 @@ public sealed record EpisodeRecord
 
     // Counter deltas accumulated over the episode
 
-    /// <summary>Gets the total count of samples dropped for sync during the episode.</summary>
+    /// <summary>
+    /// Gets the count of samples dropped by <em>continuous</em> sync correction during the
+    /// episode. Samples spliced out by a one-shot hard sync are excluded and counted in
+    /// <see cref="HardSyncs"/> instead: a snap is a deliberate discontinuity, not the steady
+    /// grind that the drift and instability rules read these counters for.
+    /// </summary>
     public long Drops { get; init; }
 
-    /// <summary>Gets the total count of samples inserted for sync during the episode.</summary>
+    /// <summary>
+    /// Gets the count of samples inserted by <em>continuous</em> sync correction during the
+    /// episode. Excludes hard-sync silence for the same reason as <see cref="Drops"/>.
+    /// </summary>
     public long Inserts { get; init; }
+
+    /// <summary>
+    /// Gets the number of one-shot hard syncs applied during the episode. The spec requires
+    /// these to be rare; a count that keeps climbing means the continuous corrector cannot
+    /// keep up with whatever is moving the clock.
+    /// </summary>
+    public long HardSyncs { get; init; }
 
     /// <summary>Gets the total count of audio underruns during the episode.</summary>
     public long Underruns { get; init; }

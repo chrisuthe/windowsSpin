@@ -62,6 +62,8 @@ public class MultiRoomSyncAlignmentTests
 
         public long ServerToClientTime(long serverTime) => serverTime + _offset - (long)(StaticDelayMs * 1000);
 
+        public long ServerToClientTimeUncompensated(long serverTime) => serverTime + _offset;
+
         public long ClientToServerTime(long clientTime) => clientTime - _offset + (long)(StaticDelayMs * 1000);
 
         public bool IsConverged => true;
@@ -162,10 +164,6 @@ public class MultiRoomSyncAlignmentTests
     // property of the code under test. The signal we care about is ~100ms vs ~0ms, not the floor.
     private const double InSyncToleranceMs = 15.0;
 
-    // The threshold above which a player is audibly/measurably off the shared schedule. Huge margin
-    // below the observed ~100ms so the test is about presence-of-misalignment, not a tuning knob.
-    private const double OutOfSyncThresholdMs = 50.0;
-
     /// <summary>
     /// Control: with no drift and no startup offset, the player holds the server schedule exactly
     /// (steady-state sync error ≈ 0). Proves the harness measures real alignment, not noise.
@@ -181,20 +179,22 @@ public class MultiRoomSyncAlignmentTests
     }
 
     /// <summary>
-    /// The box: an uncompensated WASAPI-style prefill leaks straight into the external-correction
-    /// path (ReadRaw never captures the startup baseline that the internal path does), leaving this
-    /// player ~100 ms off the server schedule for the whole session — out of sync with other players.
-    /// This is issue #33's "initial slowdown", and the multi-room-sync risk, measured at the code level.
+    /// Issue #33's "initial slowdown" was an uncompensated WASAPI-style prefill leaking into the
+    /// external-correction path — ReadRaw never captured the startup baseline the internal path
+    /// did — leaving the player ~100 ms off the server schedule for the whole session. The SDK now
+    /// self-measures that residual constant offset at the end of the startup grace period and
+    /// subtracts it, so an app that declares nothing still holds the schedule. This pins the
+    /// recovery: the case that used to prove the box must now come out in sync.
     /// </summary>
     [Fact]
-    public void StartupPrefill_Uncompensated_DriftsOffSchedule()
+    public void StartupPrefill_Uncompensated_IsAbsorbedBySelfMeasuredBaseline()
     {
         var result = RunDriftFreeSession(prefillMicros: 100_000, calibratedStartupMicros: 0, seconds: 20);
 
         Assert.True(
-            Math.Abs(result.FinalSyncErrorMs) > OutOfSyncThresholdMs,
-            $"expected the uncompensated prefill to leave the player far off schedule, " +
-            $"got {result.FinalSyncErrorMs:F1}ms (net correction {result.NetCorrectionMs:F1}ms)");
+            Math.Abs(result.FinalSyncErrorMs) < InSyncToleranceMs,
+            $"the self-measured startup baseline should absorb an undeclared prefill, but the " +
+            $"player settled {result.FinalSyncErrorMs:F1}ms off (net correction {result.NetCorrectionMs:F1}ms)");
     }
 
     /// <summary>

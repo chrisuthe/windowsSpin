@@ -2,6 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
+using Sendspin.SDK.Audio;
+
 namespace Sendspin.Windows.Services.Diagnostics;
 
 /// <summary>
@@ -35,6 +37,12 @@ public readonly record struct SyncHealthSample
 
     /// <summary>Gets the count of times the buffer was re-anchored.</summary>
     public long ReanchorCount { get; init; }
+
+    /// <summary>Gets the count of one-shot hard syncs the buffer has applied.</summary>
+    public long HardSyncCount { get; init; }
+
+    /// <summary>Gets the correction mode the buffer reports for this tick.</summary>
+    public SyncCorrectionMode CurrentCorrectionMode { get; init; }
 
     /// <summary>Gets the target playback rate for smooth sync correction.</summary>
     public double TargetPlaybackRate { get; init; }
