@@ -39,6 +39,8 @@ public class StaticDelayReanchorTests
 
         public long ServerToClientTime(long t) => t + _offset - (long)(StaticDelayMs * 1000);
 
+        public long ServerToClientTimeUncompensated(long t) => t + _offset;
+
         public long ClientToServerTime(long t) => t - _offset + (long)(StaticDelayMs * 1000);
 
         public bool IsConverged => true;

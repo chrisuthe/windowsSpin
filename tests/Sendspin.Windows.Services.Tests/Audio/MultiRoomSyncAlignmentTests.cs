@@ -62,6 +62,8 @@ public class MultiRoomSyncAlignmentTests
 
         public long ServerToClientTime(long serverTime) => serverTime + _offset - (long)(StaticDelayMs * 1000);
 
+        public long ServerToClientTimeUncompensated(long serverTime) => serverTime + _offset;
+
         public long ClientToServerTime(long clientTime) => clientTime - _offset + (long)(StaticDelayMs * 1000);
 
         public bool IsConverged => true;

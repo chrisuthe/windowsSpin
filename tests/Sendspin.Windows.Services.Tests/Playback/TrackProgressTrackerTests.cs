@@ -701,8 +701,9 @@ public class TrackProgressTrackerTests
     /// Minimal clock synchronizer with a fixed offset: server = client + offset.
     /// Mirrors the real Kalman contract where <see cref="ServerToClientTime"/> also
     /// subtracts the configured static delay (audio-scheduling compensation), while
-    /// <see cref="ClientToServerTime"/> is the pure domain shift used to fabricate
-    /// server-side measurement timestamps.
+    /// <see cref="ServerToClientTimeUncompensated"/> and <see cref="ClientToServerTime"/>
+    /// are the pure domain shift — exact inverses of each other, used to fabricate
+    /// server-side measurement timestamps and convert them back.
     /// </summary>
     private sealed class FakeClockSynchronizer : IClockSynchronizer
     {
@@ -717,6 +718,8 @@ public class TrackProgressTrackerTests
         public long ClientToServerTime(long clientTime) => clientTime + OffsetMicroseconds;
 
         public long ServerToClientTime(long serverTime) => serverTime - OffsetMicroseconds - (long)(StaticDelayMs * 1000);
+
+        public long ServerToClientTimeUncompensated(long serverTime) => serverTime - OffsetMicroseconds;
 
         public void ProcessMeasurement(long t1, long t2, long t3, long t4)
         {
