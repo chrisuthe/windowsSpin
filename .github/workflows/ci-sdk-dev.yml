@@ -1,7 +1,8 @@
 name: CI (SDK dev source)
 
 # Manually-triggered build of Sendspin for Windows against the Sendspin SDK *source*
-# (default: the SDK's `dev` branch) instead of the published NuGet package.
+# (default: the SDK's `main` branch, where the SDK develops) instead of the published
+# NuGet package.
 # Produces signed installers + a prerelease so in-flight SDK changes can be tested.
 # Normal CI (ci.yml) and releases are unaffected.
 
@@ -11,7 +12,7 @@ on:
       sdk_ref:
         description: 'SDK branch / tag / SHA to build against (within Sendspin/sendspin-dotnet)'
         required: true
-        default: 'dev'
+        default: 'main'
 
 permissions:
   contents: write  # Required for creating prereleases
