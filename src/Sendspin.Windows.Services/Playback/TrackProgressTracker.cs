@@ -332,13 +332,12 @@ public sealed class TrackProgressTracker
             return nowMicroseconds;
         }
 
-        // ServerToClientTime targets audio scheduling and subtracts the configured static
-        // delay (hardware compensation); add it back so the display anchor reflects the
-        // measurement time. Without this, a positive delay runs the bar ahead by the delay
-        // and a negative delay pushes every conversion into the future, permanently
-        // tripping the plausibility guard below.
-        var converted = _clockSynchronizer.ServerToClientTime(serverTimestampMicroseconds.Value)
-            + (long)(_clockSynchronizer.StaticDelayMs * 1000);
+        // The clock offset alone, with no static delay: the seek bar shows when the position
+        // was measured, not when sound leaves the speakers. ServerToClientTime subtracts the
+        // hardware compensation, which would run the bar ahead by a positive delay and push
+        // every conversion into the future for a negative one, permanently tripping the
+        // plausibility guard below.
+        var converted = _clockSynchronizer.ServerToClientTimeUncompensated(serverTimestampMicroseconds.Value);
         var age = nowMicroseconds - converted;
         if (age < 0 || age > MaxAnchorAgeMicroseconds)
         {

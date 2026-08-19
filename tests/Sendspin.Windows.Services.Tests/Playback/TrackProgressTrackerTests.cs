@@ -495,7 +495,8 @@ public class TrackProgressTrackerTests
     public void StaticDelay_DoesNotShiftDisplayAnchor()
     {
         // ServerToClientTime targets audio scheduling and subtracts the configured static
-        // delay; the display anchor adds it back so the seek bar reflects measurement time.
+        // delay; the display anchor converts with the clock offset alone, so the seek bar
+        // reflects measurement time whatever the hardware delay is set to.
         var sync = new FakeClockSynchronizer { OffsetMicroseconds = 7_000_000_000_000L, IsConverged = true, StaticDelayMs = 400 };
         var tracker = CreateTracker(sync);
         var measuredAt = sync.ClientToServerTime(T0 - 200_000);
