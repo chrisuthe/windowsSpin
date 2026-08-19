@@ -237,19 +237,6 @@ public partial class App : Application
         var configuredCapacityMs = _configuration!.GetValue<int>("Audio:Buffer:CapacityMs", 120000);
         var bufferCapacityMs = Math.Max(configuredCapacityMs, minBufferCapacityMs);
 
-        // Derive compressed-byte buffer capacity from our PCM buffer duration.
-        // The server uses this to limit how much audio it sends ahead.
-        // Use worst-case bitrate (PCM uncompressed) so no codec can overflow our buffer.
-        var maxBytesPerSecond = audioFormats
-            .Select(f => f.Codec == "opus" && f.Bitrate > 0
-                ? f.Bitrate * 1000 / 8  // OPUS: use declared bitrate (kbps → bytes/sec)
-                : f.SampleRate * f.Channels * Math.Max(f.BitDepth ?? 16, 16) / 8)  // PCM/FLAC: raw sample rate
-            .Max();
-        var bufferCapacityBytes = (int)((long)bufferCapacityMs * maxBytesPerSecond / 1000);
-        Log.Information(
-            "Buffer: {CapacityMs}ms PCM → {CapacityMB:F1}MB advertised to server (worst-case {MaxKbps}kbps)",
-            bufferCapacityMs, bufferCapacityBytes / 1024.0 / 1024.0, maxBytesPerSecond * 8 / 1000);
-
         // Visualizer (ambient glow) capability — request only loudness + beat features.
         var visualizerRateMax = _configuration!.GetValue<int>("Visualizer:RateMax", 30);
         var visualizerBufferCapacity = _configuration!.GetValue<int>("Visualizer:BufferCapacity", 4096);
@@ -268,7 +255,13 @@ public partial class App : Application
             AudioFormats = audioFormats,
             InitialVolume = playerVolume,
             InitialMuted = playerMuted,
-            BufferCapacity = bufferCapacityBytes,
+
+            // Single source of truth for buffering: the SDK derives the advertised
+            // compressed-byte BufferCapacity from this duration and the advertised formats,
+            // using the *minimum* byte rate across them so the promise holds whichever codec
+            // the server picks (a megabyte of Opus is minutes; of PCM, seconds). The same
+            // value goes to TimedAudioBuffer below, so the two cannot drift apart.
+            AudioBufferCapacityMs = bufferCapacityMs,
             UnpairedAccessEnabled = unpairedAccessEnabled,
 
             // Offer dynamic pairing code alongside the mandatory Pairing PSK method: the
@@ -282,6 +275,10 @@ public partial class App : Application
                 BufferCapacity = visualizerBufferCapacity,
             },
         };
+
+        Log.Information(
+            "Buffer: {CapacityMs}ms decoded → {CapacityMB:F1}MB advertised to server",
+            bufferCapacityMs, clientCapabilities.BufferCapacity / 1024.0 / 1024.0);
 
         // Add the visualizer@v1 role so the server streams loudness/beat frames.
         // (color@v1 is included in the SDK's default roles and needs no explicit add.)
