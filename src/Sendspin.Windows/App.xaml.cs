@@ -339,6 +339,21 @@ public partial class App : Application
         // DAC clock genuinely diverges from the system clock (most report a 1.0000 ratio = no benefit).
         var useDeviceClock = _configuration!.GetValue("Audio:SyncCorrection:UseDeviceClock", false);
 
+        // Correction-loop knobs, tunable so they can be dialed by ear. The dead band is
+        // deliberately wider than the SDK's 0.1 ms: WASAPI's per-callback jitter is
+        // millisecond-scale, and a tighter band just has the corrector hunting it. The speed cap
+        // is not a comfort setting — it defaults to the spec's 0.5% MUST, and the SDK clamps
+        // anything above that to the cap and logs a warning per stream, so a larger value buys
+        // log noise and nothing else.
+        // Built once and shared: the pipeline's buffers and the sync-health monitor must judge
+        // correction activity against the same numbers. Consumers that need to tweak the options
+        // (WasapiAudioPlayer) clone first, so this instance stays the configured truth.
+        var syncOptions = SyncCorrectionOptions.Default;
+        syncOptions.DeadbandMicroseconds = (long)(_configuration!.GetValue("Audio:SyncCorrection:DeadbandMs", 1.0) * 1000.0);
+        syncOptions.MaxSpeedCorrection = _configuration!.GetValue("Audio:SyncCorrection:MaxSpeedCorrectionPercent", 0.5) / 100.0;
+        syncOptions.CorrectionTargetSeconds = _configuration!.GetValue("Audio:SyncCorrection:CorrectionTargetSeconds", 3.0);
+        services.AddSingleton(syncOptions);
+
         services.AddTransient<IAudioPlayer>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<WasapiAudioPlayer>>();
@@ -373,14 +388,6 @@ public partial class App : Application
                 clockSync,
                 bufferFactory: (format, sync) =>
                 {
-                    // Correction-loop calming knobs (default to the SDK defaults). A wider deadband
-                    // stops the corrector hunting around small per-callback jitter; a tighter max-rate
-                    // and longer target make any correction gentler. Tunable so it can be dialed by ear.
-                    var syncOptions = SyncCorrectionOptions.Default;
-                    syncOptions.DeadbandMicroseconds = (long)(_configuration!.GetValue("Audio:SyncCorrection:DeadbandMs", 1.0) * 1000.0);
-                    syncOptions.MaxSpeedCorrection = _configuration!.GetValue("Audio:SyncCorrection:MaxSpeedCorrectionPercent", 2.0) / 100.0;
-                    syncOptions.CorrectionTargetSeconds = _configuration!.GetValue("Audio:SyncCorrection:CorrectionTargetSeconds", 3.0);
-
                     var buffer = new TimedAudioBuffer(format, sync, bufferCapacityMs, syncOptions, bufferLogger);
                     buffer.TargetBufferMilliseconds = bufferTargetMs;
                     return buffer;

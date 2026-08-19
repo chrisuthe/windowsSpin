@@ -62,7 +62,7 @@ public sealed class SyncHealthLog
         sb.AppendLine(string.Create(ci,
             $"[{e.StartedAt:yyyy-MM-dd HH:mm:ss}] EPISODE verdict={verdict} duration={e.DurationSeconds:F1}s"));
         sb.AppendLine(string.Create(ci,
-            $"  drops={e.Drops} inserts={e.Inserts} underruns={e.Underruns} reanchors={e.Reanchors} maxSyncErr={e.MaxAbsSyncErrorMs:+0.0;-0.0}ms"));
+            $"  drops={e.Drops} inserts={e.Inserts} hardSyncs={e.HardSyncs} underruns={e.Underruns} reanchors={e.Reanchors} maxSyncErr={e.MaxAbsSyncErrorMs:+0.0;-0.0}ms"));
         sb.AppendLine(string.Create(ci,
             $"  minBuffer={e.MinBufferedMs:F0}ms/{e.TargetMs:F0}ms preRollMinBuffer={e.PreRollMinBufferedMs:F0}ms maxChunkGap={e.MaxChunkGapMs:F0}ms chunkAge={e.MaxChunkAgeMs:F0}ms bytesPerSec={e.BytesPerSecond:F0}"));
         sb.AppendLine(string.Create(ci,

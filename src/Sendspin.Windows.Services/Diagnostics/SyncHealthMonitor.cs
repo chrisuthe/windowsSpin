@@ -20,16 +20,18 @@ public sealed class SyncHealthMonitor : IDisposable
 {
     private const int SampleIntervalMs = 100;
 
-    // Matches SyncCorrectionOptions defaults used by the pipeline (syncOptions: null → SDK Default).
-    private const double DeadbandMs = 2.0;
-    private const double MaxSpeedCorrection = 0.02;
+    // A dead band of zero is a legal SDK setting ("always correct") but not a usable episode
+    // threshold — every tick of ordinary jitter would open one. Floor the detector's band here
+    // rather than in the pipeline, which is entitled to correct as tightly as it likes.
+    private const double MinEpisodeDeadbandMs = 0.1;
 
     private readonly IAudioPipeline _pipeline;
     private readonly IClockSynchronizer _clockSync;
     private readonly ReadCallbackGapTracker _gapTracker;
     private readonly SyncHealthLog _log;
     private readonly ILogger<SyncHealthMonitor> _logger;
-    private readonly EpisodeDetector _detector = new(DeadbandMs, MaxSpeedCorrection);
+    private readonly SyncCorrectionOptions _syncOptions;
+    private readonly EpisodeDetector _detector;
     private readonly Timer _timer;
 
     private volatile bool _wasActive;
@@ -51,19 +53,32 @@ public sealed class SyncHealthMonitor : IDisposable
     /// <param name="clockSync">The clock synchronizer to sample.</param>
     /// <param name="gapTracker">The read-callback gap tracker for audio-thread starvation diagnostics.</param>
     /// <param name="log">The sync-health log writer.</param>
+    /// <param name="syncOptions">
+    /// The correction options the pipeline's buffers are built with. The detector judges
+    /// "is the corrector engaged / saturated?" against the thresholds actually in force —
+    /// mirroring them as constants here made the monitor silently wrong whenever either the
+    /// app's configuration or the SDK's defaults moved.
+    /// </param>
     /// <param name="logger">Logger for episode warnings and fault reporting.</param>
     public SyncHealthMonitor(
         IAudioPipeline pipeline,
         IClockSynchronizer clockSync,
         ReadCallbackGapTracker gapTracker,
         SyncHealthLog log,
+        SyncCorrectionOptions syncOptions,
         ILogger<SyncHealthMonitor> logger)
     {
+        ArgumentNullException.ThrowIfNull(syncOptions);
+
         _pipeline = pipeline;
         _clockSync = clockSync;
         _gapTracker = gapTracker;
         _log = log;
+        _syncOptions = syncOptions;
         _logger = logger;
+        _detector = new EpisodeDetector(
+            deadbandMs: Math.Max(syncOptions.DeadbandMicroseconds / 1000.0, MinEpisodeDeadbandMs),
+            maxSpeedCorrection: syncOptions.EffectiveMaxSpeedCorrection);
         _timer = new Timer(OnTick, state: null, dueTime: SampleIntervalMs, period: SampleIntervalMs);
     }
 
@@ -104,6 +119,8 @@ public sealed class SyncHealthMonitor : IDisposable
                 SamplesDroppedForSync = stats.SamplesDroppedForSync,
                 SamplesInsertedForSync = stats.SamplesInsertedForSync,
                 ReanchorCount = stats.ReanchorCount,
+                HardSyncCount = stats.HardSyncCount,
+                CurrentCorrectionMode = stats.CurrentCorrectionMode,
                 TargetPlaybackRate = stats.TargetPlaybackRate,
                 TotalSamplesWritten = stats.TotalSamplesWritten,
                 LastChunkAgeMs = stats.LastChunkAgeMs,
@@ -151,7 +168,10 @@ public sealed class SyncHealthMonitor : IDisposable
         _log.WriteSessionHeader(
             $"app={version} os={Environment.OSVersion.VersionString} " +
             $"format={format?.SampleRate}Hz/{format?.Channels}ch " +
-            $"outputLatency={_pipeline.DetectedOutputLatencyMs}ms");
+            $"outputLatency={_pipeline.DetectedOutputLatencyMs}ms " +
+            $"deadband={_syncOptions.DeadbandMicroseconds / 1000.0:0.###}ms " +
+            $"maxSpeed={_syncOptions.EffectiveMaxSpeedCorrection * 100:0.###}% " +
+            $"hardSync={_syncOptions.HardSyncThresholdMicroseconds / 1000.0:0.#}ms");
     }
 
     private static string Describe(SyncHealthClassification c) => c.Verdict switch
