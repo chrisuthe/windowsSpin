@@ -987,9 +987,9 @@
                                        Foreground="{StaticResource TextMutedBrush}"
                                        Margin="0,8,0,12"/>
 
-                            <!-- Static Delay -->
+                            <!-- Output Delay -->
                             <StackPanel Margin="0,0,0,16">
-                                <TextBlock Text="Static Delay" Style="{StaticResource BodyText}"/>
+                                <TextBlock Text="Output Delay" Style="{StaticResource BodyText}"/>
                                 <TextBlock Text="Compensate for downstream hardware delay (e.g. Bluetooth, AV receivers). Positive = play earlier."
                                            Style="{StaticResource CaptionText}"
                                            Foreground="{StaticResource TextMutedBrush}"
@@ -1006,7 +1006,7 @@
                                     <!-- Decrement button -->
                                     <Button Grid.Column="0"
                                             Content="−"
-                                            Command="{Binding DecrementStaticDelayCommand}"
+                                            Command="{Binding DecrementOutputDelayCommand}"
                                             Width="28" Height="28"
                                             Background="{StaticResource SurfaceBrush}"
                                             Foreground="{StaticResource TextPrimaryBrush}"
@@ -1042,14 +1042,14 @@
                                     <!-- Slider -->
                                     <Slider Grid.Column="1"
                                             Minimum="0" Maximum="5000"
-                                            Value="{Binding SettingsStaticDelayMs}"
+                                            Value="{Binding SettingsOutputDelayMs}"
                                             TickFrequency="500"
                                             IsSnapToTickEnabled="False"
                                             VerticalAlignment="Center"/>
                                     <!-- Increment button -->
                                     <Button Grid.Column="2"
                                             Content="+"
-                                            Command="{Binding IncrementStaticDelayCommand}"
+                                            Command="{Binding IncrementOutputDelayCommand}"
                                             Width="28" Height="28"
                                             Background="{StaticResource SurfaceBrush}"
                                             Foreground="{StaticResource TextPrimaryBrush}"
@@ -1084,7 +1084,7 @@
                                     </Button>
                                     <!-- Editable value -->
                                     <TextBox Grid.Column="3"
-                                             Text="{Binding SettingsStaticDelayMs, UpdateSourceTrigger=PropertyChanged, StringFormat=0}"
+                                             Text="{Binding SettingsOutputDelayMs, UpdateSourceTrigger=PropertyChanged, StringFormat=0}"
                                              Width="60"
                                              Background="{StaticResource SurfaceBrush}"
                                              Foreground="{StaticResource TextPrimaryBrush}"

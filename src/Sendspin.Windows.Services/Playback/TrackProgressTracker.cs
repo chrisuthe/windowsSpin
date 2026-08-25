@@ -332,7 +332,7 @@ public sealed class TrackProgressTracker
             return nowMicroseconds;
         }
 
-        // The clock offset alone, with no static delay: the seek bar shows when the position
+        // The clock offset alone, with no output delay: the seek bar shows when the position
         // was measured, not when sound leaves the speakers. ServerToClientTime subtracts the
         // hardware compensation, which would run the bar ahead by a positive delay and push
         // every conversion into the future for a negative one, permanently tripping the

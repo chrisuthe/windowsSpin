@@ -46,14 +46,14 @@ public partial class MainViewModel : ViewModelBase
     private const int PositionTimerIntervalMs = 250;
 
     /// <summary>
-    /// Debounce delay in milliseconds before clearing the audio buffer after static delay changes.
+    /// Debounce delay in milliseconds before clearing the audio buffer after output delay changes.
     /// Prevents excessive buffer clears while the user is actively adjusting the slider.
     /// </summary>
-    private const int StaticDelayClearDebounceMs = 300;
+    private const int OutputDelayClearDebounceMs = 300;
 
     /// <summary>
     /// Debounce delay in milliseconds before auto-saving settings changes.
-    /// Used for static delay, player name, and other settings that auto-save.
+    /// Used for output delay, player name, and other settings that auto-save.
     /// </summary>
     private const int SettingsAutoSaveDebounceMs = 1000;
 
@@ -283,11 +283,11 @@ public partial class MainViewModel : ViewModelBase
     private bool _settingsEnableConsoleLogging;
 
     /// <summary>
-    /// Gets or sets the static delay in milliseconds for audio sync tuning.
+    /// Gets or sets the output delay in milliseconds for audio sync tuning.
     /// Positive values delay playback (play later), negative advance it (play earlier).
     /// </summary>
     [ObservableProperty]
-    private double _settingsStaticDelayMs;
+    private double _settingsOutputDelayMs;
 
     /// <summary>
     /// Gets or sets whether notifications are enabled.
@@ -877,19 +877,19 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     private async Task SendPlayerStateToActiveClientAsync(int volume, bool muted)
     {
-        var staticDelay = SettingsStaticDelayMs;
+        var outputDelay = SettingsOutputDelayMs;
 
         // Prefer manual client (discovery/manual connection mode)
         if (_manualClient?.ConnectionState == ConnectionState.Connected)
         {
             _logger.LogDebug("Sending player state via manual client: Volume={Volume}, Muted={Muted}", volume, muted);
-            await _manualClient.SendPlayerStateAsync(volume, muted, staticDelay);
+            await _manualClient.SendPlayerStateAsync(volume, muted, outputDelay);
         }
         // Fall back to host service (server-initiated connection mode)
         else if (ConnectedServers.Count > 0)
         {
             _logger.LogDebug("Sending player state via host service: Volume={Volume}, Muted={Muted}", volume, muted);
-            await _hostService.SendPlayerStateAsync(volume, muted, staticDelay);
+            await _hostService.SendPlayerStateAsync(volume, muted, outputDelay);
         }
         else
         {
@@ -1853,42 +1853,42 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(CurrentGroupTooltip));
     }
 
-    private CancellationTokenSource? _staticDelayClearCts;
-    private CancellationTokenSource? _staticDelaySaveCts;
+    private CancellationTokenSource? _outputDelayClearCts;
+    private CancellationTokenSource? _outputDelaySaveCts;
     private CancellationTokenSource? _playerNameSaveCts;
 
     /// <summary>
-    /// Called when the static delay setting changes.
+    /// Called when the output delay setting changes.
     /// Applies the new delay immediately to the clock synchronizer.
     /// Buffer clear and save are debounced to avoid issues while dragging slider.
     /// </summary>
-    partial void OnSettingsStaticDelayMsChanged(double value)
+    partial void OnSettingsOutputDelayMsChanged(double value)
     {
-        // Static delay must be non-negative — the server rejects a negative static_delay_ms
+        // Output delay must be non-negative — the server rejects a negative static_delay_ms
         // (valid range 0-5000) and drops the connection. Clamp before applying/persisting.
         value = Math.Max(0, value);
 
         // Apply delay value immediately (this is cheap)
-        _clockSynchronizer.StaticDelayMs = value;
+        _clockSynchronizer.OutputDelayMs = value;
 
         // Debounce the re-anchor - only apply after the user stops adjusting the slider.
         // Re-anchor (not Clear): applies the new delay to the already-buffered audio in place.
         // Clear() would dump the buffer and, with a server that transmits far ahead of playback,
         // stall for the full transmit-ahead window (tens of seconds of silence) while it refills.
-        _staticDelayClearCts?.Cancel();
-        _staticDelayClearCts?.Dispose();
-        _staticDelayClearCts = new CancellationTokenSource();
-        var clearCts = _staticDelayClearCts;
+        _outputDelayClearCts?.Cancel();
+        _outputDelayClearCts?.Dispose();
+        _outputDelayClearCts = new CancellationTokenSource();
+        var clearCts = _outputDelayClearCts;
 
         _ = Task.Run(async () =>
         {
             try
             {
-                await Task.Delay(StaticDelayClearDebounceMs, clearCts.Token);
+                await Task.Delay(OutputDelayClearDebounceMs, clearCts.Token);
                 if (!clearCts.Token.IsCancellationRequested)
                 {
                     _audioPipeline.ReanchorTiming();
-                    _logger.LogDebug("Static delay changed to {DelayMs}ms, sync timing re-anchored (buffer preserved)", value);
+                    _logger.LogDebug("Output delay changed to {DelayMs}ms, sync timing re-anchored (buffer preserved)", value);
                 }
             }
             catch (OperationCanceledException)
@@ -1898,10 +1898,10 @@ public partial class MainViewModel : ViewModelBase
         });
 
         // Debounce auto-save - save after user stops adjusting the slider
-        _staticDelaySaveCts?.Cancel();
-        _staticDelaySaveCts?.Dispose();
-        _staticDelaySaveCts = new CancellationTokenSource();
-        var saveCts = _staticDelaySaveCts;
+        _outputDelaySaveCts?.Cancel();
+        _outputDelaySaveCts?.Dispose();
+        _outputDelaySaveCts = new CancellationTokenSource();
+        var saveCts = _outputDelaySaveCts;
 
         _ = Task.Run(async () =>
         {
@@ -1910,7 +1910,7 @@ public partial class MainViewModel : ViewModelBase
                 await Task.Delay(SettingsAutoSaveDebounceMs, saveCts.Token);
                 if (!saveCts.Token.IsCancellationRequested)
                 {
-                    await SaveStaticDelayAsync(value);
+                    await SaveOutputDelayAsync(value);
                 }
             }
             catch (OperationCanceledException)
@@ -1921,18 +1921,18 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Saves only the static delay setting to user appsettings.json.
+    /// Saves only the output delay setting to user appsettings.json.
     /// </summary>
-    private async Task SaveStaticDelayAsync(double value)
+    private async Task SaveOutputDelayAsync(double value)
     {
         try
         {
-            await _settingsService.UpdateSettingAsync("Audio", "StaticDelayMs", value);
-            _logger.LogInformation("Static delay saved: {DelayMs}ms", value);
+            await _settingsService.UpdateSettingAsync("Audio", "OutputDelayMs", value);
+            _logger.LogInformation("Output delay saved: {DelayMs}ms", value);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to auto-save static delay");
+            _logger.LogWarning(ex, "Failed to auto-save output delay");
         }
     }
 
@@ -2352,7 +2352,7 @@ public partial class MainViewModel : ViewModelBase
         SettingsEnableConsoleLogging = settings.EnableConsoleLogging;
 
         // Load audio settings
-        SettingsStaticDelayMs = Math.Max(0, _configuration.GetValue<double>("Audio:StaticDelayMs", 0));
+        SettingsOutputDelayMs = _configuration.ReadOutputDelayMs();
 
         // Load persisted player volume/mute (these get applied via OnVolumeChanged/OnIsMutedChanged).
         // 50% is the default when nothing has been saved/overridden yet.
@@ -2469,21 +2469,21 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Increments the static delay by 10ms.
+    /// Increments the output delay by 10ms.
     /// </summary>
     [RelayCommand]
-    private void IncrementStaticDelay()
+    private void IncrementOutputDelay()
     {
-        SettingsStaticDelayMs = Math.Min(5000, SettingsStaticDelayMs + 10);
+        SettingsOutputDelayMs = Math.Min(5000, SettingsOutputDelayMs + 10);
     }
 
     /// <summary>
-    /// Decrements the static delay by 10ms.
+    /// Decrements the output delay by 10ms.
     /// </summary>
     [RelayCommand]
-    private void DecrementStaticDelay()
+    private void DecrementOutputDelay()
     {
-        SettingsStaticDelayMs = Math.Max(0, SettingsStaticDelayMs - 10);
+        SettingsOutputDelayMs = Math.Max(0, SettingsOutputDelayMs - 10);
     }
 
     /// <summary>
@@ -2618,7 +2618,7 @@ public partial class MainViewModel : ViewModelBase
 
             // Update audio section
             var audioSection = root["Audio"]?.AsObject() ?? new JsonObject();
-            audioSection["StaticDelayMs"] = SettingsStaticDelayMs;
+            audioSection["OutputDelayMs"] = SettingsOutputDelayMs;
             audioSection["DeviceId"] = SettingsSelectedAudioDevice?.DeviceId;
             var preferredCodec = SettingsStreamType.StartsWith("FLAC", StringComparison.OrdinalIgnoreCase) ? "flac" : "opus";
             audioSection["PreferredCodec"] = preferredCodec;
@@ -2675,8 +2675,8 @@ public partial class MainViewModel : ViewModelBase
                 _logger.LogInformation("Player name changed to: {PlayerName}", SettingsPlayerName);
             }
 
-            _logger.LogInformation("Settings saved: LogLevel={LogLevel}, FileLogging={FileLogging}, ConsoleLogging={ConsoleLogging}, StaticDelayMs={StaticDelayMs}, Notifications={Notifications}, Discord={Discord}, MediaKeys={MediaKeys}, PlayerName={PlayerName}, DeviceId={DeviceId}, StartMinimized={StartMinimized}",
-                SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging, SettingsStaticDelayMs, SettingsShowNotifications, SettingsShowDiscordPresence, SettingsEnableMediaKeys, SettingsPlayerName, SettingsSelectedAudioDevice?.DeviceId ?? "default", SettingsStartMinimized);
+            _logger.LogInformation("Settings saved: LogLevel={LogLevel}, FileLogging={FileLogging}, ConsoleLogging={ConsoleLogging}, OutputDelayMs={OutputDelayMs}, Notifications={Notifications}, Discord={Discord}, MediaKeys={MediaKeys}, PlayerName={PlayerName}, DeviceId={DeviceId}, StartMinimized={StartMinimized}",
+                SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging, SettingsOutputDelayMs, SettingsShowNotifications, SettingsShowDiscordPresence, SettingsEnableMediaKeys, SettingsPlayerName, SettingsSelectedAudioDevice?.DeviceId ?? "default", SettingsStartMinimized);
 
             // Close settings panel first
             IsSettingsOpen = false;
@@ -2917,11 +2917,11 @@ public partial class MainViewModel : ViewModelBase
         _volumeSaveCts?.Dispose();
         _volumeSaveCts = null;
 
-        // Cancel any pending static delay debounce
-        _staticDelayClearCts?.Cancel();
-        _staticDelayClearCts?.Dispose();
-        _staticDelaySaveCts?.Cancel();
-        _staticDelaySaveCts?.Dispose();
+        // Cancel any pending output delay debounce
+        _outputDelayClearCts?.Cancel();
+        _outputDelayClearCts?.Dispose();
+        _outputDelaySaveCts?.Cancel();
+        _outputDelaySaveCts?.Dispose();
 
         // Stop server discovery
         await _serverDiscovery.StopAsync();

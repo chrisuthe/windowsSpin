@@ -119,11 +119,11 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Validates that only non-negative numeric input is entered in the TextBox.
-    /// Used by the Static Delay field, which the server requires to be 0 or greater.
+    /// Used by the Output Delay field, which the server requires to be 0 or greater.
     /// </summary>
     private void NumericTextBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
     {
-        // Digits only — no minus sign: static delay must be non-negative (server rejects negatives).
+        // Digits only — no minus sign: output delay must be non-negative (server rejects negatives).
         foreach (char c in e.Text)
         {
             if (!char.IsDigit(c))
