@@ -63,18 +63,27 @@ internal sealed class AudioSampleProviderAdapter : ISampleProvider
     /// Reads samples from the source and fills the buffer.
     /// Called by NAudio from its audio playback thread.
     /// </summary>
+    /// <remarks>
+    /// Works on the whole requested block rather than the source's return value, and always reports
+    /// the block full. Every <see cref="IAudioSampleSource"/> in this chain fills all
+    /// <paramref name="count"/> samples, but the SDK's <c>SyncCorrectedSampleSource</c> returns only
+    /// how many of them came from the buffer — the rest being concealed or silence. Volume and mute
+    /// must cover that tail too, and NAudio must be told the block is full: <c>WasapiOut</c> treats a
+    /// short read as a partial buffer and zero-fills the remainder (re-manufacturing the silence gap
+    /// concealment exists to avoid), and a zero read as end of stream.
+    /// </remarks>
     /// <param name="buffer">Buffer to fill with samples.</param>
     /// <param name="offset">Offset into buffer.</param>
     /// <param name="count">Number of samples requested.</param>
-    /// <returns>Number of samples written.</returns>
+    /// <returns>Number of samples written, always <paramref name="count"/>.</returns>
     public int Read(float[] buffer, int offset, int count)
     {
-        var samplesRead = _source.Read(buffer, offset, count);
+        _source.Read(buffer, offset, count);
 
         if (IsMuted)
         {
-            Array.Fill(buffer, 0f, offset, samplesRead);
-            return samplesRead;
+            Array.Fill(buffer, 0f, offset, count);
+            return count;
         }
 
         var volume = Volume;
@@ -82,13 +91,13 @@ internal sealed class AudioSampleProviderAdapter : ISampleProvider
         {
             var amplitude = (float)Math.Pow(volume, 1.5);
 
-            var span = buffer.AsSpan(offset, samplesRead);
+            var span = buffer.AsSpan(offset, count);
             for (var i = 0; i < span.Length; i++)
             {
                 span[i] *= amplitude;
             }
         }
 
-        return samplesRead;
+        return count;
     }
 }

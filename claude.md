@@ -167,11 +167,15 @@ The buffer handles:
 | 15-500ms | Frame drop/insert | Faster correction for larger drift |
 | > 500ms | Re-anchor | Clear buffer and restart sync |
 
-**Resampling Sync Correction** (v2.2.0+):
-- `ITimedAudioBuffer.TargetPlaybackRate` exposes the desired rate (1.0 = normal)
-- `TargetPlaybackRateChanged` event notifies when rate changes
-- Windows app uses `DynamicResamplerSampleProvider` (NAudio's WdlResampler) to apply rate
-- Human pitch perception threshold is ~±3%, we use up to ±4% for inaudible corrections
+**Resampling Sync Correction** (SDK-owned since SDK 10):
+- The SDK's `SyncCorrectedSampleSource` owns the whole correction chain — `ReadRaw` →
+  `SyncCorrectionCalculator` → vendored WDL resampler — and reports the applied rate back to the
+  buffer, so `AudioBufferStats.TargetPlaybackRate` stays live for the stats UI
+- `SyncCorrectionOptions.Mechanism` picks how the continuous tier is realized: `SmoothResampling`
+  (default; the app's `Audio:SyncCorrection:Strategy = "Combined"`) or `FrameStepping`
+  (`"DropInsertOnly"`, which keeps every resampler out of the output chain)
+- The app applies no correction of its own. `DeviceRateSampleProvider` sits downstream and does
+  device-rate conversion only, so the Windows Audio Engine does not resample a second time
 
 **Sync Error Calculation**:
 ```csharp
@@ -635,12 +639,13 @@ manually against the SDK source.
 | `src/Sendspin.Windows/App.xaml.cs` | DI setup, startup, shutdown |
 | `src/Sendspin.Windows/ViewModels/MainViewModel.cs` | Primary UI state and commands |
 | `src/Sendspin.Windows.Services/Audio/WasapiAudioPlayer.cs` | Windows audio output |
-| `src/Sendspin.Windows.Services/Audio/DynamicResamplerSampleProvider.cs` | Playback rate resampling for sync |
+| `src/Sendspin.Windows.Services/Audio/DeviceRateSampleProvider.cs` | Converts to the device's native mixer rate |
 | `src/Sendspin.Windows.Services/Audio/BufferedAudioSampleSource.cs` | Bridges SDK buffer to NAudio |
 
 SDK classes (in NuGet package — source at [sendspin-dotnet](https://github.com/Sendspin/sendspin-dotnet)):
 - `AudioPipeline` — Audio flow orchestration
 - `TimedAudioBuffer` — Sync-aware sample buffer
+- `SyncCorrectedSampleSource` — Sync correction applied over a buffer read (the whole chain)
 - `KalmanClockSynchronizer` — Clock sync algorithm
 - `HighPrecisionTimer` — Microsecond-precision timing
 - `SendspinHostService` / `SendspinClientService` — Connection modes (declared in `SendSpinHostService.cs` / `SendSpinClient.cs`)
