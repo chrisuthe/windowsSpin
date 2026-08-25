@@ -1,4 +1,4 @@
-// <copyright file="StaticDelayReanchorTests.cs" company="Sendspin Windows Client">
+// <copyright file="OutputDelayReanchorTests.cs" company="Sendspin Windows Client">
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
@@ -11,16 +11,16 @@ using Xunit;
 namespace Sendspin.Windows.Services.Tests.Audio;
 
 /// <summary>
-/// Guards the static-delay-change fix: re-anchoring timing must preserve buffered audio so a delay
+/// Guards the output-delay-change fix: re-anchoring timing must preserve buffered audio so a delay
 /// tweak applies in place, instead of dumping the buffer (which, with a server that transmits far
 /// ahead of playback, stalls for the whole transmit-ahead window — the 30-second silence).
 /// </summary>
 /// <remarks>
-/// The app's <c>OnSettingsStaticDelayMsChanged</c> previously called <c>IAudioPipeline.Clear()</c>;
+/// The app's <c>OnSettingsOutputDelayMsChanged</c> previously called <c>IAudioPipeline.Clear()</c>;
 /// it now calls <c>ReanchorTiming()</c>, which forwards to <see cref="TimedAudioBuffer.ResetSyncTracking"/>.
 /// These tests exercise that buffer primitive directly (the property the pipeline passthrough relies on).
 /// </remarks>
-public class StaticDelayReanchorTests
+public class OutputDelayReanchorTests
 {
     private const int Rate = 48000;
     private const int Ch = 2;
@@ -35,13 +35,13 @@ public class StaticDelayReanchorTests
 
         public FixedClock(long offset) => _offset = offset;
 
-        public double StaticDelayMs { get; set; }
+        public double OutputDelayMs { get; set; }
 
-        public long ServerToClientTime(long t) => t + _offset - (long)(StaticDelayMs * 1000);
+        public long ServerToClientTime(long t) => t + _offset - (long)(OutputDelayMs * 1000);
 
         public long ServerToClientTimeUncompensated(long t) => t + _offset;
 
-        public long ClientToServerTime(long t) => t - _offset + (long)(StaticDelayMs * 1000);
+        public long ClientToServerTime(long t) => t - _offset + (long)(OutputDelayMs * 1000);
 
         public bool IsConverged => true;
 
@@ -93,9 +93,9 @@ public class StaticDelayReanchorTests
         var (buffer, clock) = SetupPlaying();
         Assert.True(buffer.BufferedMilliseconds > 1000, "precondition: a deep buffer is present");
 
-        // Apply a static-delay change the way the fixed app does: shift the clock, then re-anchor
+        // Apply an output-delay change the way the fixed app does: shift the clock, then re-anchor
         // (instead of Clear). This is what runs when the user moves the offset slider.
-        clock.StaticDelayMs = 200;
+        clock.OutputDelayMs = 200;
         buffer.ResetSyncTracking();
 
         // The whole point of the fix: the buffered audio survives, so there is nothing to re-fetch
@@ -116,7 +116,7 @@ public class StaticDelayReanchorTests
         var (buffer, _) = SetupPlaying();
         Assert.True(buffer.BufferedMilliseconds > 1000);
 
-        // The old static-delay path. Clear dumps everything; with a far-ahead server the only audio
+        // The old output-delay path. Clear dumps everything; with a far-ahead server the only audio
         // that refills is future-timestamped, so playback waits the transmit-ahead window in silence.
         buffer.Clear();
 

@@ -54,17 +54,17 @@ public class MultiRoomSyncAlignmentTests
     /// </summary>
     private sealed class FixedOffsetClock : IClockSynchronizer
     {
-        private readonly long _offset; // ServerToClientTime(t) = t + offset (minus StaticDelay)
+        private readonly long _offset; // ServerToClientTime(t) = t + offset (minus OutputDelay)
 
         public FixedOffsetClock(long offset) => _offset = offset;
 
-        public double StaticDelayMs { get; set; }
+        public double OutputDelayMs { get; set; }
 
-        public long ServerToClientTime(long serverTime) => serverTime + _offset - (long)(StaticDelayMs * 1000);
+        public long ServerToClientTime(long serverTime) => serverTime + _offset - (long)(OutputDelayMs * 1000);
 
         public long ServerToClientTimeUncompensated(long serverTime) => serverTime + _offset;
 
-        public long ClientToServerTime(long clientTime) => clientTime - _offset + (long)(StaticDelayMs * 1000);
+        public long ClientToServerTime(long clientTime) => clientTime - _offset + (long)(OutputDelayMs * 1000);
 
         public bool IsConverged => true;
 

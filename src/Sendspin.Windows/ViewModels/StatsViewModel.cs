@@ -210,10 +210,10 @@ public partial class StatsViewModel : ViewModelBase
     private Brush _driftReliableColor = ValueMuted;
 
     /// <summary>
-    /// Gets the static delay display string.
+    /// Gets the output delay display string.
     /// </summary>
     [ObservableProperty]
-    private string _staticDelayDisplay = "0 ms";
+    private string _outputDelayDisplay = "0 ms";
 
     /// <summary>
     /// Gets the detected output latency display string.
@@ -563,8 +563,8 @@ public partial class StatsViewModel : ViewModelBase
             DriftReliableColor = ValueMuted;
         }
 
-        // Static delay (from clock synchronizer)
-        StaticDelayDisplay = $"{_clockSynchronizer.StaticDelayMs:+0;-0;0} ms";
+        // Output delay (from clock synchronizer)
+        OutputDelayDisplay = $"{_clockSynchronizer.OutputDelayMs:+0;-0;0} ms";
 
         // Detected output latency (from audio pipeline)
         var detectedLatency = _audioPipeline.DetectedOutputLatencyMs;

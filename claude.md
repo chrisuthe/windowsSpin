@@ -113,7 +113,7 @@ Offset:       can be billions of microseconds - THIS IS NORMAL
 ```
 
 The `IClockSynchronizer` interface provides:
-- `ServerToClientTime(serverTimestamp)` - Convert server time to local playback time (subtracts the configured static delay — audio scheduling semantics)
+- `ServerToClientTime(serverTimestamp)` - Convert server time to local playback time (subtracts the configured output delay — audio scheduling semantics)
 - `GetStatus()` - Current offset, drift rate, and convergence status
 
 **Kalman Configuration** (via appsettings.json):
@@ -304,7 +304,7 @@ Settings are stored in two locations:
     "RetainedFileCount": 5
   },
   "Audio": {
-    "StaticDelayMs": 0,
+    "OutputDelayMs": 0,
     "DeviceId": null,
     "Buffer": {
       "TargetMs": 250,
@@ -350,8 +350,8 @@ Settings are stored in two locations:
 - `SyncCorrection.UseResampling`: Use smooth playback rate adjustment (default: true)
 - `SyncCorrection.ResamplingThresholdMs`: Error threshold for resampling vs drop/insert (default: 15ms)
 
-### Static Delay Tuning
-Per the Sendspin spec (v8.0.0+), positive `StaticDelayMs` compensates for downstream
+### Output Delay Tuning
+Per the Sendspin spec (v8.0.0+), positive `OutputDelayMs` compensates for downstream
 hardware delay (Bluetooth, AV receivers, external amps) by scheduling audio earlier
 from the digital pipeline. The value is SUBTRACTED from converted server timestamps.
 - **Positive values**: Play earlier (if this player is behind others — speaker hardware adds latency)
@@ -360,6 +360,11 @@ from the digital pipeline. The value is SUBTRACTED from converted server timesta
 
 Sign convention flipped in SDK 8.0.0. If you see a "Positive = play later" reference
 anywhere in the codebase, it's stale — the v7 semantic was non-spec.
+
+SDK 10 renamed this setting from "static delay" to "output delay" (C# names and the
+config key; the wire string is still `static_delay_ms`). `Audio:StaticDelayMs` is still
+read as a fallback so an upgraded install keeps its calibrated value — see
+`Configuration/OutputDelaySettings.cs`.
 
 ---
 
