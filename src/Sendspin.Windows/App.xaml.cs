@@ -315,15 +315,15 @@ public partial class App : Application
         // Audio pipeline components
         services.AddSingleton<IAudioDecoderFactory, AudioDecoderFactory>();
 
-        // Read sync correction strategy configuration
+        // How the SDK's correction source realizes the continuous correction tier. "Combined" trims
+        // playback speed through a resampler; "DropInsertOnly" steps whole frames and keeps every
+        // resampler out of the output chain. The config strings predate the SDK's own enum and are
+        // kept so existing appsettings.json files keep meaning what they meant. This is a mechanism
+        // choice only — the dead band, the speed cap and the tier thresholds are identical either way.
         var strategyStr = _configuration!.GetValue<string>("Audio:SyncCorrection:Strategy", "Combined");
-        var syncStrategy = strategyStr?.Equals("DropInsertOnly", StringComparison.OrdinalIgnoreCase) == true
-            ? SyncCorrectionStrategy.DropInsertOnly
-            : SyncCorrectionStrategy.Combined;
-        var resamplerTypeStr = _configuration!.GetValue<string>("Audio:SyncCorrection:ResamplerType", "Wdl");
-        var resamplerType = resamplerTypeStr?.Equals("SoundTouch", StringComparison.OrdinalIgnoreCase) == true
-            ? ResamplerType.SoundTouch
-            : ResamplerType.Wdl;
+        var mechanism = strategyStr?.Equals("DropInsertOnly", StringComparison.OrdinalIgnoreCase) == true
+            ? SyncCorrectionMechanism.FrameStepping
+            : SyncCorrectionMechanism.SmoothResampling;
 
         // Sync timing source. Default OFF = wall clock (HighPrecisionTimer), matching 2.1.0 which
         // synchronized correctly with no offset. The WASAPI device clock reads the DAC-RENDERED
@@ -347,13 +347,18 @@ public partial class App : Application
         syncOptions.DeadbandMicroseconds = (long)(_configuration!.GetValue("Audio:SyncCorrection:DeadbandMs", 1.0) * 1000.0);
         syncOptions.MaxSpeedCorrection = _configuration!.GetValue("Audio:SyncCorrection:MaxSpeedCorrectionPercent", 0.5) / 100.0;
         syncOptions.CorrectionTargetSeconds = _configuration!.GetValue("Audio:SyncCorrection:CorrectionTargetSeconds", 3.0);
+
+        // The correction source reads this off the buffer it is handed, so the mechanism has to be
+        // on the options the pipeline builds its buffers with — not passed separately, or the two
+        // could disagree about whether a resampler is in the chain.
+        syncOptions.Mechanism = mechanism;
         services.AddSingleton(syncOptions);
 
         services.AddTransient<IAudioPlayer>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<WasapiAudioPlayer>>();
             var currentDeviceId = _configuration!.GetValue<string?>("Audio:DeviceId");
-            return new WasapiAudioPlayer(logger, currentDeviceId, syncStrategy, resamplerType, useDeviceClock);
+            return new WasapiAudioPlayer(logger, currentDeviceId, mechanism, useDeviceClock);
         });
 
         // Audio pipeline - orchestrates decoder, buffer, and player

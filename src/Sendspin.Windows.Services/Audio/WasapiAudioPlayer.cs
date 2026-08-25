@@ -13,24 +13,6 @@ using Sendspin.Windows.Services.Models;
 namespace Sendspin.Windows.Services.Audio;
 
 /// <summary>
-/// Specifies which resampler implementation to use for sync correction.
-/// </summary>
-public enum ResamplerType
-{
-    /// <summary>
-    /// Use WDL (Cockos) resampler. Uses sinc interpolation.
-    /// May cause artifacts during dynamic rate changes on some systems.
-    /// </summary>
-    Wdl,
-
-    /// <summary>
-    /// Use SoundTouch library. Uses WSOLA (time-stretch) algorithm.
-    /// May produce smoother results for dynamic rate changes.
-    /// </summary>
-    SoundTouch,
-}
-
-/// <summary>
 /// Windows WASAPI audio player using NAudio.
 /// Provides low-latency audio output via WASAPI shared mode.
 /// </summary>
@@ -49,15 +31,11 @@ public enum ResamplerType
 public sealed class WasapiAudioPlayer : IAudioPlayer
 {
     private readonly ILogger<WasapiAudioPlayer> _logger;
-    private readonly SyncCorrectionStrategy _syncStrategy;
-    private readonly ResamplerType _resamplerType;
+    private readonly SyncCorrectionMechanism _mechanism;
     private string? _deviceId;
     private WasapiOut? _wasapiOut;
     private AudioSampleProviderAdapter? _sampleProvider;
-    private ISampleProvider? _resamplerProvider; // Either WDL or SoundTouch
-    private IDisposable? _resamplerDisposable; // For cleanup
     private ITimedAudioBuffer? _buffer;
-    private ISyncCorrectionProvider? _correctionProvider;
     private SyncCorrectedSampleSource? _correctedSource;
     private AudioFormat? _format;
     private float _volume = 1.0f;
@@ -118,21 +96,21 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         _format == null ? null : new AudioFormat
         {
             Codec = _format.Codec,
-            SampleRate = _syncStrategy == SyncCorrectionStrategy.Combined ? _deviceNativeSampleRate : _format.SampleRate,
+            SampleRate = _mechanism == SyncCorrectionMechanism.SmoothResampling ? _deviceNativeSampleRate : _format.SampleRate,
             Channels = _format.Channels,
             BitDepth = _format.BitDepth,
             Bitrate = _format.Bitrate,
         };
 
     /// <summary>
-    /// Gets the current sync correction mode from the external correction provider.
+    /// Gets the current sync correction mode from the SDK's external correction provider.
     /// </summary>
     /// <remarks>
-    /// This exposes the correction mode from <see cref="SyncCorrectionCalculator"/> when using
-    /// external sync correction (SDK 5.0+ architecture). Use this instead of
+    /// This exposes the correction mode from <see cref="SyncCorrectionCalculator"/>, which drives
+    /// the external correction path. Use this instead of
     /// <see cref="AudioBufferStats.CurrentCorrectionMode"/> which only reflects internal SDK correction.
     /// </remarks>
-    public SyncCorrectionMode? ExternalCorrectionMode => _correctionProvider?.CurrentMode;
+    public SyncCorrectionMode? ExternalCorrectionMode => _correctedSource?.CorrectionProvider.CurrentMode;
 
     /// <inheritdoc/>
     public AudioPlayerState State { get; private set; } = AudioPlayerState.Uninitialized;
@@ -183,14 +161,13 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// Optional device ID for a specific audio output device.
     /// If null or empty, the system default device is used.
     /// </param>
-    /// <param name="syncStrategy">
-    /// The sync correction strategy to use. Combined uses resampling for smooth correction,
-    /// DropInsertOnly bypasses the resampler entirely for direct audio passthrough.
-    /// </param>
-    /// <param name="resamplerType">
-    /// Which resampler implementation to use when strategy is Combined.
-    /// WDL uses sinc interpolation, SoundTouch uses WSOLA algorithm.
-    /// Ignored when strategy is DropInsertOnly.
+    /// <param name="mechanism">
+    /// How the SDK's correction source realizes the continuous correction tier, and with it whether
+    /// this player carries a resampler at all. <see cref="SyncCorrectionMechanism.SmoothResampling"/>
+    /// trims playback speed and also converts to the device's native rate;
+    /// <see cref="SyncCorrectionMechanism.FrameStepping"/> steps whole frames and keeps every
+    /// resampler out of the output chain, leaving any rate conversion to the Windows Audio Engine.
+    /// Must match the <see cref="SyncCorrectionOptions.Mechanism"/> the pipeline's buffers carry.
     /// </param>
     /// <param name="useDeviceClock">
     /// When false (default), sync is timed against the wall clock (<c>HighPrecisionTimer</c>), which
@@ -203,24 +180,22 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     public WasapiAudioPlayer(
         ILogger<WasapiAudioPlayer> logger,
         string? deviceId = null,
-        SyncCorrectionStrategy syncStrategy = SyncCorrectionStrategy.Combined,
-        ResamplerType resamplerType = ResamplerType.Wdl,
+        SyncCorrectionMechanism mechanism = SyncCorrectionMechanism.SmoothResampling,
         bool useDeviceClock = false)
     {
         _logger = logger;
         _deviceId = deviceId;
-        _syncStrategy = syncStrategy;
-        _resamplerType = resamplerType;
+        _mechanism = mechanism;
         _useDeviceClock = useDeviceClock;
     }
 
     /// <summary>
     /// Notifies the player that a WebSocket reconnect occurred.
-    /// Forwards to the sync correction provider to suppress corrections during Kalman re-convergence.
+    /// Forwards to the sync correction source to suppress corrections during Kalman re-convergence.
     /// </summary>
     public void NotifyReconnect()
     {
-        _correctionProvider?.NotifyReconnect();
+        _correctedSource?.NotifyReconnect();
     }
 
     /// <inheritdoc/>
@@ -302,49 +277,30 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
         ArgumentNullException.ThrowIfNull(source);
 
-        // Dispose previous resampler and correction source if any
-        DisposeResampler();
         DisposeCorrectionSource();
 
         // Get buffer from source for sync correction (if source is BufferedAudioSampleSource)
         _buffer = null;
-        _correctionProvider = null;
         IAudioSampleSource effectiveSource = source;
 
         if (source is BufferedAudioSampleSource bufferedSource)
         {
             _buffer = bufferedSource.Buffer;
 
-            // Clone the buffer's sync options for the external correction calculator.
-            // In Combined mode, keep the configured resampling threshold (default 15ms) so small
-            // errors are corrected by smooth playback-rate resampling and only larger errors fall
-            // back to drop/insert. In DropInsertOnly mode, collapse the resampling band to the
-            // deadband so corrections skip straight to drop/insert (no resampler in the chain).
-            var correctionOptions = _buffer.SyncOptions.Clone();
-            if (_syncStrategy == SyncCorrectionStrategy.DropInsertOnly)
-            {
-                correctionOptions.ResamplingThresholdMicroseconds = correctionOptions.DeadbandMicroseconds;
-            }
-
-            // Create correction provider for external sync correction
-            var calculator = new SyncCorrectionCalculator(
-                correctionOptions,
-                _buffer.Format.SampleRate,
-                _buffer.Format.Channels);
-            _correctionProvider = calculator;
-
-            // Create sync-corrected source that uses ReadRaw + external correction
-            // This moves drop/insert logic out of the SDK into the app layer
+            // Sync correction is the SDK's job end to end: it drives ReadRaw, builds a
+            // SyncCorrectionCalculator from the buffer's own SyncOptions (which carry the app's
+            // configured mechanism, dead band and speed cap), applies the correction, and reports
+            // the applied rate back to the buffer so the stats UI keeps reading a live value.
             _correctedSource = new SyncCorrectedSampleSource(
                 _buffer,
-                _correctionProvider,
                 GetSyncTimeMicroseconds,
-                _logger);
+                logger: _logger);
 
             effectiveSource = _correctedSource;
 
             _logger.LogDebug(
-                "Created SyncCorrectedSampleSource with external correction (SDK reports error, app applies correction)");
+                "Sync correction delegated to the SDK ({Mechanism})",
+                _buffer.SyncOptions.Mechanism);
         }
 
         // Create NAudio adapter with current volume/mute state
@@ -352,26 +308,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         _sampleProvider.Volume = _volume;
         _sampleProvider.IsMuted = _isMuted;
 
-        // Optionally wrap with resampler for smooth sync correction
-        // Pass device native sample rate for compound resampling (rate conversion + sync correction)
-        if (_syncStrategy == SyncCorrectionStrategy.Combined && _correctionProvider != null)
-        {
-            CreateResampler(_sampleProvider);
-            _wasapiOut.Init(_resamplerProvider);
-            _logger.LogDebug(
-                "Sample source configured with {ResamplerType} resampling: {SourceRate}Hz → {DeviceRate}Hz",
-                _resamplerType,
-                _format?.SampleRate,
-                _deviceNativeSampleRate);
-        }
-        else
-        {
-            // DropInsertOnly: bypass resampler completely for direct audio passthrough
-            _wasapiOut.Init(_sampleProvider);
-            _logger.LogInformation(
-                "Sample source configured with {Strategy} (no resampler in chain)",
-                _syncStrategy);
-        }
+        _wasapiOut.Init(BuildOutputChain(_sampleProvider));
 
         // Now that Init() has initialized the underlying AudioClient, read the real device latency.
         // Querying earlier throws AUDCLNT_E_NOT_INITIALIZED and falls back to an estimate.
@@ -379,76 +316,54 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     }
 
     /// <summary>
-    /// Disposes the current sync-corrected sample source.
+    /// Puts device-rate conversion on top of the corrected stream, when the mechanism allows a
+    /// resampler in the chain and the device's mixer runs at a different rate.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The <see cref="_correctionProvider"/> (<see cref="SyncCorrectionCalculator"/>) is set to null
-    /// but not disposed because it does not implement <see cref="IDisposable"/>. This is intentional:
+    /// This is the one piece of the old app-side chain that stays: WASAPI shared mode resamples
+    /// everything to the mixer rate, so converting here means the audio crosses one known-good,
+    /// filtered conversion instead of the Windows Audio Engine's. It is a device-format concern and
+    /// deliberately outside the SDK's platform-neutral correction source.
     /// </para>
-    /// <list type="bullet">
-    /// <item>It holds no unmanaged resources (just primitive state and a lock object)</item>
-    /// <item>It does not subscribe to any external events (it only provides the
-    /// <see cref="ISyncCorrectionProvider.CorrectionChanged"/> event)</item>
-    /// <item>All subscribers (e.g., <see cref="DynamicResamplerSampleProvider"/>) unsubscribe in their
-    /// own Dispose methods, which are called via <see cref="DisposeResampler"/> BEFORE this method</item>
-    /// </list>
     /// <para>
-    /// The disposal order is critical: <see cref="DisposeResampler"/> must be called first to ensure
-    /// event handlers are unsubscribed before the provider reference is cleared.
+    /// Skipped entirely when the rates already match — a second identity resampler pass on top of
+    /// the correction source's would be pure cost — and under
+    /// <see cref="SyncCorrectionMechanism.FrameStepping"/>, whose whole point is that no resampler
+    /// sits in the output chain. <see cref="OutputFormat"/> reports the same split.
     /// </para>
+    /// </remarks>
+    private ISampleProvider BuildOutputChain(ISampleProvider correctedProvider)
+    {
+        if (_mechanism == SyncCorrectionMechanism.FrameStepping)
+        {
+            _logger.LogInformation("Output chain: frame stepping, no resampler in chain");
+            return correctedProvider;
+        }
+
+        if (_deviceNativeSampleRate == correctedProvider.WaveFormat.SampleRate)
+        {
+            _logger.LogDebug(
+                "Output chain: no device-rate conversion needed ({Rate}Hz matches the device mixer)",
+                _deviceNativeSampleRate);
+            return correctedProvider;
+        }
+
+        return new DeviceRateSampleProvider(correctedProvider, _deviceNativeSampleRate, _logger);
+    }
+
+    /// <summary>
+    /// Disposes the current sync-corrected sample source.
+    /// </summary>
+    /// <remarks>
+    /// Order matters: the WASAPI output must already be stopped, so no read is in flight when the
+    /// source stops accepting them. The device-rate provider downstream holds nothing to release —
+    /// it owns only a resampler and its own buffers — so dropping the reference is enough.
     /// </remarks>
     private void DisposeCorrectionSource()
     {
         _correctedSource?.Dispose();
         _correctedSource = null;
-        _correctionProvider = null;
-    }
-
-    /// <summary>
-    /// Creates the appropriate resampler based on configuration.
-    /// </summary>
-    private void CreateResampler(ISampleProvider sourceProvider)
-    {
-        if (_correctionProvider == null)
-        {
-            throw new InvalidOperationException("Correction provider must be set before creating resampler.");
-        }
-
-        switch (_resamplerType)
-        {
-            case ResamplerType.SoundTouch:
-                // SoundTouch doesn't support sample rate conversion in the same pass,
-                // so we don't pass target sample rate (it maintains the source rate)
-                var soundTouch = new SoundTouchSampleProvider(
-                    sourceProvider,
-                    _correctionProvider,
-                    _logger);
-                _resamplerProvider = soundTouch;
-                _resamplerDisposable = soundTouch;
-                break;
-
-            case ResamplerType.Wdl:
-            default:
-                var wdl = new DynamicResamplerSampleProvider(
-                    sourceProvider,
-                    _correctionProvider,
-                    _deviceNativeSampleRate,
-                    _logger);
-                _resamplerProvider = wdl;
-                _resamplerDisposable = wdl;
-                break;
-        }
-    }
-
-    /// <summary>
-    /// Disposes the current resampler.
-    /// </summary>
-    private void DisposeResampler()
-    {
-        _resamplerDisposable?.Dispose();
-        _resamplerProvider = null;
-        _resamplerDisposable = null;
     }
 
     /// <inheritdoc/>
@@ -572,24 +487,14 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
                     _correctedSource?.Reset();
 
-                    // Re-attach sample provider if we had one
-                    // If we're using resampling, recreate the resampler with new device native rate
-                    if (_resamplerProvider != null && currentSampleProvider != null)
+                    // Re-attach the sample source, rebuilding the output chain against the new
+                    // device's native rate (the old device-rate provider converted to the old rate).
+                    if (currentSampleProvider != null)
                     {
-                        // Recreate resampler with new device native rate
-                        DisposeResampler();
-                        CreateResampler(currentSampleProvider);
-
-                        _wasapiOut.Init(_resamplerProvider);
+                        _wasapiOut.Init(BuildOutputChain(currentSampleProvider));
                         _logger.LogDebug(
-                            "Sample source re-attached to new device (with {ResamplerType} resampling at {DeviceRate}Hz)",
-                            _resamplerType,
+                            "Sample source re-attached to new device ({DeviceRate}Hz)",
                             _deviceNativeSampleRate);
-                    }
-                    else if (currentSampleProvider != null)
-                    {
-                        _wasapiOut.Init(currentSampleProvider);
-                        _logger.LogDebug("Sample source re-attached to new device");
                     }
 
                     // Read the real device latency now that Init() has initialized the AudioClient.
@@ -638,7 +543,6 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
             _wasapiOut = null;
         }
 
-        DisposeResampler();
         DisposeCorrectionSource();
         _sampleProvider = null;
 
@@ -863,9 +767,9 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     }
 
     /// <summary>
-    /// Sync time source for <see cref="SyncCorrectedSampleSource"/> - the app's actual playback
-    /// timing path (the SDK's GetAudioClockMicroseconds/GetCurrentLocalTime path is bypassed here,
-    /// since correction was moved app-side). This delegate IS invoked per render read during
+    /// Sync time source handed to <see cref="SyncCorrectedSampleSource"/> - the app's actual
+    /// playback timing path, which is what the SDK's correction source measures error against.
+    /// This delegate IS invoked per render read during
     /// playback, so it reads the WASAPI device clock (IAudioClock) and returns it anchored onto the
     /// wall-clock timeline via <see cref="DeviceClockAnchor"/> - timing sync against the DAC's own
     /// crystal instead of the system clock (issue #33). Falls back to the wall clock when the device
