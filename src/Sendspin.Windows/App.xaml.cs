@@ -360,10 +360,16 @@ public partial class App : Application
                     // Correction-loop calming knobs (default to the SDK defaults). A wider deadband
                     // stops the corrector hunting around small per-callback jitter; a tighter max-rate
                     // and longer target make any correction gentler. Tunable so it can be dialed by ear.
+                    // Fallbacks read off SyncCorrectionOptions.Default rather than literals, so a
+                    // config file missing a key tracks the SDK's defaults instead of pinning a value
+                    // the SDK has since moved (pre-9.3.0 these were hardcoded 1ms / 2%).
                     var syncOptions = SyncCorrectionOptions.Default;
-                    syncOptions.DeadbandMicroseconds = (long)(_configuration!.GetValue("Audio:SyncCorrection:DeadbandMs", 1.0) * 1000.0);
-                    syncOptions.MaxSpeedCorrection = _configuration!.GetValue("Audio:SyncCorrection:MaxSpeedCorrectionPercent", 2.0) / 100.0;
-                    syncOptions.CorrectionTargetSeconds = _configuration!.GetValue("Audio:SyncCorrection:CorrectionTargetSeconds", 3.0);
+                    syncOptions.DeadbandMicroseconds = (long)(_configuration!.GetValue(
+                        "Audio:SyncCorrection:DeadbandMs", syncOptions.DeadbandMicroseconds / 1000.0) * 1000.0);
+                    syncOptions.MaxSpeedCorrection = _configuration!.GetValue(
+                        "Audio:SyncCorrection:MaxSpeedCorrectionPercent", syncOptions.MaxSpeedCorrection * 100.0) / 100.0;
+                    syncOptions.CorrectionTargetSeconds = _configuration!.GetValue(
+                        "Audio:SyncCorrection:CorrectionTargetSeconds", syncOptions.CorrectionTargetSeconds);
 
                     var buffer = new TimedAudioBuffer(format, sync, bufferCapacityMs, syncOptions, bufferLogger);
                     buffer.TargetBufferMilliseconds = bufferTargetMs;

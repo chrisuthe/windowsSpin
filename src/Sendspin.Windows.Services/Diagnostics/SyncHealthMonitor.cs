@@ -21,8 +21,9 @@ public sealed class SyncHealthMonitor : IDisposable
     private const int SampleIntervalMs = 100;
 
     // Matches SyncCorrectionOptions defaults used by the pipeline (syncOptions: null → SDK Default).
-    private const double DeadbandMs = 2.0;
-    private const double MaxSpeedCorrection = 0.02;
+    // SDK 9.3.0: dead band 100 µs, speed cap 0.5% (the spec's MUST ceiling).
+    private const double DeadbandMs = 0.1;
+    private const double MaxSpeedCorrection = 0.005;
 
     private readonly IAudioPipeline _pipeline;
     private readonly IClockSynchronizer _clockSync;

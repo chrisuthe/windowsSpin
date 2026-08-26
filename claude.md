@@ -162,10 +162,14 @@ The buffer handles:
 **Tiered Sync Correction Strategy** (matching JS client):
 | Sync Error | Correction Method | Notes |
 |------------|-------------------|-------|
-| < 2ms | None (deadband) | Imperceptible error, no action needed |
-| 2-15ms | Playback rate adjustment (0.96x-1.04x) | Smooth, inaudible via `TargetPlaybackRate` |
-| 15-500ms | Frame drop/insert | Faster correction for larger drift |
+| < 100µs | None (deadband) | Imperceptible error, no action needed |
+| 100µs-5ms | Playback rate adjustment (0.995x-1.005x) | Smooth, inaudible via `TargetPlaybackRate` |
+| 5-500ms | One-shot hard sync | Single snap: drop a prefix if late, insert silence if early |
 | > 500ms | Re-anchor | Clear buffer and restart sync |
+
+The frame drop/insert band (`ResamplingThresholdMicroseconds`, now 100ms) sits above the
+hard-sync tier by default, so it is only reached when that tier is disabled or the
+resampling threshold is lowered below 5ms.
 
 **Resampling Sync Correction** (v2.2.0+):
 - `ITimedAudioBuffer.TargetPlaybackRate` exposes the desired rate (1.0 = normal)
@@ -186,12 +190,17 @@ syncError = elapsedTime - samplesReadTime - outputLatency
 
 **Sync Correction Constants** (default values):
 ```csharp
-DeadbandMicroseconds = 2_000;                 // 2ms - start correcting when error exceeds this
-ResamplingThresholdMicroseconds = 15_000;     // 15ms - resampling vs drop/insert boundary
+DeadbandMicroseconds = 100;                   // 100µs - start correcting when error exceeds this
+ResamplingThresholdMicroseconds = 100_000;    // 100ms - resampling vs drop/insert boundary
 ReanchorThresholdMicroseconds = 500_000;      // 500ms - clear buffer and restart
-MaxSpeedCorrection = 0.02;                    // 2% max correction rate (Windows default)
+MaxSpeedCorrection = 0.005;                   // 0.5% max correction rate (spec MUST cap)
 CorrectionTargetSeconds = 3.0;                // Time to correct error
 ```
+
+`MaxSpeedCorrection` is a conformance ceiling, not a comfort knob: the SDK clamps any
+larger value to 0.5% and warns once. `appsettings.json` ships
+`MaxSpeedCorrectionPercent: 0.5` / `DeadbandMs: 0.1` so the shipped config matches
+these defaults rather than tripping the clamp on every launch.
 
 **Configurable Sync Correction** (v3.3.0+):
 
@@ -205,16 +214,17 @@ var buffer = new TimedAudioBuffer(format, clockSync, capacityMs,
 // Or customize individual parameters
 var options = new SyncCorrectionOptions
 {
-    MaxSpeedCorrection = 0.04,        // 4% like CLI
     CorrectionTargetSeconds = 2.0,    // Faster convergence
-    BypassDeadband = true,            // Continuous correction
 };
 var buffer = new TimedAudioBuffer(format, clockSync, capacityMs, options, logger);
 ```
 
 **Static Presets**:
-- `SyncCorrectionOptions.Default` - Windows defaults (conservative: 2% max, 3s target)
-- `SyncCorrectionOptions.CliDefaults` - Python CLI defaults (aggressive: 4% max, 2s target)
+- `SyncCorrectionOptions.Default` - Windows defaults (0.5% max, 3s target)
+- `SyncCorrectionOptions.CliDefaults` - Python CLI defaults (0.5% max, 2s target)
+
+Both presets share the 0.5% cap and the 100µs dead band — those are spec conformance
+points, not platform tuning. The CLI preset differs only in convergence speed.
 
 ### Clock Sync Gating
 
