@@ -668,6 +668,25 @@ public partial class MainViewModel : ViewModelBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to initialize");
+
+            if (mode != ConnectionMode.DiscoverOnly)
+            {
+                // StartAsync binds the listener before it starts the advertiser, and the
+                // advertiser rethrows. A throw here can therefore leave the listener bound with
+                // IsHosting still false, which a later switch to DiscoverOnly would not clean up.
+                // Tear it down now; StopAsync is idempotent.
+                try
+                {
+                    await _hostService.StopAsync();
+                }
+                catch (Exception stopEx)
+                {
+                    _logger.LogWarning(stopEx, "Failed to stop partially-started host service");
+                }
+
+                IsHosting = false;
+            }
+
             StatusMessage = $"Failed to start: {ex.Message}";
             SetError($"Failed to initialize: {ex.Message}");
         }
@@ -1094,11 +1113,6 @@ public partial class MainViewModel : ViewModelBase
 
                 // Show toast notification for connection
                 _notificationService.ShowConnected(ConnectedServerName);
-
-                // Disconnect any server-initiated connections and stop advertising
-                // to ensure only one connection uses the audio pipeline at a time
-                _hostService.DisconnectAllAsync().SafeFireAndForget(_logger);
-                _hostService.StopAdvertisingAsync().SafeFireAndForget(_logger);
             }
             else if (e.NewState == ConnectionState.Disconnected)
             {
@@ -1123,8 +1137,10 @@ public partial class MainViewModel : ViewModelBase
 
                 OnPropertyChanged(nameof(IsConnected));
 
-                // Resume advertising so servers can discover us again
-                _hostService.StartAdvertisingAsync().SafeFireAndForget(_logger);
+                // Deliberately no StartAdvertisingAsync here: a manual client only exists in
+                // DiscoverOnly, and the spec forbids advertising _sendspin._tcp while the client
+                // initiates connections. Advertising lifecycle belongs to InitializeAsync and
+                // ApplyConnectionModeAsync alone.
 
                 // Cleanup in background to avoid blocking UI
                 CleanupManualClientAsync().SafeFireAndForget(_logger);
@@ -2160,8 +2176,14 @@ public partial class MainViewModel : ViewModelBase
                 stopped = false;
             }
         }
-        else if (!shouldAdvertise && IsHosting)
+        else if (!shouldAdvertise)
         {
+            // Unconditional, NOT gated on IsHosting. SendspinHostService.StartAsync starts the
+            // listener first and the advertiser second, so a failed advertise (port 5353
+            // contention, no usable NIC) leaves the listener bound while IsHosting stays false.
+            // Gating the stop on IsHosting would skip it there and leave the listener running
+            // alongside discovery - both transports at once. Both StopAsync calls are
+            // idempotent, so stopping a host that never started is a harmless no-op.
             try
             {
                 await _hostService.StopAsync();
@@ -2676,28 +2698,47 @@ public partial class MainViewModel : ViewModelBase
             // Close settings panel first
             IsSettingsOpen = false;
 
-            // If player name changed and we're connected, reconnect to apply the new name
+            // If player name changed and we're connected, the session has to be re-handshaked
+            // for the new name to reach the server. How depends on who owns the connection:
+            // only DiscoverOnly may dial back out, because ConnectToServerAsync refuses in any
+            // other mode - calling it there would drop the session and claim it reconnected.
             if (playerNameChanged && IsConnected)
             {
-                StatusMessage = "Reconnecting with new player name...";
-                _logger.LogInformation("Reconnecting to apply new player name");
-
-                // Store the current server URL for reconnection
-                var currentServerUrl = ManualServerUrl;
-
-                // Disconnect
-                await DisconnectFromServerAsync();
-
-                // Small delay to ensure clean disconnection
-                await Task.Delay(ReconnectDelayMs);
-
-                // Reconnect
-                if (!string.IsNullOrEmpty(currentServerUrl))
+                var connectionMode = ConnectionModeMapping.FromDisplayName(SettingsConnectionMode);
+                if (connectionMode == ConnectionMode.DiscoverOnly)
                 {
-                    await ConnectToServerAsync();
-                }
+                    StatusMessage = "Reconnecting with new player name...";
+                    _logger.LogInformation("Reconnecting to apply new player name");
 
-                StatusMessage = "Settings saved. Reconnected with new player name.";
+                    // Store the current server URL for reconnection
+                    var currentServerUrl = ManualServerUrl;
+
+                    // Disconnect
+                    await DisconnectFromServerAsync();
+
+                    // Small delay to ensure clean disconnection
+                    await Task.Delay(ReconnectDelayMs);
+
+                    // Reconnect
+                    if (!string.IsNullOrEmpty(currentServerUrl))
+                    {
+                        await ConnectToServerAsync();
+                    }
+
+                    StatusMessage = "Settings saved. Reconnected with new player name.";
+                }
+                else
+                {
+                    // The server dialled us, so only the server can re-establish the session.
+                    // Drop it and keep advertising; the server reconnects and re-handshakes with
+                    // the new name.
+                    StatusMessage = "Disconnecting to apply new player name...";
+                    _logger.LogInformation("Disconnecting so the server re-handshakes with the new player name");
+
+                    await DisconnectFromServerAsync();
+
+                    StatusMessage = "Settings saved. Waiting for the server to reconnect with the new player name.";
+                }
             }
             else
             {
