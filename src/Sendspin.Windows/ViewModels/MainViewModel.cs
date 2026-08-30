@@ -2089,6 +2089,23 @@ public partial class MainViewModel : ViewModelBase
         var shouldAdvertise = mode != ConnectionMode.DiscoverOnly;
         var stopped = true;
 
+        // Leaving DiscoverOnly ends the client-initiated connection, whether or not discovery
+        // itself happens to be running (e.g. if StartAsync failed earlier and IsDiscovering
+        // never became true, a manual connection could still be live).
+        if (shouldAdvertise && _manualClient?.ConnectionState == ConnectionState.Connected)
+        {
+            try
+            {
+                await _manualClient.DisconnectAsync();
+                _logger.LogInformation("Manual client disconnected");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to disconnect manual client");
+                stopped = false;
+            }
+        }
+
         // Stop the outgoing transport BEFORE starting the incoming one, so the two are never
         // running together even momentarily.
         if (shouldAdvertise && _serverDiscovery.IsDiscovering)
@@ -2103,23 +2120,6 @@ public partial class MainViewModel : ViewModelBase
             {
                 _logger.LogWarning(ex, "Failed to stop server discovery");
                 stopped = false;
-            }
-
-            // A manual (DiscoverOnly) connection is a live use of the same singleton audio
-            // pipeline as the host service would use, so it must be torn down before we
-            // advertise -- otherwise both transports end up live at once.
-            if (_manualClient != null && _manualClient.ConnectionState == ConnectionState.Connected)
-            {
-                try
-                {
-                    await _manualClient.DisconnectAsync();
-                    _logger.LogInformation("Manual client disconnected");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to disconnect manual client");
-                    stopped = false;
-                }
             }
         }
         else if (!shouldAdvertise && IsHosting)
