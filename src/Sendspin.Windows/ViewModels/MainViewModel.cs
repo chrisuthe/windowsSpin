@@ -631,30 +631,25 @@ public partial class MainViewModel : ViewModelBase
 
         try
         {
-            // Start host service (server-initiated mode) unless DiscoverOnly
-            if (mode != ConnectionMode.DiscoverOnly)
+            // Exactly one transport, per spec: a client MUST use exactly one of the two
+            // connection methods at a time. An if/else keeps that structural — the previous
+            // pair of independent ifs let Auto satisfy neither exclusion and start both.
+            if (mode == ConnectionMode.DiscoverOnly)
+            {
+                StatusMessage = "Discovering Sendspin servers...";
+                await _serverDiscovery.StartAsync();
+                _logger.LogInformation("Server discovery started, looking for _sendspin-server._tcp");
+                StatusMessage = "Searching for servers...";
+            }
+            else
             {
                 StatusMessage = "Starting host service...";
                 await _hostService.StartAsync();
                 ClientId = _hostService.ClientId;
                 IsHosting = true;
                 _logger.LogInformation("Host service started, advertising as {ClientId}", ClientId);
+                StatusMessage = $"Waiting for a server to connect...\nClient ID: {ClientId}";
             }
-
-            // Start server discovery (client-initiated mode) unless AdvertiseOnly
-            if (mode != ConnectionMode.AdvertiseOnly)
-            {
-                StatusMessage = "Discovering Sendspin servers...";
-                await _serverDiscovery.StartAsync();
-                _logger.LogInformation("Server discovery started, looking for _sendspin-server._tcp");
-            }
-
-            StatusMessage = mode switch
-            {
-                ConnectionMode.AdvertiseOnly => $"Advertising as player...\nClient ID: {ClientId}",
-                ConnectionMode.DiscoverOnly => "Searching for servers...",
-                _ => $"Searching for servers...\nClient ID: {ClientId}"
-            };
         }
         catch (Exception ex)
         {
@@ -2086,7 +2081,7 @@ public partial class MainViewModel : ViewModelBase
             _logger.LogInformation("Connection mode saved: {Mode}", mode);
 
             // Apply mode change immediately
-            await ApplyConnectionModeAsync(mode);
+            await ApplyConnectionModeAsync(ConnectionModeMapping.FromConfigValue(mode));
         }
         catch (Exception ex)
         {
@@ -2094,24 +2089,22 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    private async Task ApplyConnectionModeAsync(string mode)
+    private async Task ApplyConnectionModeAsync(ConnectionMode mode)
     {
-        var shouldAdvertise = mode != "DiscoverOnly";
-        var shouldDiscover = mode != "AdvertiseOnly";
+        var shouldAdvertise = mode != ConnectionMode.DiscoverOnly;
 
-        // Start or stop host service (advertising)
-        if (shouldAdvertise && !IsHosting)
+        // Stop the outgoing transport BEFORE starting the incoming one, so the two are never
+        // running together even momentarily.
+        if (shouldAdvertise && _serverDiscovery.IsDiscovering)
         {
             try
             {
-                await _hostService.StartAsync();
-                ClientId = _hostService.ClientId;
-                IsHosting = true;
-                _logger.LogInformation("Host service started, advertising as {ClientId}", ClientId);
+                await _serverDiscovery.StopAsync();
+                _logger.LogInformation("Server discovery stopped");
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to start host service");
+                _logger.LogWarning(ex, "Failed to stop server discovery");
             }
         }
         else if (!shouldAdvertise && IsHosting)
@@ -2128,8 +2121,21 @@ public partial class MainViewModel : ViewModelBase
             }
         }
 
-        // Start or stop server discovery
-        if (shouldDiscover && !_serverDiscovery.IsDiscovering)
+        if (shouldAdvertise && !IsHosting)
+        {
+            try
+            {
+                await _hostService.StartAsync();
+                ClientId = _hostService.ClientId;
+                IsHosting = true;
+                _logger.LogInformation("Host service started, advertising as {ClientId}", ClientId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to start host service");
+            }
+        }
+        else if (!shouldAdvertise && !_serverDiscovery.IsDiscovering)
         {
             try
             {
@@ -2141,27 +2147,6 @@ public partial class MainViewModel : ViewModelBase
                 _logger.LogWarning(ex, "Failed to start server discovery");
             }
         }
-        else if (!shouldDiscover && _serverDiscovery.IsDiscovering)
-        {
-            try
-            {
-                await _serverDiscovery.StopAsync();
-                DiscoveredServers.Clear();
-                _logger.LogInformation("Server discovery stopped");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to stop server discovery");
-            }
-        }
-
-        // Update status message
-        StatusMessage = mode switch
-        {
-            "AdvertiseOnly" => $"Advertising as player...\nClient ID: {ClientId}",
-            "DiscoverOnly" => "Searching for servers...",
-            _ => $"Searching for servers...\nClient ID: {ClientId}"
-        };
     }
 
     partial void OnVolumeChanged(int value)
