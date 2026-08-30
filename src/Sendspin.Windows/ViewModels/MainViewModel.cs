@@ -2100,6 +2100,7 @@ public partial class MainViewModel : ViewModelBase
             try
             {
                 await _serverDiscovery.StopAsync();
+                App.Current.Dispatcher.Invoke(() => DiscoveredServers.Clear());
                 _logger.LogInformation("Server discovery stopped");
             }
             catch (Exception ex)
@@ -2147,6 +2148,13 @@ public partial class MainViewModel : ViewModelBase
                 _logger.LogWarning(ex, "Failed to start server discovery");
             }
         }
+
+        // Update status message to reflect the new mode.
+        StatusMessage = mode switch
+        {
+            ConnectionMode.DiscoverOnly => "Searching for servers...",
+            _ => $"Advertising as player...\nClient ID: {ClientId}",
+        };
     }
 
     partial void OnVolumeChanged(int value)
