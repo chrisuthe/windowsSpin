@@ -889,6 +889,13 @@ public partial class MainViewModel : ViewModelBase
     /// Creates and configures the manual client for connecting to a server.
     /// This handles creation of the connection, client service, and event subscriptions.
     /// </summary>
+    /// <remarks>
+    /// Invariant: every caller must confirm <c>ConnectionModeMapping.FromDisplayName(SettingsConnectionMode)
+    /// == ConnectionMode.DiscoverOnly</c> before calling this. The check cannot live here because
+    /// every caller immediately dereferences <c>_manualClient!</c> with null-forgiving right after
+    /// calling this method; a guard here that skipped creation would turn a refused connect into a
+    /// NullReferenceException instead. Guard at each call site instead.
+    /// </remarks>
     private void CreateAndConfigureManualClient()
     {
         _manualConnection = new SendspinConnection(
@@ -1619,6 +1626,13 @@ public partial class MainViewModel : ViewModelBase
 
     private async Task AutoConnectToServerAsync(DiscoveredServer server)
     {
+        var mode = ConnectionModeMapping.FromDisplayName(SettingsConnectionMode);
+        if (mode != ConnectionMode.DiscoverOnly)
+        {
+            _logger.LogWarning("Refusing auto-connect to {Name}: connection mode is {Mode}, not DiscoverOnly", server.Name, mode);
+            return;
+        }
+
         // Clear any previous error when starting a new connection attempt
         ClearError();
 
