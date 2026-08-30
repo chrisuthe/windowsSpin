@@ -2092,6 +2092,7 @@ public partial class MainViewModel : ViewModelBase
     private async Task ApplyConnectionModeAsync(ConnectionMode mode)
     {
         var shouldAdvertise = mode != ConnectionMode.DiscoverOnly;
+        var stopped = true;
 
         // Stop the outgoing transport BEFORE starting the incoming one, so the two are never
         // running together even momentarily.
@@ -2106,6 +2107,7 @@ public partial class MainViewModel : ViewModelBase
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to stop server discovery");
+                stopped = false;
             }
         }
         else if (!shouldAdvertise && IsHosting)
@@ -2119,7 +2121,14 @@ public partial class MainViewModel : ViewModelBase
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to stop host service");
+                stopped = false;
             }
+        }
+
+        if (!stopped)
+        {
+            _logger.LogError("Aborting connection mode switch: the outgoing transport did not stop, so starting the other one would run both at once");
+            return;
         }
 
         if (shouldAdvertise && !IsHosting)
