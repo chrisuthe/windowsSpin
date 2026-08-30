@@ -20,6 +20,18 @@ namespace Sendspin.Windows.Configuration;
 public static class AudioFormatBuilder
 {
     /// <summary>
+    /// Highest bit depth advertised for FLAC.
+    /// </summary>
+    /// <remarks>
+    /// WASAPI's MixFormat reports 32 bits because the Windows audio engine mixes in 32-bit FLOAT.
+    /// That is a container width, not a PCM sample depth. Advertising flac/32 makes the entry
+    /// unencodable for servers whose FLAC encoder tops out at 24-bit (ffmpeg, among others), and
+    /// they drop it silently — costing us the hi-res lossless option and falling back to 48kHz/16.
+    /// PCM keeps the native depth, since 32-bit integer PCM encodes fine.
+    /// </remarks>
+    private const int MaxFlacBitDepth = 24;
+
+    /// <summary>
     /// Builds a list of audio formats to advertise to the server.
     /// </summary>
     /// <param name="capabilities">The device's native audio capabilities.</param>
@@ -38,16 +50,19 @@ public static class AudioFormatBuilder
         // SDK's PcmDecoder already reads 32-bit via ReadInt32LittleEndian.
         var bitDepth = capabilities.NativeBitDepth;
 
+        // FLAC caps at 24-bit; see MaxFlacBitDepth.
+        var flacBitDepth = Math.Min(bitDepth, MaxFlacBitDepth);
+
         // Preferred codec first at native resolution
         if (preferredCodec == "flac")
         {
-            // FLAC supports any sample rate and bit depth
+            // FLAC supports any sample rate, up to the encodable bit depth
             formats.Add(new AudioFormat
             {
                 Codec = "flac",
                 SampleRate = sampleRate,
                 Channels = 2,
-                BitDepth = bitDepth,
+                BitDepth = flacBitDepth,
             });
 
             // Opus is capped at 48kHz per codec specification
@@ -76,7 +91,7 @@ public static class AudioFormatBuilder
                 Codec = "flac",
                 SampleRate = sampleRate,
                 Channels = 2,
-                BitDepth = bitDepth,
+                BitDepth = flacBitDepth,
             });
         }
 
