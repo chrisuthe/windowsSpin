@@ -98,8 +98,16 @@ We advertise via mDNS and servers connect to us.
 - Advertises as `_sendspin._tcp.local`
 - Music Assistant servers discover and connect to us
 - Server admission (which server wins when several connect) is arbitrated inside the SDK's
-  `SendspinHostService` using activity ranking and the `LastPlayedServerId` tiebreak — the app
-  does no arbitration of its own
+  `SendspinHostService` — the app does no arbitration of its own, and must not reimplement or
+  override it
+- What the spec defines vs. what ships today:
+  - **Spec:** admission is ranked by connection *activity* — `management` > `playback` >
+    `pairing` — with a new connection held provisional until the server sends
+    `server/activate`, and dropped after 30s if it never does.
+  - **SDK 9.3.0 (the version this branch builds against):** arbitration is the earlier
+    `connection_reason` comparison — `"playback"` beats `"discovery"` — with
+    `LastPlayedServerId` breaking ordinary ties. Activity-based arbitration arrives with the
+    v10 SDK; until then, do not write app code that assumes it.
 - Discovery of `_sendspin-server._tcp` is NOT running in this mode
 
 ### 2. Client-Initiated Mode — `DiscoverOnly` (Opt-in)
