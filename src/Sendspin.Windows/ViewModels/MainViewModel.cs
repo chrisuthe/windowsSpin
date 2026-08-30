@@ -103,22 +103,27 @@ public partial class MainViewModel : ViewModelBase
     private readonly SemaphoreSlim _cleanupLock = new(1, 1);
 
     /// <summary>
-    /// Serializes connection mode transitions. Mode changes are started fire-and-forget from the
+    /// Serializes every transport start/stop: the initial one in <see cref="InitializeAsync"/>
+    /// and each runtime mode transition. Mode changes are started fire-and-forget from the
     /// property-changed callback, so without this two rapid switches can interleave their
     /// stop/check/start phases — one stops the host, the next restarts it, then the first starts
-    /// discovery — and leave both transports running.
+    /// discovery — and leave both transports running. Initialization takes the same lock because
+    /// it too is started unawaited and can otherwise finish starting a transport after a switch
+    /// has already moved to the other one.
     /// </summary>
     private readonly SemaphoreSlim _connectionModeLock = new(1, 1);
 
     /// <summary>
-    /// The connection mode whose transport is actually running.
+    /// The mode of the transport that last started successfully — the one actually running.
     /// </summary>
     /// <remarks>
     /// Distinct from <see cref="SettingsConnectionMode"/>, which holds the mode the user
     /// <em>requested</em> and is already assigned (and persisted) before
     /// <see cref="ApplyConnectionModeAsync"/> even runs. An aborted switch would otherwise leave
-    /// every mode guard reading a mode that never took effect. Only set once a transport has
-    /// actually started; never on an abort path.
+    /// every mode guard reading a mode that never took effect. Set only after a transport has
+    /// actually started, so it is left unchanged both when the stop phase aborts a switch and
+    /// when the new transport fails to start; in the latter case nothing is running and it names
+    /// the previous mode, which is the conservative reading for the guards.
     /// </remarks>
     private ConnectionMode _activeConnectionMode = ConnectionMode.AdvertiseOnly;
 
@@ -664,10 +669,40 @@ public partial class MainViewModel : ViewModelBase
         Position = _progressTracker.PositionSeconds;
     }
 
+    /// <summary>
+    /// Starts the transport for the configured connection mode.
+    /// </summary>
+    /// <remarks>
+    /// Holds <see cref="_connectionModeLock"/>, the same semaphore a runtime mode switch takes.
+    /// App.xaml.cs shows the window and then starts this unawaited, and the constructor's
+    /// settings load can already have queued a transition, so without the lock the initial
+    /// StartAsync could complete AFTER a switch had moved to the other transport - leaving both
+    /// running with <see cref="_activeConnectionMode"/> naming the wrong one and nothing to
+    /// repair it. No reentrancy risk: ApplyConnectionModeAsync has a single caller and nothing
+    /// inside a transition assigns SettingsConnectionMode.
+    /// </remarks>
     public async Task InitializeAsync()
     {
         _logger.LogInformation("Initializing MainViewModel");
 
+        await _connectionModeLock.WaitAsync();
+        try
+        {
+            await StartInitialTransportAsync();
+        }
+        finally
+        {
+            _connectionModeLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// The transport-starting body of initialization. Runs under <see cref="_connectionModeLock"/>.
+    /// </summary>
+    private async Task StartInitialTransportAsync()
+    {
+        // Read the mode under the lock: a transition queued from the constructor's settings load
+        // may already have run and changed which transport belongs to this session.
         var mode = ConnectionModeMapping.FromDisplayName(SettingsConnectionMode);
         _logger.LogInformation("Connection mode: {Mode}", mode);
 
@@ -676,21 +711,32 @@ public partial class MainViewModel : ViewModelBase
             // Exactly one transport, per spec: a client MUST use exactly one of the two
             // connection methods at a time. An if/else keeps that structural — the previous
             // pair of independent ifs let Auto satisfy neither exclusion and start both.
+            // The already-running checks match the runtime path: a transition that ran ahead of
+            // this may have started the very transport we want, and starting it twice is not a
+            // documented no-op.
             if (mode == ConnectionMode.DiscoverOnly)
             {
-                StatusMessage = "Discovering Sendspin servers...";
-                await _serverDiscovery.StartAsync();
-                OnPropertyChanged(nameof(IsSearchingForServers));
-                _logger.LogInformation("Server discovery started, looking for _sendspin-server._tcp");
+                if (!_serverDiscovery.IsDiscovering)
+                {
+                    StatusMessage = "Discovering Sendspin servers...";
+                    await _serverDiscovery.StartAsync();
+                    OnPropertyChanged(nameof(IsSearchingForServers));
+                    _logger.LogInformation("Server discovery started, looking for _sendspin-server._tcp");
+                }
+
                 StatusMessage = "Searching for servers...";
             }
             else
             {
-                StatusMessage = "Starting host service...";
-                await _hostService.StartAsync();
-                ClientId = _hostService.ClientId;
-                IsHosting = true;
-                _logger.LogInformation("Host service started, advertising as {ClientId}", ClientId);
+                if (!IsHosting)
+                {
+                    StatusMessage = "Starting host service...";
+                    await _hostService.StartAsync();
+                    ClientId = _hostService.ClientId;
+                    IsHosting = true;
+                    _logger.LogInformation("Host service started, advertising as {ClientId}", ClientId);
+                }
+
                 StatusMessage = $"Waiting for a server to connect...\nClient ID: {ClientId}";
             }
 
@@ -720,11 +766,12 @@ public partial class MainViewModel : ViewModelBase
                 IsHosting = false;
             }
 
+            // _activeConnectionMode is deliberately left alone: no transport started, so the
+            // mode guards must keep refusing work for this mode.
             StatusMessage = $"Failed to start: {ex.Message}";
             SetError($"Failed to initialize: {ex.Message}");
         }
     }
-
     /// <summary>
     /// Records the mode whose transport is actually running and refreshes the UI state derived
     /// from it. Call only once a transport has started — never on an abort path, where the
@@ -2166,7 +2213,8 @@ public partial class MainViewModel : ViewModelBase
             ConnectionModeMapping.FromDisplayName(value));
         SaveConnectionModeAsync(configValue).SafeFireAndForget(_logger);
 
-        OnPropertyChanged(nameof(IsDiscoverMode));
+        // Not IsDiscoverMode: it reads _activeConnectionMode, which only changes once the new
+        // transport is actually running, and ApplyConnectionModeAsync raises it there.
         OnPropertyChanged(nameof(IsSearchingForServers));
     }
 
@@ -2202,6 +2250,9 @@ public partial class MainViewModel : ViewModelBase
         {
             // A newer request may have been queued behind this one while it waited on the lock.
             // The newest request is the one the user meant; running a stale one now would undo it.
+            // Depends on the CommunityToolkit generator assigning the backing field BEFORE it
+            // invokes OnSettingsConnectionModeChanged — otherwise this reads the previous value
+            // and every transition looks stale.
             var requestedMode = ConnectionModeMapping.FromDisplayName(SettingsConnectionMode);
             if (requestedMode != mode)
             {
@@ -2293,6 +2344,10 @@ public partial class MainViewModel : ViewModelBase
             return;
         }
 
+        // Whether the transport this mode needs is now running: either it was already up, or it
+        // started here. A failed start must not be recorded as a completed switch.
+        var started = true;
+
         if (shouldAdvertise && !IsHosting)
         {
             try
@@ -2320,6 +2375,7 @@ public partial class MainViewModel : ViewModelBase
                 }
 
                 IsHosting = false;
+                started = false;
             }
         }
         else if (!shouldAdvertise && !_serverDiscovery.IsDiscovering)
@@ -2332,9 +2388,23 @@ public partial class MainViewModel : ViewModelBase
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to start server discovery");
+                started = false;
             }
 
             OnPropertyChanged(nameof(IsSearchingForServers));
+        }
+
+        if (!started)
+        {
+            // Leave _activeConnectionMode at the mode whose transport last started successfully.
+            // Both transports are down at this point: the old one was stopped above and the new
+            // one failed, so claiming the new mode would let its guards admit work with nothing
+            // running to carry it.
+            _logger.LogError(
+                "Connection mode switch to {Mode} left no transport running: the new transport failed to start (still reporting {ActiveMode})",
+                mode, _activeConnectionMode);
+            StatusMessage = "Failed to start the connection. Check the logs and try again.";
+            return;
         }
 
         // The switch completed: record the mode the guards should now honour.
