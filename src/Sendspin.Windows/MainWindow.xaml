@@ -237,8 +237,10 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Section 2: Available Servers -->
-                    <Border Style="{StaticResource WelcomeCardStyle}">
+                    <!-- Section 2: Available Servers (client-initiated mode only — in
+                         server-initiated mode the server chooses when to connect) -->
+                    <Border Style="{StaticResource WelcomeCardStyle}"
+                            Visibility="{Binding IsDiscoverMode, Converter={StaticResource BoolToVisibilityConverter}}">
                         <StackPanel>
                             <TextBlock Text="Available Servers" Style="{StaticResource WelcomeSectionHeader}"/>
 
@@ -318,6 +320,32 @@
                                            TextWrapping="Wrap"
                                            TextAlignment="Center"/>
                             </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Server-initiated mode: we advertise and wait. No picker — the server
+                         decides when to connect. Pairing affordances are future work. -->
+                    <Border>
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource WelcomeCardStyle}">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsDiscoverMode}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel>
+                            <TextBlock Text="Waiting for a Server" Style="{StaticResource WelcomeSectionHeader}"/>
+                            <TextBlock Text="📡" Style="{StaticResource SearchingIcon}"/>
+                            <TextBlock Text="Advertising on your network. Select this player in Music Assistant to connect."
+                                       Style="{StaticResource CaptionText}"
+                                       HorizontalAlignment="Center"
+                                       TextAlignment="Center"
+                                       TextWrapping="Wrap"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,8,0,0"/>
                         </StackPanel>
                     </Border>
 
