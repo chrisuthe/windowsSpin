@@ -20,6 +20,7 @@ using Sendspin.SDK.Extensions;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
+using Sendspin.Windows.Services.Configuration;
 using Sendspin.Windows.Services.Diagnostics;
 using Sendspin.Windows.Services.Discord;
 using Sendspin.Windows.Services.MediaControls;
@@ -364,17 +365,12 @@ public partial class MainViewModel : ViewModelBase
     /// Controls how the client establishes connections with servers.
     /// </summary>
     [ObservableProperty]
-    private string _settingsConnectionMode = "Auto";
+    private string _settingsConnectionMode = ConnectionModeMapping.AdvertiseOnlyDisplayName;
 
     /// <summary>
     /// Gets the available connection mode options for the settings dropdown.
     /// </summary>
-    public string[] AvailableConnectionModes { get; } = new[]
-    {
-        "Auto",
-        "Advertise Only",
-        "Discover Only"
-    };
+    public string[] AvailableConnectionModes { get; } = ConnectionModeMapping.DisplayNames;
 
     /// <summary>
     /// Gets the available audio output devices.
@@ -630,7 +626,7 @@ public partial class MainViewModel : ViewModelBase
     {
         _logger.LogInformation("Initializing MainViewModel");
 
-        var mode = ParseConnectionMode(SettingsConnectionMode);
+        var mode = ConnectionModeMapping.FromDisplayName(SettingsConnectionMode);
         _logger.LogInformation("Connection mode: {Mode}", mode);
 
         try
@@ -666,16 +662,6 @@ public partial class MainViewModel : ViewModelBase
             StatusMessage = $"Failed to start: {ex.Message}";
             SetError($"Failed to initialize: {ex.Message}");
         }
-    }
-
-    private static ConnectionMode ParseConnectionMode(string displayName)
-    {
-        return displayName switch
-        {
-            "Advertise Only" => ConnectionMode.AdvertiseOnly,
-            "Discover Only" => ConnectionMode.DiscoverOnly,
-            _ => ConnectionMode.Auto
-        };
     }
 
     [RelayCommand]
@@ -2087,13 +2073,8 @@ public partial class MainViewModel : ViewModelBase
 
     partial void OnSettingsConnectionModeChanged(string value)
     {
-        // Convert display name to config value
-        var configValue = value switch
-        {
-            "Advertise Only" => "AdvertiseOnly",
-            "Discover Only" => "DiscoverOnly",
-            _ => "Auto"
-        };
+        var configValue = ConnectionModeMapping.ToConfigValue(
+            ConnectionModeMapping.FromDisplayName(value));
         SaveConnectionModeAsync(configValue).SafeFireAndForget(_logger);
     }
 
@@ -2356,14 +2337,20 @@ public partial class MainViewModel : ViewModelBase
         // Load auto-connect server preference
         AutoConnectServerId = _configuration.GetValue<string>("Connection:AutoConnectServerId", string.Empty) ?? string.Empty;
 
-        // Load connection mode
-        var modeStr = _configuration.GetValue<string>("Connection:Mode", "Auto") ?? "Auto";
-        SettingsConnectionMode = modeStr switch
+        // Load connection mode. Anything we do not recognize — including the legacy "Auto",
+        // which ran both transports in violation of the spec — resolves to AdvertiseOnly.
+        var modeStr = _configuration.GetValue<string>("Connection:Mode", string.Empty) ?? string.Empty;
+        var loadedMode = ConnectionModeMapping.FromConfigValue(modeStr);
+        var canonicalValue = ConnectionModeMapping.ToConfigValue(loadedMode);
+        if (!string.IsNullOrEmpty(modeStr) && modeStr != canonicalValue)
         {
-            "AdvertiseOnly" => "Advertise Only",
-            "DiscoverOnly" => "Discover Only",
-            _ => "Auto"
-        };
+            _logger.LogInformation(
+                "Migrating unsupported connection mode {StoredMode} to {NewMode}",
+                modeStr,
+                canonicalValue);
+        }
+
+        SettingsConnectionMode = ConnectionModeMapping.ToDisplayName(loadedMode);
 
         // Enumerate audio devices
         EnumerateAudioDevices();
