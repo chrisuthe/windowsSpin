@@ -468,11 +468,10 @@ public partial class MainViewModel : ViewModelBase
     /// server decides when to connect.
     /// </summary>
     /// <remarks>
-    /// Reads <see cref="_activeConnectionMode"/>, not <see cref="SettingsConnectionMode"/>: the
-    /// requested mode is assigned before the transition runs, so a switch that aborts would
-    /// otherwise expose the manual-connect UI while the host service is still hosting.
+    /// The same conjunction the connect guards use, so the manual-connect UI disappears the moment
+    /// a switch away from DiscoverOnly is requested rather than when it finishes.
     /// </remarks>
-    public bool IsDiscoverMode => _activeConnectionMode == ConnectionMode.DiscoverOnly;
+    public bool IsDiscoverMode => CanInitiateOutboundConnection;
 
     /// <summary>
     /// Gets whether a discovery scan is running and has not yet found anything.
@@ -542,6 +541,28 @@ public partial class MainViewModel : ViewModelBase
     /// unbounded stream, where the bar is hidden and the value is unused.
     /// </summary>
     public double ProgressPercent => HasKnownDuration ? (Position / Duration) * 100 : 0;
+
+    /// <summary>
+    /// Gets whether the client may dial out right now: client-initiated mode is both the mode the
+    /// user has requested and the mode whose transport is actually running.
+    /// </summary>
+    /// <remarks>
+    /// Both terms are load-bearing, and neither is sufficient on its own:
+    /// <para><see cref="_activeConnectionMode"/> alone would permit a connect for the whole
+    /// duration of a switch AWAY from DiscoverOnly. ApplyConnectionModeCoreAsync runs on the UI
+    /// thread and yields at DisconnectAsync/StopAsync/StartAsync, and the active mode stays
+    /// DiscoverOnly until the new transport is up — so during those yields a queued
+    /// OnDiscoveredServerFound, or a Connect click, could land an outbound client while the host
+    /// listener is starting. Both transports live.</para>
+    /// <para><see cref="SettingsConnectionMode"/> alone would permit a connect after a switch TO
+    /// DiscoverOnly aborted: the requested mode is assigned and persisted before the transition
+    /// even runs, so it reads DiscoverOnly while the host service is still hosting.</para>
+    /// The conjunction refuses in both directions. Keep the two guards on this one member so they
+    /// cannot drift apart.
+    /// </remarks>
+    private bool CanInitiateOutboundConnection
+        => _activeConnectionMode == ConnectionMode.DiscoverOnly
+            && ConnectionModeMapping.FromDisplayName(SettingsConnectionMode) == ConnectionMode.DiscoverOnly;
 
     /// <summary>
     /// Formats seconds as a time string (M:SS or H:MM:SS for long tracks).
@@ -772,6 +793,7 @@ public partial class MainViewModel : ViewModelBase
             SetError($"Failed to initialize: {ex.Message}");
         }
     }
+
     /// <summary>
     /// Records the mode whose transport is actually running and refreshes the UI state derived
     /// from it. Call only once a transport has started — never on an abort path, where the
@@ -1001,9 +1023,8 @@ public partial class MainViewModel : ViewModelBase
     /// This handles creation of the connection, client service, and event subscriptions.
     /// </summary>
     /// <remarks>
-    /// Invariant: every caller must confirm <c>_activeConnectionMode == ConnectionMode.DiscoverOnly</c>
-    /// before calling this — the mode that actually took effect, not the requested
-    /// <see cref="SettingsConnectionMode"/>. The check cannot live here because
+    /// Invariant: every caller must confirm <see cref="CanInitiateOutboundConnection"/> before
+    /// calling this. The check cannot live here because
     /// every caller immediately dereferences <c>_manualClient!</c> with null-forgiving right after
     /// calling this method; a guard here that skipped creation would turn a refused connect into a
     /// NullReferenceException instead. Guard at each call site instead.
@@ -1036,11 +1057,12 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private async Task ConnectToServerAsync()
     {
-        // The mode that actually took effect, not the requested one: an aborted switch leaves
-        // SettingsConnectionMode holding a mode whose transport never started.
-        if (_activeConnectionMode != ConnectionMode.DiscoverOnly)
+        if (!CanInitiateOutboundConnection)
         {
-            _logger.LogWarning("Refusing manual connect: active connection mode is {Mode}, not DiscoverOnly", _activeConnectionMode);
+            _logger.LogWarning(
+                "Refusing manual connect: active mode is {ActiveMode} and requested mode is {RequestedMode}; both must be DiscoverOnly",
+                _activeConnectionMode,
+                ConnectionModeMapping.FromDisplayName(SettingsConnectionMode));
             return;
         }
 
@@ -1736,11 +1758,13 @@ public partial class MainViewModel : ViewModelBase
 
     private async Task AutoConnectToServerAsync(DiscoveredServer server)
     {
-        // The mode that actually took effect, not the requested one: an aborted switch leaves
-        // SettingsConnectionMode holding a mode whose transport never started.
-        if (_activeConnectionMode != ConnectionMode.DiscoverOnly)
+        if (!CanInitiateOutboundConnection)
         {
-            _logger.LogWarning("Refusing auto-connect to {Name}: active connection mode is {Mode}, not DiscoverOnly", server.Name, _activeConnectionMode);
+            _logger.LogWarning(
+                "Refusing auto-connect to {Name}: active mode is {ActiveMode} and requested mode is {RequestedMode}; both must be DiscoverOnly",
+                server.Name,
+                _activeConnectionMode,
+                ConnectionModeMapping.FromDisplayName(SettingsConnectionMode));
             return;
         }
 
@@ -2213,8 +2237,10 @@ public partial class MainViewModel : ViewModelBase
             ConnectionModeMapping.FromDisplayName(value));
         SaveConnectionModeAsync(configValue).SafeFireAndForget(_logger);
 
-        // Not IsDiscoverMode: it reads _activeConnectionMode, which only changes once the new
-        // transport is actually running, and ApplyConnectionModeAsync raises it there.
+        // Both are live: IsDiscoverMode is the requested/active conjunction, so it flips here the
+        // moment a switch away from DiscoverOnly is requested — which is what hides the
+        // manual-connect UI for the duration of the transition rather than after it.
+        OnPropertyChanged(nameof(IsDiscoverMode));
         OnPropertyChanged(nameof(IsSearchingForServers));
     }
 
@@ -2891,11 +2917,9 @@ public partial class MainViewModel : ViewModelBase
             // other mode - calling it there would drop the session and claim it reconnected.
             if (playerNameChanged && IsConnected)
             {
-                // Must match the guard inside ConnectToServerAsync, which reads the mode that
-                // actually took effect; testing the requested mode here could drop the session
-                // and then have the reconnect refused.
-                var connectionMode = _activeConnectionMode;
-                if (connectionMode == ConnectionMode.DiscoverOnly)
+                // The same guard ConnectToServerAsync applies: testing anything weaker here could
+                // drop the session and then have the reconnect refused.
+                if (CanInitiateOutboundConnection)
                 {
                     StatusMessage = "Reconnecting with new player name...";
                     _logger.LogInformation("Reconnecting to apply new player name");
