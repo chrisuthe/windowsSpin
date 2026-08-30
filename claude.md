@@ -80,21 +80,39 @@ dotnet build Sendspin.Windows.sln
 
 ## Connection Modes
 
-The client supports two connection modes:
+The client supports two connection modes, and the spec requires that exactly one of them
+is active at any moment:
 
-### 1. Client-Initiated Mode (Primary)
-We discover servers via mDNS and connect to them. This is the recommended mode.
-- Uses `MdnsServerDiscovery` to find `_sendspin-server._tcp` services
-- Client connects to server's WebSocket endpoint
-- More reliable for cross-subnet scenarios
+> Clients MUST use exactly one of the two methods at a time, advertising or discovering accordingly.
 
-### 2. Server-Initiated Mode (Fallback)
+The spec's two prohibitions follow from that MUST: do not advertise `_sendspin._tcp` if the
+client plans to initiate the connection, and do not initiate a connection if the client is
+advertising. **No mode may run both.** The mode is chosen by `Connection.Mode` in
+`appsettings.json` (`AdvertiseOnly` or `DiscoverOnly`) and switched at runtime through
+`MainViewModel.ApplyConnectionModeAsync`, which always stops the outgoing transport before
+starting the incoming one and aborts the switch if the stop failed.
+
+### 1. Server-Initiated Mode — `AdvertiseOnly` (Primary, default)
 We advertise via mDNS and servers connect to us.
 - `SendspinHostService` runs a WebSocket server on a random port
 - Advertises as `_sendspin._tcp.local`
 - Music Assistant servers discover and connect to us
+- Server admission (which server wins when several connect) is arbitrated inside the SDK's
+  `SendspinHostService` using activity ranking and the `LastPlayedServerId` tiebreak — the app
+  does no arbitration of its own
+- Discovery of `_sendspin-server._tcp` is NOT running in this mode
 
-Both modes use the same protocol and can be used simultaneously.
+### 2. Client-Initiated Mode — `DiscoverOnly` (Opt-in)
+We discover servers via mDNS and connect out to them. An explicit opt-in for networks where the
+server cannot reach the client (different subnet/VLAN, client-isolating AP, restrictive firewall).
+- Uses `MdnsServerDiscovery` to find `_sendspin-server._tcp` services
+- Client connects to the server's WebSocket endpoint
+- Also covers manual connection by URL (`ConnectToServerAsync`, which refuses to run in any
+  other mode)
+- The host service is stopped in this mode: we neither advertise `_sendspin._tcp` nor accept
+  incoming connections
+
+Both modes speak the same protocol, but they must never run at the same time.
 
 ---
 
@@ -343,10 +361,21 @@ Settings are stored in two locations:
     "Enabled": true
   },
   "Connection": {
-    "AutoConnectServerId": ""
+    "Mode": "AdvertiseOnly",
+    "AutoConnectServerId": "",
+    "LastPlayedServerId": ""
   }
 }
 ```
+
+### Connection Configuration
+- `Connection.Mode`: `AdvertiseOnly` (default) or `DiscoverOnly` — exactly one method at a time,
+  per spec. There is no combined mode.
+- `Connection.AutoConnectServerId`: **DiscoverOnly only.** The discovered server to auto-connect
+  to. Ignored in `AdvertiseOnly`, where the client never initiates a connection.
+- `Connection.LastPlayedServerId`: The spec's last-playback server, used by
+  `SendspinHostService` host arbitration to break ties between competing servers. Written in
+  both modes (see `SetLastPlayedServerId`), consumed by the host service in `AdvertiseOnly`.
 
 ### Audio Buffer Configuration
 - `Buffer.TargetMs`: Target buffer depth before starting playback (default: 250ms)
