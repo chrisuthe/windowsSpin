@@ -92,12 +92,28 @@ advertising `_sendspin._tcp`, and do not advertise `_sendspin._tcp` if the clien
 initiate the connection. Running both transports concurrently is a protocol violation, not a
 convenience — see "No Auto mode" below.
 
-### 1. Server-Initiated Mode (Primary)
+The mode is chosen by `Connection.Mode` in `appsettings.json` and switched at runtime through
+`MainViewModel.ApplyConnectionModeAsync`, which always stops the outgoing transport before
+starting the incoming one and aborts the switch if that stop fails.
+
+### 1. Server-Initiated Mode — `AdvertiseOnly` (Primary, default)
 We advertise via mDNS and servers connect to us. **This is the default and the spec-recommended
 mode.**
 - `SendspinHostService` runs a WebSocket server (recommended port 8928)
 - Advertises as `_sendspin._tcp.local` with a required `path` TXT record
 - Music Assistant servers discover and connect to us
+- Server admission (which server wins when several connect) is arbitrated inside the SDK's
+  `SendspinHostService` — the app does no arbitration of its own, and must not reimplement or
+  override it
+- What the spec defines vs. what ships today:
+  - **Spec:** admission is ranked by connection *activity* — `management` > `playback` >
+    `pairing` — with a new connection held provisional until the server sends
+    `server/activate`, and dropped after 30s if it never does.
+  - **SDK 9.3.0 (the version this branch builds against):** arbitration is the earlier
+    `connection_reason` comparison — `"playback"` beats `"discovery"` — with
+    `LastPlayedServerId` breaking ordinary ties. Activity-based arbitration arrives with the
+    v10 SDK; until then, do not write app code that assumes it.
+- Discovery of `_sendspin-server._tcp` is NOT running in this mode
 
 Preferred because multi-server behavior is *standardized* here. The spec defines admission
 precisely: the client holds at most one admitted connection, ranked by its highest declared
@@ -113,13 +129,16 @@ not override its decisions (for example by calling `DisconnectAllAsync` to rejec
 unwanted connection; that tears down every connection and resets the shared `IAudioPipeline`
 and `IClockSynchronizer`).
 
-### 2. Client-Initiated Mode (Alternative)
-We discover servers via mDNS and connect to them. Retained as an explicit opt-in for networks
-where the server cannot discover or reach us (cross-subnet, VLAN-segmented, containerized
-servers).
+### 2. Client-Initiated Mode — `DiscoverOnly` (Alternative)
+We discover servers via mDNS and connect out to them. Retained as an explicit opt-in for
+networks where the server cannot discover or reach us (different subnet/VLAN, client-isolating
+AP, restrictive firewall, containerized servers).
 - Uses `MdnsServerDiscovery` to find `_sendspin-server._tcp` services
 - Client connects to the server's WebSocket endpoint
-- We must NOT advertise `_sendspin._tcp` while in this mode
+- Also covers manual connection by URL (`ConnectToServerAsync`, which refuses to run in any
+  other mode)
+- The host service is stopped in this mode: we neither advertise `_sendspin._tcp` nor accept
+  incoming connections
 
 The trade-off is that the spec gives no help here: "How clients handle multiple discovered
 servers, server selection, and switching is implementation-defined." Every multi-server
@@ -129,9 +148,8 @@ behavior we want on this path we have to build and maintain ourselves.
 There is deliberately no mode that runs both transports. A prior `Connection:Mode = "Auto"`
 default did exactly that and violated the MUST above; it also left `SendspinHostService`
 arbitrating without visibility of the client-initiated connection, since per spec that state
-cannot occur. Removal is tracked in
-[#76](https://github.com/chrisuthe/windowsSpin/issues/76). Existing configs carrying `"Auto"`
-migrate to server-initiated.
+cannot occur. Removed in [#76](https://github.com/chrisuthe/windowsSpin/issues/76); existing
+configs carrying `"Auto"` migrate to server-initiated.
 
 ---
 
@@ -379,13 +397,14 @@ Settings are stored in two locations:
 
 ### Connection Configuration
 - `Mode`: `AdvertiseOnly` (server-initiated, the default) or `DiscoverOnly` (client-initiated).
-  The legacy `Auto` value ran both transports and is being removed — see
-  [Connection Modes](#connection-modes). Configs still carrying it migrate to `AdvertiseOnly`.
-- `AutoConnectServerId`: client-initiated only. Set by the "always connect" choice in the server
-  picker; unused in server-initiated mode, where the server decides when to connect.
-- `LastPlayedServerId`: server-initiated only. The spec's "last-playback server", passed to
-  `SendspinHostService` at startup and used as the arbitration tiebreak when a current and an
-  incoming connection both declare empty activities.
+  Exactly one method at a time, per spec — there is no combined mode. The legacy `Auto` value
+  ran both transports; configs still carrying it migrate to `AdvertiseOnly` on load.
+- `AutoConnectServerId`: **`DiscoverOnly` only.** The discovered server to auto-connect to, set
+  by the "always connect" choice in the server picker. Ignored in `AdvertiseOnly`, where the
+  client never initiates a connection.
+- `LastPlayedServerId`: the spec's "last-playback server", used by `SendspinHostService` to break
+  arbitration ties when a current and an incoming connection both declare empty activities.
+  Written in both modes (see `SetLastPlayedServerId`); consumed only in `AdvertiseOnly`.
 
 ### Audio Buffer Configuration
 - `Buffer.TargetMs`: Target buffer depth before starting playback (default: 250ms)

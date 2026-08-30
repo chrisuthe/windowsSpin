@@ -237,8 +237,10 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Section 2: Available Servers -->
-                    <Border Style="{StaticResource WelcomeCardStyle}">
+                    <!-- Section 2: Available Servers (client-initiated mode only — in
+                         server-initiated mode the server chooses when to connect) -->
+                    <Border Style="{StaticResource WelcomeCardStyle}"
+                            Visibility="{Binding IsDiscoverMode, Converter={StaticResource BoolToVisibilityConverter}}">
                         <StackPanel>
                             <TextBlock Text="Available Servers" Style="{StaticResource WelcomeSectionHeader}"/>
 
@@ -321,9 +323,45 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Section 3: Manual Connection (collapsible) -->
-                    <Expander Header="Advanced: Connect by URL"
-                              Style="{StaticResource CollapsibleSectionStyle}">
+                    <!-- Server-initiated mode: we advertise and wait. No picker — the server
+                         decides when to connect. Pairing affordances are future work. -->
+                    <Border>
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource WelcomeCardStyle}">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsDiscoverMode}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel>
+                            <TextBlock Text="Waiting for a Server" Style="{StaticResource WelcomeSectionHeader}"/>
+                            <TextBlock Text="📡" Style="{StaticResource SearchingIcon}"/>
+                            <TextBlock Text="Advertising on your network. Select this player in Music Assistant to connect."
+                                       Style="{StaticResource CaptionText}"
+                                       HorizontalAlignment="Center"
+                                       TextAlignment="Center"
+                                       TextWrapping="Wrap"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,8,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Section 3: Manual Connection (collapsible, client-initiated mode only —
+                         connecting out while advertising would run both transports at once) -->
+                    <Expander Header="Advanced: Connect by URL">
+                        <Expander.Style>
+                            <Style TargetType="Expander" BasedOn="{StaticResource CollapsibleSectionStyle}">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsDiscoverMode}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Expander.Style>
                         <StackPanel>
                             <TextBlock Text="For cross-subnet connections, enter the server URL directly (e.g. ws://10.0.2.8:8927):"
                                        Style="{StaticResource BodyText}"
