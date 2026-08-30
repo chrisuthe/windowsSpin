@@ -361,7 +361,8 @@ public partial class MainViewModel : ViewModelBase
     private string _settingsStreamType = "FLAC (lossless, more bandwidth)";
 
     /// <summary>
-    /// Gets or sets the connection mode (Auto, Advertise Only, Discover Only).
+    /// Gets or sets the connection mode: "Let servers connect to me" (server-initiated) or
+    /// "I choose a server" (client-initiated).
     /// Controls how the client establishes connections with servers.
     /// </summary>
     [ObservableProperty]
@@ -436,9 +437,22 @@ public partial class MainViewModel : ViewModelBase
     private string _autoConnectServerId = string.Empty;
 
     /// <summary>
-    /// Gets whether we're currently searching for servers (no servers found yet).
+    /// Gets whether the client picks its own server (client-initiated mode). The server list and
+    /// the auto-connect preference are meaningful only in this mode; in server-initiated mode the
+    /// server decides when to connect.
     /// </summary>
-    public bool IsSearchingForServers => DiscoveredServers.Count == 0 && IsHosting;
+    public bool IsDiscoverMode
+        => ConnectionModeMapping.FromDisplayName(SettingsConnectionMode) == ConnectionMode.DiscoverOnly;
+
+    /// <summary>
+    /// Gets whether a discovery scan is running and has not yet found anything.
+    /// </summary>
+    /// <remarks>
+    /// Keyed off discovery, not hosting. It previously read <c>IsHosting</c>, which only appeared
+    /// correct because Auto ran both transports; in server-initiated mode that would show a
+    /// permanent "searching" state for a mode that never searches.
+    /// </remarks>
+    public bool IsSearchingForServers => IsDiscoverMode && DiscoveredServers.Count == 0;
 
     /// <summary>
     /// Gets whether the client is connected to any Sendspin server,
@@ -2066,6 +2080,9 @@ public partial class MainViewModel : ViewModelBase
         var configValue = ConnectionModeMapping.ToConfigValue(
             ConnectionModeMapping.FromDisplayName(value));
         SaveConnectionModeAsync(configValue).SafeFireAndForget(_logger);
+
+        OnPropertyChanged(nameof(IsDiscoverMode));
+        OnPropertyChanged(nameof(IsSearchingForServers));
     }
 
     private async Task SaveConnectionModeAsync(string mode)
@@ -2174,7 +2191,7 @@ public partial class MainViewModel : ViewModelBase
         StatusMessage = mode switch
         {
             ConnectionMode.DiscoverOnly => "Searching for servers...",
-            _ => $"Advertising as player...\nClient ID: {ClientId}",
+            _ => $"Waiting for a server to connect...\nClient ID: {ClientId}",
         };
     }
 
