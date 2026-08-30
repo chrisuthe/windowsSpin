@@ -1240,16 +1240,11 @@ public partial class MainViewModel : ViewModelBase
     {
         App.Current.Dispatcher.Invoke(() =>
         {
-            // Reject server-initiated connections if we already have a client-initiated connection
-            if (_manualClient?.ConnectionState == ConnectionState.Connected)
-            {
-                _logger.LogInformation(
-                    "Rejecting server-initiated connection from {ServerName} - already connected via client-initiated mode",
-                    server.ServerName);
-                _hostService.DisconnectAllAsync("already_connected").SafeFireAndForget(_logger);
-                return;
-            }
-
+            // No app-side arbitration. SendspinHostService already applies the spec's admission
+            // rules (activity ranking, LastPlayedServerId tiebreak) and disconnects only the
+            // loser. The previous guard here called DisconnectAllAsync to reject a single
+            // unwanted socket, which tore down every connection and reset the shared
+            // IAudioPipeline and IClockSynchronizer that the playing session was using.
             ConnectedServers.Add(server);
             ConnectedServerName = server.ServerName;
             StatusMessage = $"Connected to {server.ServerName}";
