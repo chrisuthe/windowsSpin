@@ -33,10 +33,19 @@
          and our own drop shadow (DWM can't do arbitrary corner radii). The 12px
          margin gives the shadow room; the window is sized +24px so visible content
          stays 386x712. -->
-    <Border Margin="12" CornerRadius="25" Background="{StaticResource BackgroundDarkBrush}">
-        <Border.Effect>
-            <DropShadowEffect Color="Black" BlurRadius="14" ShadowDepth="0" Opacity="0.5"/>
-        </Border.Effect>
+    <Grid>
+        <!-- Shadow caster. Deliberately EMPTY: a DropShadowEffect re-renders everything inside it
+             whenever anything inside it changes, so hanging the window shadow off the content
+             border made every progress tick and hover repaint the whole window through the blur
+             shader. Nothing inside this border ever changes, so WPF caches the result instead. -->
+        <Border Margin="12" CornerRadius="25" Background="{StaticResource BackgroundDarkBrush}">
+            <Border.Effect>
+                <DropShadowEffect Color="Black" BlurRadius="14" ShadowDepth="0" Opacity="0.5"/>
+            </Border.Effect>
+        </Border>
+
+        <!-- Live content, painted over the caster. Opaque, so only the shadow spill is visible. -->
+        <Border Margin="12" CornerRadius="25" Background="{StaticResource BackgroundDarkBrush}">
 
     <Grid>
         <!-- Clip all content (blurred art, gradients) to the rounded corners.
@@ -1393,4 +1402,5 @@
         </Grid>
     </Grid>
     </Border>
+    </Grid>
 </Window>
