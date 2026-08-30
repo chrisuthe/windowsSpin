@@ -28,22 +28,21 @@ public partial class AmbientBackdropView : UserControl
 
     // Accumulated drift phase (replaces raw monotonic time). Scaled by intensity each frame so
     // drift speed tracks the slider; accumulating keeps phase continuous when intensity changes
-    // and across Loaded/Unloaded cycles (persists for the life of the view instance).
+    // and across hide/show cycles (persists for the life of the view instance).
     private double _driftPhase;
 
     // Eased colors (R,G,B as doubles for smooth interpolation).
     private double _b1r, _b1g, _b1b, _b2r, _b2g, _b2b, _b3r, _b3g, _b3b;
     private double _baseR, _baseG, _baseB;
 
-    // Stays true across Loaded/Unloaded cycles; eased values carry over intentionally so the
+    // Stays true across hide/show cycles; eased values carry over intentionally so the
     // effect resumes smoothly rather than snapping from black on re-show.
     private bool _colorsInitialized;
 
     // The base-fill brush is created once and mutated in place to avoid per-frame allocations.
     private readonly SolidColorBrush _baseBrush = new(Colors.Transparent);
 
-    private bool _renderingHooked;
-    private bool _beatSubscribed;
+    private readonly RenderLoopGate _gate;
 
     private AmbientBackdropViewModel? _vm;
 
@@ -51,62 +50,47 @@ public partial class AmbientBackdropView : UserControl
     {
         InitializeComponent();
         BaseFill.Fill = _baseBrush;
-        Loaded += OnLoaded;
+        _gate = new RenderLoopGate(StartRendering, StopRendering);
+        IsVisibleChanged += OnIsVisibleChanged;
         Unloaded += OnUnloaded;
         DataContextChanged += OnDataContextChanged;
     }
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        UnsubscribeBeat();
+        // Stop first so the beat handler is detached from the OUTGOING view model; swapping _vm
+        // before stopping would unsubscribe from the wrong instance and leak the old subscription.
+        _gate.Update(false);
         _vm = e.NewValue as AmbientBackdropViewModel;
-        if (IsLoaded)
-        {
-            SubscribeBeat();
-        }
+        UpdateGate();
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
+    private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e) => UpdateGate();
+
+    private void OnUnloaded(object sender, RoutedEventArgs e) => _gate.Update(false);
+
+    // IsVisible is false whenever this control is collapsed (backdrop mode Off) OR any ancestor is
+    // hidden (window minimized to tray), so one signal covers both cases. Subscribing to
+    // CompositionTarget.Rendering forces WPF to render continuously, so the hook must be released
+    // in both — Unloaded alone never fires for a hidden window and would keep the GPU busy.
+    private void UpdateGate() => _gate.Update(IsVisible && _vm is not null);
+
+    private void StartRendering()
     {
         _clock.Restart();
         _lastTicks = _clock.ElapsedTicks;
-        if (!_renderingHooked)
-        {
-            CompositionTarget.Rendering += OnRendering;
-            _renderingHooked = true;
-        }
-
-        SubscribeBeat();
+        _vm!.BeatTriggered += OnBeat;
+        CompositionTarget.Rendering += OnRendering;
     }
 
-    private void OnUnloaded(object sender, RoutedEventArgs e)
+    private void StopRendering()
     {
-        if (_renderingHooked)
-        {
-            CompositionTarget.Rendering -= OnRendering;
-            _renderingHooked = false;
-        }
-
+        CompositionTarget.Rendering -= OnRendering;
+        // Beats must stop with the render loop: OnBeat only ever ADDS to _pulseTarget, which is
+        // decayed in OnRendering. Left subscribed while hidden, it would accumulate unbounded and
+        // fire off a huge pulse the moment the window is shown again.
+        _vm!.BeatTriggered -= OnBeat;
         _clock.Stop();
-        UnsubscribeBeat();
-    }
-
-    private void SubscribeBeat()
-    {
-        if (!_beatSubscribed && _vm is not null)
-        {
-            _vm.BeatTriggered += OnBeat;
-            _beatSubscribed = true;
-        }
-    }
-
-    private void UnsubscribeBeat()
-    {
-        if (_beatSubscribed && _vm is not null)
-        {
-            _vm.BeatTriggered -= OnBeat;
-            _beatSubscribed = false;
-        }
     }
 
     private void OnBeat(object? sender, double strength) => _pulseTarget += strength;
@@ -142,7 +126,7 @@ public partial class AmbientBackdropView : UserControl
 
         // Idle drift: slow sinusoidal motion so the scene is alive at low energy. Accumulate a
         // phase scaled by intensity so drift SPEED tracks the slider; accumulation keeps the phase
-        // continuous across intensity changes and Loaded/Unloaded cycles (no snap on re-show).
+        // continuous across intensity changes and hide/show cycles (no snap on re-show).
         _driftPhase += dt * intensity;
         var t = _driftPhase;
         // Blob centers sit in the interior (base offsets) so the window edges only ever see the
