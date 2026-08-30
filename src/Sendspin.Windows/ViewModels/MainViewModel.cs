@@ -917,6 +917,13 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private async Task ConnectToServerAsync()
     {
+        var mode = ConnectionModeMapping.FromDisplayName(SettingsConnectionMode);
+        if (mode != ConnectionMode.DiscoverOnly)
+        {
+            _logger.LogWarning("Refusing manual connect: connection mode is {Mode}, not DiscoverOnly", mode);
+            return;
+        }
+
         // Clear any previous error when starting a new connection attempt
         ClearError();
 
