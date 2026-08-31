@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using Sendspin.Windows.Services.Visualization;
@@ -34,6 +35,8 @@ public sealed class BreathingArtAnimator
     private readonly ScaleTransform _scale;
     private readonly DropShadowEffect _glow;
     private readonly AmbientBackdropViewModel _vm;
+    private readonly FrameworkElement _art;
+    private readonly RenderLoopGate _gate;
 
     private readonly Stopwatch _clock = new();
     private long _lastTicks;
@@ -47,18 +50,19 @@ public sealed class BreathingArtAnimator
     private double _glowR, _glowG, _glowB;
     private bool _glowColorInitialized;
 
-    private bool _hooked;
-
-    public BreathingArtAnimator(ScaleTransform scale, DropShadowEffect glow, AmbientBackdropViewModel vm)
+    public BreathingArtAnimator(ScaleTransform scale, DropShadowEffect glow, FrameworkElement art, AmbientBackdropViewModel vm)
     {
         _scale = scale;
         _glow = glow;
+        _art = art;
         _vm = vm;
+        _gate = new RenderLoopGate(Hook, Unhook);
 
-        // Animator and VM are both app-lifetime singletons, so this subscription lives for the
+        // Animator and VM are both app-lifetime singletons, so these subscriptions live for the
         // life of the process; no unsubscribe/IDisposable is needed (unlike AmbientBackdropView,
         // whose VM can be swapped via DataContextChanged).
         _vm.PropertyChanged += OnVmPropertyChanged;
+        _art.IsVisibleChanged += OnArtVisibleChanged;
         ApplyModeState();
     }
 
@@ -70,44 +74,30 @@ public sealed class BreathingArtAnimator
         }
     }
 
+    private void OnArtVisibleChanged(object sender, DependencyPropertyChangedEventArgs e) => ApplyModeState();
+
+    // The art element's IsVisible is false while the window is hidden to the tray or while the art
+    // itself is collapsed (disconnected / no track), so the render loop stops in those cases too.
+    // This matters more here than for the glow's appearance: OnRendering mutates DropShadowEffect
+    // .BlurRadius every frame, which invalidates WPF's cached effect result and forces the blur
+    // shader to re-rasterize on the GPU — expensive to leave running against a window nobody sees.
     private void ApplyModeState()
-    {
-        if (_vm.Mode == BackdropMode.BreathingArt)
-        {
-            Hook();
-        }
-        else
-        {
-            Unhook();
-            ResetToRest();
-        }
-    }
+        => _gate.Update(_art.IsVisible && _vm.Mode == BackdropMode.BreathingArt);
 
     private void Hook()
     {
-        if (_hooked)
-        {
-            return;
-        }
-
         _clock.Restart();
         _lastTicks = _clock.ElapsedTicks;
         _vm.BeatTriggered += OnBeat;
         CompositionTarget.Rendering += OnRendering;
-        _hooked = true;
     }
 
     private void Unhook()
     {
-        if (!_hooked)
-        {
-            return;
-        }
-
         CompositionTarget.Rendering -= OnRendering;
         _vm.BeatTriggered -= OnBeat;
         _clock.Stop();
-        _hooked = false;
+        ResetToRest();
     }
 
     private void OnBeat(object? sender, double strength) => _pulseTarget += strength;

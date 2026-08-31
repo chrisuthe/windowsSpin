@@ -43,7 +43,7 @@ public partial class MainWindow : Window
 
         if (_breathingAnimator is null && e.NewValue is MainViewModel mainVm)
         {
-            _breathingAnimator = new BreathingArtAnimator(AlbumArtScale, AlbumArtGlow, mainVm.Ambient);
+            _breathingAnimator = new BreathingArtAnimator(AlbumArtScale, AlbumArtGlow, AlbumArtBreath, mainVm.Ambient);
         }
     }
 

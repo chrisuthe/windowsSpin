@@ -80,21 +80,89 @@ dotnet build Sendspin.Windows.sln
 
 ## Connection Modes
 
-The client supports two connection modes:
+The client supports two connection modes, and per the
+[spec](https://github.com/sendspin/spec/blob/main/connection.md) it **MUST use exactly one
+of them at a time**:
 
-### 1. Client-Initiated Mode (Primary)
-We discover servers via mDNS and connect to them. This is the recommended mode.
-- Uses `MdnsServerDiscovery` to find `_sendspin-server._tcp` services
-- Client connects to server's WebSocket endpoint
-- More reliable for cross-subnet scenarios
+> Servers must support both methods described below. Clients MUST use exactly one of the two
+> methods at a time, advertising or discovering accordingly.
 
-### 2. Server-Initiated Mode (Fallback)
-We advertise via mDNS and servers connect to us.
-- `SendspinHostService` runs a WebSocket server on a random port
-- Advertises as `_sendspin._tcp.local`
+The spec restates this as two explicit prohibitions: do not manually connect to servers while
+advertising `_sendspin._tcp`, and do not advertise `_sendspin._tcp` if the client plans to
+initiate the connection. Running both transports concurrently is a protocol violation, not a
+convenience — see "No Auto mode" below.
+
+The mode is chosen by `Connection.Mode` in `appsettings.json` and switched at runtime through
+`MainViewModel.ApplyConnectionModeAsync`, which always stops the outgoing transport before
+starting the incoming one and aborts the switch if that stop fails.
+
+### 1. Server-Initiated Mode — `AdvertiseOnly` (Primary, default)
+We advertise via mDNS and servers connect to us. **This is the default and the spec-recommended
+mode.**
+- `SendspinHostService` runs a WebSocket server (recommended port 8928)
+- Advertises as `_sendspin._tcp.local`, with a `path` TXT record (REQUIRED by the spec) and a
+  `name` TXT record carrying the friendly player name
 - Music Assistant servers discover and connect to us
+- **Advertising must announce, not just answer.** SDK 9.3.2 sends unsolicited mDNS
+  announcements when the interface set changes — which `MulticastService` raises inside
+  `Start()`, and again when a NIC appears (Wi-Fi associating, resume from sleep). Before
+  9.3.2 the SDK only registered a passive query responder, so a server whose browser had
+  finished its startup queries never asked again and never found us: python-zeroconf drops
+  to refresh-only scheduling after four. If discovery ever regresses, check that an
+  announcement is actually leaving the machine before suspecting the record's contents.
+- Server admission (which server wins when several connect) is arbitrated inside the SDK's
+  `SendspinHostService` — the app does no arbitration of its own, and must not reimplement or
+  override it
+- What the spec defines vs. what ships today:
+  - **Spec:** admission is ranked by connection *activity* — `management` > `playback` >
+    `pairing` — with a new connection held provisional until the server sends
+    `server/activate`, and dropped after 30s if it never does.
+  - **SDK 9.3.2 (the version this branch builds against):** arbitration is still the earlier
+    `connection_reason` comparison — `"playback"` beats `"discovery"` — with
+    `LastPlayedServerId` breaking ordinary ties. Activity-based arbitration arrives with the
+    v10 SDK; until then, do not write app code that assumes it.
+  - 9.3.1 also adds `SendspinHostService.AdoptClientInitiated` / `ReleaseClientInitiated`, which
+    let an embedder register a client-initiated connection so host arbitration will not tear it
+    down. **We do not use them, and should not:** they exist for clients that run both
+    transports, which this app deliberately no longer does. If you find yourself reaching for
+    them, the real problem is that something started two transports.
+- Discovery of `_sendspin-server._tcp` is NOT running in this mode
 
-Both modes use the same protocol and can be used simultaneously.
+Preferred because multi-server behavior is *standardized* here. The spec defines admission
+precisely: the client holds at most one admitted connection, ranked by its highest declared
+activity (`management` > `playback` > `pairing`, empty lowest); an incoming connection is
+compared against the current one and accepted on higher-or-equal priority, rejected on lower.
+A connection stays provisional until its first `server/activate` and is dropped after 30s.
+When both sides declare empty activities, the persistently stored "last-playback server"
+breaks the tie. Displaced connections get `client/goodbye` reason `another_server`; rejected
+incoming ones get `concurrent_attempt`.
+
+`SendspinHostService` implements this arbitration — do not reimplement it in the app, and do
+not override its decisions (for example by calling `DisconnectAllAsync` to reject a single
+unwanted connection; that tears down every connection and resets the shared `IAudioPipeline`
+and `IClockSynchronizer`).
+
+### 2. Client-Initiated Mode — `DiscoverOnly` (Alternative)
+We discover servers via mDNS and connect out to them. Retained as an explicit opt-in for
+networks where the server cannot discover or reach us (different subnet/VLAN, client-isolating
+AP, restrictive firewall, containerized servers).
+- Uses `MdnsServerDiscovery` to find `_sendspin-server._tcp` services
+- Client connects to the server's WebSocket endpoint
+- Also covers manual connection by URL (`ConnectToServerAsync`, which refuses to run in any
+  other mode)
+- The host service is stopped in this mode: we neither advertise `_sendspin._tcp` nor accept
+  incoming connections
+
+The trade-off is that the spec gives no help here: "How clients handle multiple discovered
+servers, server selection, and switching is implementation-defined." Every multi-server
+behavior we want on this path we have to build and maintain ourselves.
+
+### No Auto mode
+There is deliberately no mode that runs both transports. A prior `Connection:Mode = "Auto"`
+default did exactly that and violated the MUST above; it also left `SendspinHostService`
+arbitrating without visibility of the client-initiated connection, since per spec that state
+cannot occur. Removed in [#76](https://github.com/chrisuthe/windowsSpin/issues/76); existing
+configs carrying `"Auto"` migrate to server-initiated.
 
 ---
 
@@ -162,10 +230,25 @@ The buffer handles:
 **Tiered Sync Correction Strategy** (matching JS client):
 | Sync Error | Correction Method | Notes |
 |------------|-------------------|-------|
-| < 2ms | None (deadband) | Imperceptible error, no action needed |
-| 2-15ms | Playback rate adjustment (0.96x-1.04x) | Smooth, inaudible via `TargetPlaybackRate` |
-| 15-500ms | Frame drop/insert | Faster correction for larger drift |
+| < 100µs | None (deadband) | Imperceptible error, no action needed |
+| 100µs-5ms | Playback rate adjustment (0.995x-1.005x) | Smooth, inaudible via `TargetPlaybackRate` |
+| 5-500ms | One-shot hard sync | Single snap: drop a prefix if late, insert silence if early |
 | > 500ms | Re-anchor | Clear buffer and restart sync |
+
+The frame drop/insert band (`ResamplingThresholdMicroseconds`, now 100ms) sits above the
+hard-sync tier by default, so it is only reached when that tier is disabled or the
+resampling threshold is lowered below 5ms.
+
+**Hard-sync stall detection (SDK 9.3.1+):** the one-shot tier stands itself down when snapping
+stops closing the error, letting the capped continuous tier correct instead
+([sendspin-dotnet#252](https://github.com/Sendspin/sendspin-dotnet/issues/252)). Before this,
+a *constant* offset — as opposed to accumulating drift — made the tier re-fire on every
+callback: observed here as ~870 corrections per second, each inserting ~90ms of silence that
+left the error unchanged, ballooning the buffer from 9s to 30s and reducing output to
+stutter. The trigger was a 48kHz stream against a 192kHz output device, where the resampler
+runs at a ratio other than 1.0 and the reported output latency is wrong. If you see
+`HardSyncStalled`, the residual error is real and the usual cause is host-side output latency
+being misreported — not a threshold that needs raising.
 
 **Resampling Sync Correction** (SDK-owned since SDK 10):
 - The SDK's `SyncCorrectedSampleSource` owns the whole correction chain — `ReadRaw` →
@@ -190,12 +273,17 @@ syncError = elapsedTime - samplesReadTime - outputLatency
 
 **Sync Correction Constants** (default values):
 ```csharp
-DeadbandMicroseconds = 2_000;                 // 2ms - start correcting when error exceeds this
-ResamplingThresholdMicroseconds = 15_000;     // 15ms - resampling vs drop/insert boundary
+DeadbandMicroseconds = 100;                   // 100µs - start correcting when error exceeds this
+ResamplingThresholdMicroseconds = 100_000;    // 100ms - resampling vs drop/insert boundary
 ReanchorThresholdMicroseconds = 500_000;      // 500ms - clear buffer and restart
-MaxSpeedCorrection = 0.02;                    // 2% max correction rate (Windows default)
+MaxSpeedCorrection = 0.005;                   // 0.5% max correction rate (spec MUST cap)
 CorrectionTargetSeconds = 3.0;                // Time to correct error
 ```
+
+`MaxSpeedCorrection` is a conformance ceiling, not a comfort knob: the SDK clamps any
+larger value to 0.5% and warns once. `appsettings.json` ships
+`MaxSpeedCorrectionPercent: 0.5` / `DeadbandMs: 0.1` so the shipped config matches
+these defaults rather than tripping the clamp on every launch.
 
 **Configurable Sync Correction** (v3.3.0+):
 
@@ -209,16 +297,17 @@ var buffer = new TimedAudioBuffer(format, clockSync, capacityMs,
 // Or customize individual parameters
 var options = new SyncCorrectionOptions
 {
-    MaxSpeedCorrection = 0.04,        // 4% like CLI
     CorrectionTargetSeconds = 2.0,    // Faster convergence
-    BypassDeadband = true,            // Continuous correction
 };
 var buffer = new TimedAudioBuffer(format, clockSync, capacityMs, options, logger);
 ```
 
 **Static Presets**:
-- `SyncCorrectionOptions.Default` - Windows defaults (conservative: 2% max, 3s target)
-- `SyncCorrectionOptions.CliDefaults` - Python CLI defaults (aggressive: 4% max, 2s target)
+- `SyncCorrectionOptions.Default` - Windows defaults (0.5% max, 3s target)
+- `SyncCorrectionOptions.CliDefaults` - Python CLI defaults (0.5% max, 2s target)
+
+Both presets share the 0.5% cap and the 100µs dead band — those are spec conformance
+points, not platform tuning. The CLI preset differs only in convergence speed.
 
 ### Clock Sync Gating
 
@@ -337,10 +426,23 @@ Settings are stored in two locations:
     "Enabled": true
   },
   "Connection": {
-    "AutoConnectServerId": ""
+    "Mode": "AdvertiseOnly",
+    "AutoConnectServerId": "",
+    "LastPlayedServerId": ""
   }
 }
 ```
+
+### Connection Configuration
+- `Mode`: `AdvertiseOnly` (server-initiated, the default) or `DiscoverOnly` (client-initiated).
+  Exactly one method at a time, per spec — there is no combined mode. The legacy `Auto` value
+  ran both transports; configs still carrying it migrate to `AdvertiseOnly` on load.
+- `AutoConnectServerId`: **`DiscoverOnly` only.** The discovered server to auto-connect to, set
+  by the "always connect" choice in the server picker. Ignored in `AdvertiseOnly`, where the
+  client never initiates a connection.
+- `LastPlayedServerId`: the spec's "last-playback server", used by `SendspinHostService` to break
+  arbitration ties when a current and an incoming connection both declare empty activities.
+  Written in both modes (see `SetLastPlayedServerId`); consumed only in `AdvertiseOnly`.
 
 ### Audio Buffer Configuration
 - `Buffer.TargetMs`: Target buffer depth before starting playback (default: 250ms)
