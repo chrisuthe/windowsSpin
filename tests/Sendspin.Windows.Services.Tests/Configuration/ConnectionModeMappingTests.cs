@@ -4,6 +4,15 @@ using Xunit;
 
 namespace Sendspin.Windows.Services.Tests.Configuration;
 
+// SDK 9.3.1 marks ConnectionMode.Auto [Obsolete] because it describes a spec violation, and
+// removes it in 10.0.0. These tests name it deliberately: their whole point is proving the
+// mapping NEVER returns it and coerces it away on the rare path that can still supply it
+// (it remains the enum's zero value on this release line, so default(ConnectionMode) is Auto).
+// Silencing the warning by deleting them would discard the property most worth guarding.
+// When the SDK drops to 10.0.0 these tests stop compiling, which is the correct prompt to
+// revisit them rather than a regression.
+#pragma warning disable CS0618 // Type or member is obsolete
+
 public class ConnectionModeMappingTests
 {
     [Theory]
@@ -114,3 +123,5 @@ public class ConnectionModeMappingTests
             ConnectionModeMapping.DisplayNames);
     }
 }
+
+#pragma warning restore CS0618

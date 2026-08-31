@@ -104,10 +104,15 @@ We advertise via mDNS and servers connect to us.
   - **Spec:** admission is ranked by connection *activity* — `management` > `playback` >
     `pairing` — with a new connection held provisional until the server sends
     `server/activate`, and dropped after 30s if it never does.
-  - **SDK 9.3.0 (the version this branch builds against):** arbitration is the earlier
+  - **SDK 9.3.1 (the version this branch builds against):** arbitration is still the earlier
     `connection_reason` comparison — `"playback"` beats `"discovery"` — with
     `LastPlayedServerId` breaking ordinary ties. Activity-based arbitration arrives with the
     v10 SDK; until then, do not write app code that assumes it.
+  - 9.3.1 also adds `SendspinHostService.AdoptClientInitiated` / `ReleaseClientInitiated`, which
+    let an embedder register a client-initiated connection so host arbitration will not tear it
+    down. **We do not use them, and should not:** they exist for clients that run both
+    transports, which this app deliberately no longer does. If you find yourself reaching for
+    them, the real problem is that something started two transports.
 - Discovery of `_sendspin-server._tcp` is NOT running in this mode
 
 ### 2. Client-Initiated Mode — `DiscoverOnly` (Opt-in)
@@ -196,6 +201,17 @@ The buffer handles:
 The frame drop/insert band (`ResamplingThresholdMicroseconds`, now 100ms) sits above the
 hard-sync tier by default, so it is only reached when that tier is disabled or the
 resampling threshold is lowered below 5ms.
+
+**Hard-sync stall detection (SDK 9.3.1+):** the one-shot tier stands itself down when snapping
+stops closing the error, letting the capped continuous tier correct instead
+([sendspin-dotnet#252](https://github.com/Sendspin/sendspin-dotnet/issues/252)). Before this,
+a *constant* offset — as opposed to accumulating drift — made the tier re-fire on every
+callback: observed here as ~870 corrections per second, each inserting ~90ms of silence that
+left the error unchanged, ballooning the buffer from 9s to 30s and reducing output to
+stutter. The trigger was a 48kHz stream against a 192kHz output device, where the resampler
+runs at a ratio other than 1.0 and the reported output latency is wrong. If you see
+`HardSyncStalled`, the residual error is real and the usual cause is host-side output latency
+being misreported — not a threshold that needs raising.
 
 **Resampling Sync Correction** (v2.2.0+):
 - `ITimedAudioBuffer.TargetPlaybackRate` exposes the desired rate (1.0 = normal)
