@@ -31,7 +31,12 @@
         </Style.Triggers>
     </Style>
 
-    <!-- Broadcasting Indicator Animation -->
+    <!-- Broadcasting Indicator Animation.
+         Gated on IsVisible for the same reason as ProgressSpinner below: an EventTrigger on
+         Loaded fires once and never again, so a RepeatBehavior="Forever" storyboard begun
+         there pulses for the life of the process, including while the window is hidden to the
+         tray. This dot shows whenever we are advertising, which is the app's default resting
+         state — so it was the longest-running instance of the three. -->
     <Style x:Key="BroadcastingIndicator" TargetType="Ellipse">
         <Setter Property="Width" Value="8"/>
         <Setter Property="Height" Value="8"/>
@@ -39,15 +44,20 @@
         <Setter Property="VerticalAlignment" Value="Center"/>
         <Setter Property="Margin" Value="0,0,8,0"/>
         <Style.Triggers>
-            <EventTrigger RoutedEvent="Loaded">
-                <BeginStoryboard>
-                    <Storyboard RepeatBehavior="Forever">
-                        <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                                       From="1.0" To="0.3" Duration="0:0:1.5"
-                                       AutoReverse="True"/>
-                    </Storyboard>
-                </BeginStoryboard>
-            </EventTrigger>
+            <Trigger Property="IsVisible" Value="True">
+                <Trigger.EnterActions>
+                    <BeginStoryboard x:Name="PulseStoryboard">
+                        <Storyboard RepeatBehavior="Forever">
+                            <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                           From="1.0" To="0.3" Duration="0:0:1.5"
+                                           AutoReverse="True"/>
+                        </Storyboard>
+                    </BeginStoryboard>
+                </Trigger.EnterActions>
+                <Trigger.ExitActions>
+                    <StopStoryboard BeginStoryboardName="PulseStoryboard"/>
+                </Trigger.ExitActions>
+            </Trigger>
         </Style.Triggers>
     </Style>
 
