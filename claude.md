@@ -95,8 +95,16 @@ starting the incoming one and aborts the switch if the stop failed.
 ### 1. Server-Initiated Mode — `AdvertiseOnly` (Primary, default)
 We advertise via mDNS and servers connect to us.
 - `SendspinHostService` runs a WebSocket server on a random port
-- Advertises as `_sendspin._tcp.local`
+- Advertises as `_sendspin._tcp.local`, with a `path` TXT record (REQUIRED by the spec) and a
+  `name` TXT record carrying the friendly player name
 - Music Assistant servers discover and connect to us
+- **Advertising must announce, not just answer.** SDK 9.3.2 sends unsolicited mDNS
+  announcements when the interface set changes — which `MulticastService` raises inside
+  `Start()`, and again when a NIC appears (Wi-Fi associating, resume from sleep). Before
+  9.3.2 the SDK only registered a passive query responder, so a server whose browser had
+  finished its startup queries never asked again and never found us: python-zeroconf drops
+  to refresh-only scheduling after four. If discovery ever regresses, check that an
+  announcement is actually leaving the machine before suspecting the record's contents.
 - Server admission (which server wins when several connect) is arbitrated inside the SDK's
   `SendspinHostService` — the app does no arbitration of its own, and must not reimplement or
   override it
@@ -104,7 +112,7 @@ We advertise via mDNS and servers connect to us.
   - **Spec:** admission is ranked by connection *activity* — `management` > `playback` >
     `pairing` — with a new connection held provisional until the server sends
     `server/activate`, and dropped after 30s if it never does.
-  - **SDK 9.3.1 (the version this branch builds against):** arbitration is still the earlier
+  - **SDK 9.3.2 (the version this branch builds against):** arbitration is still the earlier
     `connection_reason` comparison — `"playback"` beats `"discovery"` — with
     `LastPlayedServerId` breaking ordinary ties. Activity-based arbitration arrives with the
     v10 SDK; until then, do not write app code that assumes it.
