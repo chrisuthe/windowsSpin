@@ -51,27 +51,65 @@
         </Style.Triggers>
     </Style>
 
-    <!-- Searching Animation for Icon -->
-    <Style x:Key="SearchingIcon" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="32"/>
-        <Setter Property="Opacity" Value="0.5"/>
+    <!-- Indeterminate progress spinner: a brand-green arc sweeping a faint track.
+         Used wherever the client is waiting on the network (waiting for a server to
+         connect to us, or searching for servers to connect to).
+
+         The animation is gated on IsVisible, NOT on Loaded. Loaded fires once and never
+         again, so a RepeatBehavior="Forever" storyboard started there keeps running for the
+         life of the process — including while the window is hidden to the tray, because WPF
+         storyboard clocks do not stop for a hidden window. That matters here specifically:
+         these spinners appear only while DISCONNECTED, which is exactly the state someone
+         is likely to leave sitting in the tray. IsVisible is false when this control is
+         collapsed OR any ancestor is hidden, so one trigger covers both. -->
+    <Style x:Key="ProgressSpinner" TargetType="Control">
+        <Setter Property="Width" Value="28"/>
+        <Setter Property="Height" Value="28"/>
         <Setter Property="HorizontalAlignment" Value="Center"/>
-        <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
-        <Setter Property="RenderTransform">
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="IsTabStop" Value="False"/>
+        <Setter Property="Template">
             <Setter.Value>
-                <RotateTransform/>
+                <ControlTemplate TargetType="Control">
+                    <Grid>
+                        <Ellipse Stroke="{StaticResource SurfaceLightBrush}"
+                                 StrokeThickness="3"
+                                 Margin="1.5"/>
+                        <!-- StrokeDashArray is expressed in multiples of StrokeThickness.
+                             A 25px path circle at 3px stroke is ~26 units around, so
+                             6.5 on / 19.5 off draws a quarter-turn arc. -->
+                        <Ellipse x:Name="Arc"
+                                 Stroke="{StaticResource PrimaryLightBrush}"
+                                 StrokeThickness="3"
+                                 StrokeStartLineCap="Round"
+                                 StrokeEndLineCap="Round"
+                                 StrokeDashArray="6.5 19.5"
+                                 Margin="1.5"
+                                 RenderTransformOrigin="0.5,0.5">
+                            <Ellipse.RenderTransform>
+                                <RotateTransform/>
+                            </Ellipse.RenderTransform>
+                        </Ellipse>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsVisible" Value="True">
+                            <Trigger.EnterActions>
+                                <BeginStoryboard x:Name="SpinStoryboard">
+                                    <Storyboard RepeatBehavior="Forever">
+                                        <DoubleAnimation Storyboard.TargetName="Arc"
+                                                         Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
+                                                         From="0" To="360" Duration="0:0:1.1"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <StopStoryboard BeginStoryboardName="SpinStoryboard"/>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
             </Setter.Value>
         </Setter>
-        <Style.Triggers>
-            <EventTrigger RoutedEvent="Loaded">
-                <BeginStoryboard>
-                    <Storyboard RepeatBehavior="Forever">
-                        <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
-                                       From="0" To="360" Duration="0:0:2"/>
-                    </Storyboard>
-                </BeginStoryboard>
-            </EventTrigger>
-        </Style.Triggers>
     </Style>
 
     <!-- Dialog Overlay Background -->

@@ -285,7 +285,7 @@
                             <!-- Searching state (no servers found yet, but discovery is running) -->
                             <StackPanel Visibility="{Binding IsSearchingForServers, Converter={StaticResource BoolToVisibilityConverter}}"
                                         Margin="0,8,0,0">
-                                <TextBlock Text="🔍" Style="{StaticResource SearchingIcon}"/>
+                                <Control Style="{StaticResource ProgressSpinner}"/>
                                 <TextBlock Text="Searching for servers..."
                                            Style="{StaticResource CaptionText}"
                                            HorizontalAlignment="Center"
@@ -338,7 +338,7 @@
                         </Border.Style>
                         <StackPanel>
                             <TextBlock Text="Waiting for a Server" Style="{StaticResource WelcomeSectionHeader}"/>
-                            <TextBlock Text="📡" Style="{StaticResource SearchingIcon}"/>
+                            <Control Style="{StaticResource ProgressSpinner}"/>
                             <TextBlock Text="Advertising on your network. Select this player in Music Assistant to connect."
                                        Style="{StaticResource CaptionText}"
                                        HorizontalAlignment="Center"
