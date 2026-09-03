@@ -20,6 +20,7 @@ using Sendspin.SDK.Extensions;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
+using Sendspin.Windows.Services.Audio;
 using Sendspin.Windows.Services.Configuration;
 using Sendspin.Windows.Services.Diagnostics;
 using Sendspin.Windows.Services.Discord;
@@ -85,6 +86,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ClientCapabilities _clientCapabilities;
     private readonly SyncHealthMonitor _syncHealthMonitor;
+    private readonly OutputLatencyReporter _outputLatencyReporter;
     private readonly AmbientBackdropViewModel _ambient;
 
     // Ambient Glow diagnostics: rate-limited Debug logging of the visualizer data path.
@@ -593,7 +595,8 @@ public partial class MainViewModel : ViewModelBase
         ClientCapabilities clientCapabilities,
         AmbientBackdropViewModel ambient,
         IUserSettingsService settingsService,
-        SyncHealthMonitor syncHealthMonitor)
+        SyncHealthMonitor syncHealthMonitor,
+        OutputLatencyReporter outputLatencyReporter)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -610,6 +613,7 @@ public partial class MainViewModel : ViewModelBase
         _ambient = ambient;
         _settingsService = settingsService;
         _syncHealthMonitor = syncHealthMonitor;
+        _outputLatencyReporter = outputLatencyReporter;
         _progressTracker = new TrackProgressTracker(
             clockSynchronizer,
             loggerFactory.CreateLogger<TrackProgressTracker>());
@@ -2997,7 +3001,7 @@ public partial class MainViewModel : ViewModelBase
     {
         try
         {
-            var statsViewModel = new StatsViewModel(_audioPipeline, _clockSynchronizer, _clientCapabilities, _syncHealthMonitor);
+            var statsViewModel = new StatsViewModel(_audioPipeline, _clockSynchronizer, _clientCapabilities, _syncHealthMonitor, _outputLatencyReporter);
             var statsWindow = new StatsWindow(statsViewModel)
             {
                 Owner = App.Current.MainWindow,

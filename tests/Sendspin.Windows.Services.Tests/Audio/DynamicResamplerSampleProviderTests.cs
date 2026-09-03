@@ -11,9 +11,10 @@ namespace Sendspin.Windows.Services.Tests.Audio;
 public class DynamicResamplerSampleProviderTests
 {
     /// <summary>
-    /// A source that always returns the full requested count of a constant DC value. A correct
-    /// resampler passes DC through unchanged, so the only way an output sample can collapse toward
-    /// zero is an injected silence pad - which makes silence-gap concealment directly testable.
+    /// A source of a constant DC value. A correct resampler passes DC through unchanged, so the
+    /// only way an output sample can collapse toward zero is an injected silence pad - which makes
+    /// silence-gap concealment directly testable. <see cref="FramesBudget"/> optionally caps how
+    /// much it will hand out, letting a test starve the resampler mid-callback on demand.
     /// </summary>
     private sealed class ConstantSampleProvider : ISampleProvider
     {
@@ -27,8 +28,17 @@ public class DynamicResamplerSampleProviderTests
 
         public WaveFormat WaveFormat { get; }
 
+        /// <summary>Gets or sets the frames this source may still return; -1 means unlimited.</summary>
+        public int FramesBudget { get; set; } = -1;
+
         public int Read(float[] buffer, int offset, int count)
         {
+            if (FramesBudget >= 0)
+            {
+                count = Math.Min(count, FramesBudget * WaveFormat.Channels);
+                FramesBudget -= count / WaveFormat.Channels;
+            }
+
             Array.Fill(buffer, _value, offset, count);
             return count;
         }
@@ -67,6 +77,32 @@ public class DynamicResamplerSampleProviderTests
             }
 
             return count;
+        }
+    }
+
+    /// <summary>
+    /// Wraps a source and tallies the input frames actually pulled through it, so a test can
+    /// compare frames consumed against frames produced and recover the resampler's effective
+    /// pull ratio.
+    /// </summary>
+    private sealed class CountingSampleProvider : ISampleProvider
+    {
+        private readonly ISampleProvider _inner;
+
+        public CountingSampleProvider(ISampleProvider inner)
+        {
+            _inner = inner;
+        }
+
+        public WaveFormat WaveFormat => _inner.WaveFormat;
+
+        public long FramesRead { get; private set; }
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            var read = _inner.Read(buffer, offset, count);
+            FramesRead += read / WaveFormat.Channels;
+            return read;
         }
     }
 
@@ -239,37 +275,33 @@ public class DynamicResamplerSampleProviderTests
 
         // 882 interleaved samples == 441 frames == one 10 ms WASAPI period at 44.1 kHz.
         const int count = 882;
+        const int frames = count / channels;
         var buffer = new float[count];
 
         // Warm up: the WDL filter's output ramps from 0 to the DC level as its history fills.
+        source.FramesBudget = -1;
         for (var i = 0; i < 5; i++)
         {
             resampler.Read(buffer, 0, count);
         }
 
-        // ~3 s of callbacks under continuous drift correction - the rate is nudged every callback,
-        // the regime where a USB DAC's drift keeps the corrector adjusting and the WDL filter comes
-        // up 1-2 frames short. The previous code padded those shorts with digital silence (an
-        // audible click, 861 events in 21 s observed on a USB DAC); the fix conceals them by holding
-        // the last sample.
+        // Starve the source part-way through every third callback so the drain loop runs out of
+        // input and has to conceal the tail. This is the shortfall the render thread actually
+        // sees - a mid-callback upstream stall. (It used to be provoked instead by nudging the
+        // playback rate: under the old input-driven scheduling WDL's fractional residue was
+        // discarded rather than carried, so ordinary drift correction left callbacks 1-2 frames
+        // short. Output-driven scheduling nets that residue off the next request, so the residue
+        // no longer starves anything and the rate sweep can no longer reach this path.)
         //
         // Silence pads are bit-exact 0.0f (Array.Fill); a DC input through the resampler never
         // produces exact zero, and a held DC frame is ~0.5. So an exact-zero output sample is the
-        // unambiguous signature of a leaked silence pad. (Note: the resampler still has its own
-        // amplitude transient on each rate change - a non-zero dip - which is a separate, pre-
-        // existing matter addressed by the clock/loop architecture work, not by concealment.)
-        var rate = 1.0;
-        var step = 0.00005;
+        // unambiguous signature of a leaked silence pad.
         var silenceSamples = 0;
         for (var i = 0; i < 300; i++)
         {
-            rate += step;
-            if (rate is > 1.002 or < 0.998)
-            {
-                step = -step;
-            }
-
-            resampler.PlaybackRate = rate;
+            // 80% of a callback's worth: enough that the callback produces real content first,
+            // so this exercises tail concealment rather than the all-silence empty-source path.
+            source.FramesBudget = i % 3 == 0 ? frames * 4 / 5 : -1;
             resampler.Read(buffer, 0, count);
 
             foreach (var sample in buffer)
@@ -284,5 +316,109 @@ public class DynamicResamplerSampleProviderTests
         // Guard that the run actually hit the shortfall path, so the concealment was exercised.
         Assert.True(resampler.ResamplerShortCount > 0, "test did not exercise the resampler-short path");
         Assert.Equal(0, silenceSamples);
+    }
+
+    /// <summary>
+    /// Regression test for issue #73's rate-domain over-pull (the root cause of #63's runaway).
+    /// The resampler must consume input frames at exactly <c>sourceRate / targetRate</c> per output
+    /// frame. Any systematic mismatch is a RATE error, not an offset: it integrates, so the SDK's
+    /// <c>samplesReadTime</c> walks away from wall clock without bound. The continuous corrector is
+    /// capped at 0.5% by spec, so an error of this shape can never be closed downstream - it has to
+    /// be right here.
+    /// </summary>
+    /// <remarks>
+    /// Before the fix the provider ran WDL in feed (input-driven) mode while passing OUTPUT frame
+    /// counts, so upsampling saturated the pull ratio at exactly 1.0: 48 kHz into 192 kHz pulled
+    /// 4x the input it needed (+300%), and 44.1 kHz into 48 kHz +8.8%. Downsampling and identity
+    /// were unaffected, which is why matched-rate machines looked healthy.
+    /// </remarks>
+    [Theory]
+    [InlineData(48000, 192000)] // the issue's repro: 48 kHz stream into a 192 kHz DAC
+    [InlineData(44100, 48000)]  // a milder upsampling case
+    [InlineData(48000, 44100)]  // downsampling
+    [InlineData(48000, 48000)]  // identity - must not be repaired by a special case
+    public void PullRatio_MatchesNominalRatio_AcrossConversions(int sourceRate, int targetRate)
+    {
+        AssertPullRatio(sourceRate, targetRate, rateForCallback: _ => 1.0);
+    }
+
+    /// <summary>
+    /// The effective pull rate must track <c>sourceRate / (targetRate / playbackRate)</c>, so a
+    /// playback rate parked off 1.0 shifts the pull ratio by exactly that factor. A fix that only
+    /// corrected the nominal ratio would drift again the moment the sync corrector engaged.
+    /// </summary>
+    [Theory]
+    [InlineData(48000, 192000, 1.03)]
+    [InlineData(48000, 192000, 0.97)]
+    [InlineData(48000, 44100, 1.03)]
+    public void PullRatio_TracksNominalRatio_WithPlaybackRateParkedOffUnity(int sourceRate, int targetRate, double playbackRate)
+    {
+        AssertPullRatio(sourceRate, targetRate, rateForCallback: _ => playbackRate, playbackRateFactor: playbackRate);
+    }
+
+    /// <summary>
+    /// The same accounting must hold while the rate moves, which is the real steady state: the
+    /// corrector nudges the rate every callback. Sweeping symmetrically about 1.0 leaves the
+    /// time-averaged factor at 1.0, so the pull ratio must still land on the nominal ratio.
+    /// </summary>
+    [Fact]
+    public void PullRatio_TracksNominalRatio_WithPlaybackRateToggling()
+    {
+        // A full number of complete cycles so the sweep averages to exactly 1.0 over the run.
+        const int period = 40;
+        AssertPullRatio(
+            48000,
+            192000,
+            rateForCallback: cb => 1.0 + (0.03 * Math.Sin(2 * Math.PI * (cb % period) / period)),
+            callbacks: 40 * period);
+    }
+
+    /// <summary>
+    /// Drives the provider for a sustained run and asserts that input frames pulled per output
+    /// frame produced matches <c>sourceRate / (targetRate / playbackRateFactor)</c> within 0.1%.
+    /// The first callbacks are excluded so WDL's one-off filter priming - a fixed number of frames,
+    /// not a rate error - cannot mask or manufacture a drift.
+    /// </summary>
+    private static void AssertPullRatio(
+        int sourceRate,
+        int targetRate,
+        Func<int, double> rateForCallback,
+        double playbackRateFactor = 1.0,
+        int callbacks = 1000)
+    {
+        const int channels = 2;
+        const int warmupCallbacks = 50;
+
+        var counting = new CountingSampleProvider(new SineSampleProvider(sourceRate, channels, 101.0));
+        using var resampler = new DynamicResamplerSampleProvider(counting, correctionProvider: null, targetSampleRate: targetRate);
+
+        var framesPerCallback = targetRate / 100; // one 10 ms callback at the target rate
+        var buffer = new float[framesPerCallback * channels];
+
+        for (var cb = 0; cb < warmupCallbacks; cb++)
+        {
+            resampler.PlaybackRate = rateForCallback(cb);
+            resampler.Read(buffer, 0, buffer.Length);
+        }
+
+        var framesReadAtStart = counting.FramesRead;
+        long framesProduced = 0;
+
+        for (var cb = 0; cb < callbacks; cb++)
+        {
+            resampler.PlaybackRate = rateForCallback(warmupCallbacks + cb);
+            resampler.Read(buffer, 0, buffer.Length);
+            framesProduced += framesPerCallback;
+        }
+
+        var framesPulled = counting.FramesRead - framesReadAtStart;
+        var actualRatio = (double)framesPulled / framesProduced;
+        var nominalRatio = sourceRate / (targetRate / playbackRateFactor);
+        var errorPercent = ((actualRatio / nominalRatio) - 1) * 100;
+
+        Assert.True(
+            Math.Abs(errorPercent) < 0.1,
+            $"{sourceRate}Hz -> {targetRate}Hz at rate {playbackRateFactor}: pulled {actualRatio:F6} input frames per output frame, " +
+            $"nominal {nominalRatio:F6} - a {errorPercent:F3}% rate error. This integrates; the 0.5% corrector cap cannot close it.");
     }
 }

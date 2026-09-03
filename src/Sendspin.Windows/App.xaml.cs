@@ -323,11 +323,16 @@ public partial class App : Application
         // DAC clock genuinely diverges from the system clock (most report a 1.0000 ratio = no benefit).
         var useDeviceClock = _configuration!.GetValue("Audio:SyncCorrection:UseDeviceClock", false);
 
+        // The player is transient and the stats view model holds only the pipeline, so the
+        // resolved output latency (and whether it was measured at all) travels through this.
+        services.AddSingleton<OutputLatencyReporter>();
+
         services.AddTransient<IAudioPlayer>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<WasapiAudioPlayer>>();
             var currentDeviceId = _configuration!.GetValue<string?>("Audio:DeviceId");
-            return new WasapiAudioPlayer(logger, currentDeviceId, syncStrategy, resamplerType, useDeviceClock);
+            var latencyReporter = sp.GetRequiredService<OutputLatencyReporter>();
+            return new WasapiAudioPlayer(logger, currentDeviceId, syncStrategy, resamplerType, useDeviceClock, latencyReporter);
         });
 
         // Audio pipeline - orchestrates decoder, buffer, and player

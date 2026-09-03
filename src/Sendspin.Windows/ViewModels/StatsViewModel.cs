@@ -10,6 +10,7 @@ using Sendspin.SDK.Audio;
 using Sendspin.SDK.Client;
 using Sendspin.SDK.Synchronization;
 using Sendspin.Windows.Configuration;
+using Sendspin.Windows.Services.Audio;
 using Sendspin.Windows.Services.Diagnostics;
 namespace Sendspin.Windows.ViewModels;
 
@@ -27,6 +28,7 @@ public partial class StatsViewModel : ViewModelBase
     private readonly IClockSynchronizer _clockSynchronizer;
     private readonly ClientCapabilities _clientCapabilities;
     private readonly SyncHealthMonitor _syncHealthMonitor;
+    private readonly OutputLatencyReporter _outputLatencyReporter;
     private readonly DispatcherTimer _updateTimer;
 
     // Previous sync drop/insert counts, so Correction Mode can show the tier actually acting this
@@ -350,16 +352,21 @@ public partial class StatsViewModel : ViewModelBase
     /// <param name="clockSynchronizer">The clock synchronizer to monitor.</param>
     /// <param name="clientCapabilities">The client capabilities for advertised format display.</param>
     /// <param name="syncHealthMonitor">The sync health monitor for episode diagnostics.</param>
+    /// <param name="outputLatencyReporter">
+    /// Publishes the output latency the player resolved, and whether it was measured or estimated.
+    /// </param>
     public StatsViewModel(
         IAudioPipeline audioPipeline,
         IClockSynchronizer clockSynchronizer,
         ClientCapabilities clientCapabilities,
-        SyncHealthMonitor syncHealthMonitor)
+        SyncHealthMonitor syncHealthMonitor,
+        OutputLatencyReporter outputLatencyReporter)
     {
         _audioPipeline = audioPipeline;
         _clockSynchronizer = clockSynchronizer;
         _clientCapabilities = clientCapabilities;
         _syncHealthMonitor = syncHealthMonitor;
+        _outputLatencyReporter = outputLatencyReporter;
 
         _updateTimer = new DispatcherTimer
         {
@@ -566,9 +573,19 @@ public partial class StatsViewModel : ViewModelBase
         // Static delay (from clock synchronizer)
         StaticDelayDisplay = $"{_clockSynchronizer.StaticDelayMs:+0;-0;0} ms";
 
-        // Detected output latency (from audio pipeline)
-        var detectedLatency = _audioPipeline.DetectedOutputLatencyMs;
-        OutputLatencyDisplay = detectedLatency > 0 ? $"{detectedLatency} ms" : "-- ms";
+        // Detected output latency. Both halves come from the reporter rather than reading the
+        // number from the pipeline and the flag from here: those are two unsynchronised writes, so
+        // a split read could render a measured value tagged "(est.)", or an estimate without the
+        // tag - which would undercut the entire point of tracking provenance. The pipeline still
+        // decides whether a latency is live at all, since the reporter's last reading outlives the
+        // player that produced it.
+        var reading = _audioPipeline.DetectedOutputLatencyMs > 0 ? _outputLatencyReporter.Current : null;
+        OutputLatencyDisplay = reading switch
+        {
+            { IsEstimate: true } => $"{reading.LatencyMs} ms (est.)",
+            not null => $"{reading.LatencyMs} ms",
+            null => "-- ms",
+        };
     }
 
     /// <summary>
