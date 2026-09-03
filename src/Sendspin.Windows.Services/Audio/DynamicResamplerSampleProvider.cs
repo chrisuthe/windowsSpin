@@ -184,7 +184,17 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposabl
         _resampler = new WdlResampler();
         _resampler.SetMode(true, ratioCanCrossUnity ? 0 : 4, false);
         _resampler.SetFilterParms(0.90f, 0.60f); // 90% Nyquist, sharper transition (less processing)
-        _resampler.SetFeedMode(true); // We're in output-driven mode (request N output samples)
+        // Output-driven scheduling: ResamplePrepare's argument is the number of OUTPUT frames we
+        // want, and WDL derives the input requirement from the current ratio itself.
+        //
+        // This MUST stay false. WDL's parameter is named `wantInputDriven`, and in feed (input-
+        // driven) mode ResamplePrepare returns its argument verbatim as an INPUT frame count. Asking
+        // for output frames there conflates the two rate domains: it happens to be right at ratio
+        // 1.0, and when downsampling the drain loop below papers over the deficit, but when
+        // upsampling the surplus input can never be given back - the pull ratio saturates at exactly
+        // 1.0 (a 48 kHz stream into a 192 kHz device pulled 4x the input it needed) and the excess
+        // accumulates in WDL's internal buffer without bound.
+        _resampler.SetFeedMode(false);
         UpdateResamplerRates();
 
         // Subscribe to correction provider rate changes if available
@@ -210,21 +220,20 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposabl
         var channels = WaveFormat.Channels;
         var outputFrames = count / channels;
 
-        // Output-driven (feed) mode with a DRAIN LOOP.
+        // Output-driven scheduling with a DRAIN LOOP.
         //
-        // A single ResamplePrepare/ResampleOut pair comes up ~1 frame short whenever the rate sits off
-        // 1.0: ResamplePrepare can only return an INTEGER input count, so when speeding up (it needs
-        // e.g. 480.17 input for 480 output) it returns 480 and silently drops the fractional 0.17. The
-        // dropped fraction accumulates and every few callbacks ResampleOut produces 479 instead of 480.
-        // The old code padded that with a repeated frame, which both ticks AND cancels the speed-up (a
-        // repeat is the opposite of consuming content faster), so the correction never lands and the
-        // rate climbs.
+        // ResamplePrepare can only return an INTEGER input count, so when the requirement is
+        // fractional (e.g. 480.17 input for 480 output) a single ResamplePrepare/ResampleOut pair can
+        // come up a frame short. WDL carries the residue in its own input buffer and nets it off the
+        // next request, so the average converges on its own - but a callback can still land short in
+        // the meantime. The old code padded those with a repeated frame, which both ticks AND cancels
+        // the speed-up (a repeat is the opposite of consuming content faster), so the correction never
+        // landed and the rate climbed.
         //
-        // Instead, loop: feed the small remaining input and call ResampleOut again until all outputFrames
-        // are produced from REAL content. The extra input is read ONLY on the short callbacks, so the
-        // average input read converges to the true rate requirement (480.17/call) - no held frames, no
-        // constant over-read. (Reading +1 on EVERY callback, as a prior attempt did, is a constant
-        // over-read and drifts; reading it only when short does not.)
+        // Instead, loop: ask for the shortfall and call ResampleOut again until all outputFrames are
+        // produced from REAL content. Because the request is in OUTPUT frames (see SetFeedMode(false)
+        // above), each pass reads exactly the input those frames need at the current ratio - looping
+        // cannot over-pull.
         //
         // We intentionally do NOT bypass the resampler at rate 1.0: the WDL filter carries state across
         // calls, and dropping out of the path disrupts it and causes pops.
