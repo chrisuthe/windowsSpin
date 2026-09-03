@@ -52,7 +52,7 @@ public abstract partial class ViewModelBase : ObservableObject
                     if (!token.IsCancellationRequested)
                     {
                         // Must update on UI thread
-                        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+                        System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
                         {
                             if (ErrorMessage == message) // Only clear if it's still the same error
                             {
