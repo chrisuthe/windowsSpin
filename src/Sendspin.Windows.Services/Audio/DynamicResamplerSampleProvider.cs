@@ -237,7 +237,6 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposabl
         //
         // We intentionally do NOT bypass the resampler at rate 1.0: the WDL filter carries state across
         // calls, and dropping out of the path disrupts it and causes pops.
-        var totalFramesRead = 0;
         var totalFramesGenerated = 0;
 
         while (totalFramesGenerated < outputFrames)
@@ -250,7 +249,6 @@ public sealed class DynamicResamplerSampleProvider : ISampleProvider, IDisposabl
             var framesRead = framesNeeded > 0
                 ? _source.Read(inBuffer, inBufferOffset, framesNeeded * channels) / channels
                 : 0;
-            totalFramesRead += framesRead;
 
             if (framesNeeded > 0 && framesRead == 0)
             {

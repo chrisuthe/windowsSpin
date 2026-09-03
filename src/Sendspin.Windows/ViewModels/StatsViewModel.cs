@@ -352,6 +352,9 @@ public partial class StatsViewModel : ViewModelBase
     /// <param name="clockSynchronizer">The clock synchronizer to monitor.</param>
     /// <param name="clientCapabilities">The client capabilities for advertised format display.</param>
     /// <param name="syncHealthMonitor">The sync health monitor for episode diagnostics.</param>
+    /// <param name="outputLatencyReporter">
+    /// Publishes the output latency the player resolved, and whether it was measured or estimated.
+    /// </param>
     public StatsViewModel(
         IAudioPipeline audioPipeline,
         IClockSynchronizer clockSynchronizer,
@@ -570,16 +573,18 @@ public partial class StatsViewModel : ViewModelBase
         // Static delay (from clock synchronizer)
         StaticDelayDisplay = $"{_clockSynchronizer.StaticDelayMs:+0;-0;0} ms";
 
-        // Detected output latency (from audio pipeline). Mark it when the player could not
-        // actually measure it - an estimate that happens to be wrong shows up as a constant
-        // offset against other players, and the reader deserves to know which they are looking at.
-        var detectedLatency = _audioPipeline.DetectedOutputLatencyMs;
-        var isEstimate = _outputLatencyReporter.Current?.IsEstimate == true;
-        OutputLatencyDisplay = detectedLatency switch
+        // Detected output latency. Both halves come from the reporter rather than reading the
+        // number from the pipeline and the flag from here: those are two unsynchronised writes, so
+        // a split read could render a measured value tagged "(est.)", or an estimate without the
+        // tag - which would undercut the entire point of tracking provenance. The pipeline still
+        // decides whether a latency is live at all, since the reporter's last reading outlives the
+        // player that produced it.
+        var reading = _audioPipeline.DetectedOutputLatencyMs > 0 ? _outputLatencyReporter.Current : null;
+        OutputLatencyDisplay = reading switch
         {
-            > 0 when isEstimate => $"{detectedLatency} ms (est.)",
-            > 0 => $"{detectedLatency} ms",
-            _ => "-- ms",
+            { IsEstimate: true } => $"{reading.LatencyMs} ms (est.)",
+            not null => $"{reading.LatencyMs} ms",
+            null => "-- ms",
         };
     }
 

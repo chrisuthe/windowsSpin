@@ -60,10 +60,10 @@ public class OutputLatencyResolutionTests
     [Theory]
     [InlineData(0, 0)] // client unreachable entirely
     [InlineData(0, DeviceSampleRate)] // buffer size unavailable
-    [InlineData(9600, 0)] // device rate unknown
-    public void NothingMeasurable_YieldsAnEstimateFlaggedAsSuch(int bufferFrames, int deviceSampleRate)
+    [InlineData(9600, 0)] // buffer rate unknown
+    public void NothingMeasurable_YieldsAnEstimateFlaggedAsSuch(int bufferFrames, int bufferSampleRate)
     {
-        var reading = WasapiAudioPlayer.ResolveOutputLatency(0, bufferFrames, deviceSampleRate);
+        var reading = WasapiAudioPlayer.ResolveOutputLatency(0, bufferFrames, bufferSampleRate);
 
         Assert.Equal(OutputLatencyProvenance.Estimated, reading.Provenance);
         Assert.True(reading.IsEstimate);
@@ -78,10 +78,60 @@ public class OutputLatencyResolutionTests
     [Fact]
     public void UnmeasurableDevice_ReportsOneNumber_NotTheOld115Versus100Split()
     {
-        var reading = WasapiAudioPlayer.ResolveOutputLatency(0, bufferFrames: 0, deviceSampleRate: 0);
+        var reading = WasapiAudioPlayer.ResolveOutputLatency(0, bufferFrames: 0, bufferSampleRate: 0);
 
         Assert.Equal(115, reading.LatencyMs);
         Assert.NotEqual(100, reading.LatencyMs);
+    }
+
+    /// <summary>
+    /// Both measured tiers round rather than truncate. Truncation is biased downward with a mean
+    /// error of half a millisecond, and this figure is subtracted from the sync error, so the bias
+    /// lands as a constant offset against every other player - a small instance of exactly the
+    /// defect the ladder exists to remove.
+    /// </summary>
+    [Theory]
+    [InlineData(1_004_999, 100)] // 100.4999 ms
+    [InlineData(1_005_000, 101)] // 100.5 ms - truncation would report 100
+    [InlineData(1_009_999, 101)] // 100.9999 ms - truncation would report 100
+    public void StreamLatency_IsRounded_NotTruncated(long streamLatency100Ns, int expectedMs)
+    {
+        var reading = WasapiAudioPlayer.ResolveOutputLatency(streamLatency100Ns, bufferFrames: 0, bufferSampleRate: 0);
+
+        Assert.Equal(OutputLatencyProvenance.StreamLatency, reading.Provenance);
+        Assert.Equal(expectedMs, reading.LatencyMs);
+    }
+
+    /// <summary>
+    /// The buffer tier rounds too. 9700 frames at 192 kHz is 50.52 ms, which truncation reports
+    /// as 50.
+    /// </summary>
+    [Fact]
+    public void DeviceBufferLatency_IsRounded_NotTruncated()
+    {
+        var reading = WasapiAudioPlayer.ResolveOutputLatency(0, bufferFrames: 9700, DeviceSampleRate);
+
+        Assert.Equal(OutputLatencyProvenance.DeviceBuffer, reading.Provenance);
+        Assert.Equal(51, reading.LatencyMs);
+    }
+
+    /// <summary>
+    /// The buffer frame count must be divided by the rate of the format the audio client was
+    /// INITIALIZED with, not by the device's mix rate - they are only the same sometimes. NAudio's
+    /// WasapiOut passes our provider's format through verbatim in shared mode and lets the engine
+    /// convert, so under the Combined strategy the client runs at the device rate while under
+    /// DropInsertOnly it runs at the stream rate. Both cases below describe the same 100 ms of real
+    /// buffering; dividing the 48 kHz frame count by 192000 would report 25 ms.
+    /// </summary>
+    [Theory]
+    [InlineData(4800, 48000)] // DropInsertOnly: client initialized at the 48 kHz stream rate
+    [InlineData(19200, 192000)] // Combined: client initialized at the 192 kHz device rate
+    public void DeviceBufferTier_CountsFramesAtTheInitializedStreamRate(int bufferFrames, int bufferSampleRate)
+    {
+        var reading = WasapiAudioPlayer.ResolveOutputLatency(0, bufferFrames, bufferSampleRate);
+
+        Assert.Equal(OutputLatencyProvenance.DeviceBuffer, reading.Provenance);
+        Assert.Equal(100, reading.LatencyMs);
     }
 
     /// <summary>
