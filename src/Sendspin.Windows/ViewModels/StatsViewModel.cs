@@ -10,6 +10,7 @@ using Sendspin.SDK.Audio;
 using Sendspin.SDK.Client;
 using Sendspin.SDK.Synchronization;
 using Sendspin.Windows.Configuration;
+using Sendspin.Windows.Services.Audio;
 using Sendspin.Windows.Services.Diagnostics;
 namespace Sendspin.Windows.ViewModels;
 
@@ -27,6 +28,7 @@ public partial class StatsViewModel : ViewModelBase
     private readonly IClockSynchronizer _clockSynchronizer;
     private readonly ClientCapabilities _clientCapabilities;
     private readonly SyncHealthMonitor _syncHealthMonitor;
+    private readonly OutputLatencyReporter _outputLatencyReporter;
     private readonly DispatcherTimer _updateTimer;
 
     // Previous sync drop/insert counts, so Correction Mode can show the tier actually acting this
@@ -354,12 +356,14 @@ public partial class StatsViewModel : ViewModelBase
         IAudioPipeline audioPipeline,
         IClockSynchronizer clockSynchronizer,
         ClientCapabilities clientCapabilities,
-        SyncHealthMonitor syncHealthMonitor)
+        SyncHealthMonitor syncHealthMonitor,
+        OutputLatencyReporter outputLatencyReporter)
     {
         _audioPipeline = audioPipeline;
         _clockSynchronizer = clockSynchronizer;
         _clientCapabilities = clientCapabilities;
         _syncHealthMonitor = syncHealthMonitor;
+        _outputLatencyReporter = outputLatencyReporter;
 
         _updateTimer = new DispatcherTimer
         {
@@ -566,9 +570,17 @@ public partial class StatsViewModel : ViewModelBase
         // Static delay (from clock synchronizer)
         StaticDelayDisplay = $"{_clockSynchronizer.StaticDelayMs:+0;-0;0} ms";
 
-        // Detected output latency (from audio pipeline)
+        // Detected output latency (from audio pipeline). Mark it when the player could not
+        // actually measure it - an estimate that happens to be wrong shows up as a constant
+        // offset against other players, and the reader deserves to know which they are looking at.
         var detectedLatency = _audioPipeline.DetectedOutputLatencyMs;
-        OutputLatencyDisplay = detectedLatency > 0 ? $"{detectedLatency} ms" : "-- ms";
+        var isEstimate = _outputLatencyReporter.Current?.IsEstimate == true;
+        OutputLatencyDisplay = detectedLatency switch
+        {
+            > 0 when isEstimate => $"{detectedLatency} ms (est.)",
+            > 0 => $"{detectedLatency} ms",
+            _ => "-- ms",
+        };
     }
 
     /// <summary>
