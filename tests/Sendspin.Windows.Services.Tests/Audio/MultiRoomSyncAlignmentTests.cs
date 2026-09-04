@@ -2,6 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Sendspin.SDK.Audio;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Synchronization;
@@ -79,11 +81,35 @@ public class MultiRoomSyncAlignmentTests
         public ClockSyncStatus GetStatus() => new() { IsConverged = true, IsDriftReliable = true };
     }
 
+    /// <summary>
+    /// Collects the buffer's own log lines, so a test can assert on which path it took rather than
+    /// inferring it. The startup baseline capture and the stale-audio branch both announce
+    /// themselves here.
+    /// </summary>
+    private sealed class CapturingLogger : ILogger<TimedAudioBuffer>
+    {
+        public List<string> Lines { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Lines.Add(formatter(state, exception));
+    }
+
     private readonly record struct SessionResult(
         long NetCorrectionSamples,
         double NetCorrectionMs,
         double FinalSyncErrorMs,
-        double AlignmentErrorMs);
+        double AlignmentErrorMs,
+        IReadOnlyList<string> BufferLog);
 
     /// <summary>
     /// Simulates a drift-free playback session and returns the net drop/insert correction.
@@ -98,14 +124,20 @@ public class MultiRoomSyncAlignmentTests
     /// </param>
     /// <param name="seconds">Simulated session length.</param>
     private SessionResult RunDriftFreeSession(
-        long prefillMicros, long calibratedStartupMicros, int seconds, long outputDelayMicros = 0)
+        long prefillMicros,
+        long calibratedStartupMicros,
+        int seconds,
+        long outputDelayMicros = 0,
+        long startLateMicros = 0)
     {
         var format = new AudioFormat { Codec = "pcm", SampleRate = SampleRate, Channels = Channels, BitDepth = 32 };
 
         // ServerToClientTime(0) == VirtualStart, so the first segment is scheduled exactly at our start.
         var clock = new FixedOffsetClock(VirtualStart);
 
-        using var buffer = new TimedAudioBuffer(format, clock, bufferCapacityMs: 4000, SyncCorrectionOptions.Default)
+        var log = new CapturingLogger();
+        using var buffer = new TimedAudioBuffer(
+            format, clock, bufferCapacityMs: 4000, SyncCorrectionOptions.Default, log)
         {
             CalibratedStartupLatencyMicroseconds = calibratedStartupMicros,
 
@@ -164,7 +196,7 @@ public class MultiRoomSyncAlignmentTests
             // minus the prefill the DAC is still holding. It reads ~0 until the prefill drains, then
             // advances 1:1 with output. (i+1) keeps a no-offset session at exactly zero sync error.
             var playedFrames = Math.Max(0, ((long)(i + 1) * ChunkFrames) - prefillFrames);
-            nowMicros = VirtualStart + (long)(playedFrames * UsPerFrame);
+            nowMicros = VirtualStart + startLateMicros + (long)(playedFrames * UsPerFrame);
 
             source.Read(outBuf, 0, ChunkSamples);
 
@@ -185,8 +217,11 @@ public class MultiRoomSyncAlignmentTests
         // uncompensated prefill invisible — the player looks on time against a clock that is itself
         // late. Sync error is measured against the device clock; being in sync with another player
         // is a statement about wall time, and the two only agree once the prefill is compensated.
-        var wallFrames = (long)totalReads * ChunkFrames;              // real time elapsed, in frames
-        var renderedFrames = Math.Max(0, wallFrames - prefillFrames); // what the DAC has sounded
+        // Content is still anchored at server timestamp 0, so starting late means the frames due
+        // at the end are further along by exactly the lateness.
+        var lateFrames = (long)(startLateMicros / UsPerFrame);
+        var wallFrames = lateFrames + ((long)totalReads * ChunkFrames); // real time elapsed, in frames
+        var renderedFrames = Math.Max(0, wallFrames - lateFrames - prefillFrames); // DAC output position
         var soundingTag = emitted[Math.Min(renderedFrames, emitted.Length - 1)];
         var alignmentMs = (soundingTag - wallFrames) * UsPerFrame / 1000.0;
 
@@ -200,7 +235,12 @@ public class MultiRoomSyncAlignmentTests
             $"net={net} samples ({netMs:F1}ms) finalErr={buffer.SyncErrorMicroseconds / 1000.0:F1}ms " +
             $"alignment={alignmentMs:F1}ms");
 
-        return new SessionResult(net, netMs, buffer.SyncErrorMicroseconds / 1000.0, alignmentMs);
+        foreach (var line in log.Lines)
+        {
+            _output.WriteLine($"    buffer: {line}");
+        }
+
+        return new SessionResult(net, netMs, buffer.SyncErrorMicroseconds / 1000.0, alignmentMs, log.Lines);
     }
 
     // A player whose absolute alignment sits within a small margin of zero is putting sample-T out
@@ -299,5 +339,59 @@ public class MultiRoomSyncAlignmentTests
             Math.Abs(calibrated.AlignmentErrorMs) > OutOfSyncThresholdMs,
             $"seeding the calibrated startup latency is not expected to correct alignment, but the " +
             $"player came out {calibrated.AlignmentErrorMs:F1}ms off");
+    }
+
+    /// <summary>
+    /// A start that arrives after its scheduled time takes <c>SkipStaleAudio</c>, discarding the
+    /// audio that can no longer be played and re-deriving the anchor. That re-derivation runs
+    /// <c>ScheduledLocalTimeFor</c> a second time, against a head cursor that has already advanced,
+    /// so it is worth pinning that it does not lose or double-count the output-latency pre-roll:
+    /// however late the start, the audio still lands on the server's schedule.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(200_000)]
+    [InlineData(500_000)]
+    public void LateStart_WithDeclaredOutputLatency_StaysOnSchedule(long startLateMicros)
+    {
+        var result = RunDriftFreeSession(
+            prefillMicros: 100_000, calibratedStartupMicros: 0, seconds: 20,
+            outputDelayMicros: 100_000, startLateMicros: startLateMicros);
+
+        Assert.Contains(result.BufferLog, l => l.Contains("stale audio", StringComparison.Ordinal));
+
+        Assert.True(
+            Math.Abs(result.AlignmentErrorMs) < InSyncToleranceMs,
+            $"a start {startLateMicros / 1000}ms late should still land on schedule, but the player " +
+            $"sat {result.AlignmentErrorMs:F1}ms off");
+    }
+
+    /// <summary>
+    /// The absorbed startup baseline is not a measure of misalignment, and must never be read as one.
+    /// </summary>
+    /// <remarks>
+    /// It is a property of the error tracker: <c>CaptureSyncErrorBaseline</c> snapshots whatever
+    /// residual is outstanding when the startup grace period ends and rebases on it, logging
+    /// "constant offset will not be corrected". A large absorbed baseline therefore says the tracker
+    /// rebased, not that audio is late — here ~100 ms is absorbed while the player is exactly on
+    /// schedule. Reading a baseline in a log as a misalignment is the same self-report trap as
+    /// treating <c>error=+0.00ms</c> as "aligned", and it is the reason a live session showing
+    /// "Captured startup (raw) sync-error baseline: -95.5ms" is not by itself evidence of a bug.
+    /// </remarks>
+    [Fact]
+    public void AbsorbedStartupBaseline_IsNotMisalignment()
+    {
+        var result = RunDriftFreeSession(
+            prefillMicros: 100_000, calibratedStartupMicros: 0, seconds: 20, outputDelayMicros: 100_000);
+
+        var captured = Assert.Single(
+            result.BufferLog.Where(l => l.Contains("sync-error baseline", StringComparison.Ordinal)));
+
+        Assert.Contains("constant offset will not be corrected", captured, StringComparison.Ordinal);
+
+        Assert.True(
+            Math.Abs(result.AlignmentErrorMs) < InSyncToleranceMs,
+            $"the player should be on schedule despite the absorbed baseline ({captured}), but sat " +
+            $"{result.AlignmentErrorMs:F1}ms off");
     }
 }
