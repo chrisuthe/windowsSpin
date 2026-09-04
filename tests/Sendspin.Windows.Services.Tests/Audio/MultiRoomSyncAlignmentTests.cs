@@ -366,6 +366,17 @@ public class MultiRoomSyncAlignmentTests
     /// one. That belongs to the SDK's shared startup path — it reproduces on Linux/OpenAL — and not
     /// to anything in this repository, which is why the gap is recorded here rather than filled.
     /// </para>
+    /// <para>
+    /// Note also which path is covered here. The stale-audio assertion below holds for every case
+    /// including <c>startLateMicros: 0</c>, so this harness takes <c>SkipStaleAudio</c> on every
+    /// start — declaring an output latency pre-rolls the schedule past the grace window, and it
+    /// cannot construct an ordinary start at all. In the measured run that branch ran <b>once in 29
+    /// starts</b>; the other 28 stayed inside the grace window and are what the displacement
+    /// accumulated across. So the rare path is the only one modelled here, and the ordinary start —
+    /// where the defect actually lives — is not reachable from this harness. The stale branch does
+    /// account for the outsized residuals (−88.9 ms on that single start against −21.9 to −23.7 ms
+    /// on ordinary ones), which is a difference in what gets absorbed, not in what accumulates.
+    /// </para>
     /// </remarks>
     [Theory]
     [InlineData(0)]
