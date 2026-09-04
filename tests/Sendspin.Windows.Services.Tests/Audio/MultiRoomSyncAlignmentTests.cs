@@ -345,14 +345,33 @@ public class MultiRoomSyncAlignmentTests
     /// A start that arrives after its scheduled time takes <c>SkipStaleAudio</c>, discarding the
     /// audio that can no longer be played and re-deriving the anchor. That re-derivation runs
     /// <c>ScheduledLocalTimeFor</c> a second time, against a head cursor that has already advanced,
-    /// so it is worth pinning that it does not lose or double-count the output-latency pre-roll:
-    /// however late the start, the audio still lands on the server's schedule.
+    /// so it is worth pinning that it does not lose or double-count the output-latency pre-roll.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Scoped to the pre-roll, and to <b>one</b> start. <see cref="RunDriftFreeSession"/> builds a
+    /// single <see cref="TimedAudioBuffer"/> and starts playback once, so nothing here observes what
+    /// repeated starts do — the harness has no way to express it. Do not read this as "late starts
+    /// stay on schedule": that is a claim about the general case, and this measures start one.
+    /// </para>
+    /// <para>
+    /// The distinction is not hypothetical. A capture rig running both this player and the C++ CLI
+    /// into one timebase measured the .NET side displacing at every stream restart and never
+    /// recovering — mean ~24 ms per restart, 95% of it at the restart rather than between restarts,
+    /// cumulative and permanent (−525 ms over 22 restarts, monotonic across 19 of 19 bins). Two C++
+    /// instances under identical conditions moved at restarts too but with no consistent direction,
+    /// so they stayed bounded. Whatever this test asserts about a single start is therefore true and
+    /// still leaves the failure that matters uncovered; covering it needs repeated starts against
+    /// one timebase, asserting that displacement after N restarts is not N times worse than after
+    /// one. That belongs to the SDK's shared startup path — it reproduces on Linux/OpenAL — and not
+    /// to anything in this repository, which is why the gap is recorded here rather than filled.
+    /// </para>
+    /// </remarks>
     [Theory]
     [InlineData(0)]
     [InlineData(200_000)]
     [InlineData(500_000)]
-    public void LateStart_WithDeclaredOutputLatency_StaysOnSchedule(long startLateMicros)
+    public void LateStart_PreservesTheOutputLatencyPreRoll(long startLateMicros)
     {
         var result = RunDriftFreeSession(
             prefillMicros: 100_000, calibratedStartupMicros: 0, seconds: 20,
@@ -362,8 +381,8 @@ public class MultiRoomSyncAlignmentTests
 
         Assert.True(
             Math.Abs(result.AlignmentErrorMs) < InSyncToleranceMs,
-            $"a start {startLateMicros / 1000}ms late should still land on schedule, but the player " +
-            $"sat {result.AlignmentErrorMs:F1}ms off");
+            $"a start {startLateMicros / 1000}ms late should keep the output-latency pre-roll, but " +
+            $"the player sat {result.AlignmentErrorMs:F1}ms off on its first start");
     }
 
     /// <summary>
