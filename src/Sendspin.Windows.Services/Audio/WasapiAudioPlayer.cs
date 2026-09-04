@@ -62,7 +62,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     private AudioFormat? _format;
     private float _volume = 1.0f;
     private bool _isMuted;
-    private int _outputLatencyMs;
+    private OutputLatencyReading? _outputLatency;
     private int _deviceNativeSampleRate = 48000;
 
     // Optional WASAPI device clock as the sync-timing source (issue #33). OFF by default: the device
@@ -99,7 +99,12 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// Gets the detected output latency in milliseconds.
     /// This is the buffer latency reported by the WASAPI audio device.
     /// </summary>
-    public int OutputLatencyMs => _outputLatencyMs;
+    /// <remarks>
+    /// Read from the same reading the reporter publishes, under <see cref="Volatile"/>. The SDK
+    /// subtracts this from the sync error on a different thread to the one that resolves it, so a
+    /// plain field leaves no guarantee the pipeline ever sees a device switch's new value.
+    /// </remarks>
+    public int OutputLatencyMs => Volatile.Read(ref _outputLatency)?.LatencyMs ?? 0;
 
     /// <summary>
     /// Gets the native sample rate of the audio output device.
@@ -287,7 +292,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                         "WASAPI player initialized: {SampleRate}Hz {Channels}ch, latency: {Latency}ms ({Provenance}), device: {Device}",
                         format.SampleRate,
                         format.Channels,
-                        _outputLatencyMs,
+                        OutputLatencyMs,
                         OutputLatencyProvenance.Estimated,
                         device?.FriendlyName ?? "System Default");
                 }
@@ -618,7 +623,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                     _logger.LogInformation(
                         "Audio device switched successfully: {Device}, latency: {Latency}ms",
                         device?.FriendlyName ?? "System Default",
-                        _outputLatencyMs);
+                        OutputLatencyMs);
                 }
                 catch (Exception ex)
                 {
@@ -996,7 +1001,10 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// <param name="reading">The reading to adopt.</param>
     private void SetOutputLatency(OutputLatencyReading reading)
     {
-        _outputLatencyMs = reading.LatencyMs;
+        // One reading, published as one reference, so the value and the provenance can never be
+        // read apart. Storing the milliseconds separately would reintroduce the split this ladder
+        // exists to close: a caller could see a measured figure still labelled an estimate.
+        Volatile.Write(ref _outputLatency, reading);
         _latencyReporter?.Report(reading);
     }
 
