@@ -5,6 +5,7 @@
 using Microsoft.Extensions.Logging;
 using Sendspin.SDK.Audio;
 using Sendspin.SDK.Synchronization;
+using Sendspin.Windows.Services.Audio;
 
 namespace Sendspin.Windows.Services.Diagnostics;
 
@@ -29,6 +30,7 @@ public sealed class SyncHealthMonitor : IDisposable
     private readonly IClockSynchronizer _clockSync;
     private readonly ReadCallbackGapTracker _gapTracker;
     private readonly SyncHealthLog _log;
+    private readonly OutputLatencyReporter _latencyReporter;
     private readonly ILogger<SyncHealthMonitor> _logger;
     private readonly EpisodeDetector _detector = new(DeadbandMs, MaxSpeedCorrection);
     private readonly Timer _timer;
@@ -58,12 +60,14 @@ public sealed class SyncHealthMonitor : IDisposable
         IClockSynchronizer clockSync,
         ReadCallbackGapTracker gapTracker,
         SyncHealthLog log,
+        OutputLatencyReporter latencyReporter,
         ILogger<SyncHealthMonitor> logger)
     {
         _pipeline = pipeline;
         _clockSync = clockSync;
         _gapTracker = gapTracker;
         _log = log;
+        _latencyReporter = latencyReporter;
         _logger = logger;
         _timer = new Timer(OnTick, state: null, dueTime: SampleIntervalMs, period: SampleIntervalMs);
     }
@@ -145,15 +149,40 @@ public sealed class SyncHealthMonitor : IDisposable
         }
     }
 
+    /// <summary>
+    /// Writes the one-line session header, including how the output latency was arrived at.
+    /// </summary>
+    /// <remarks>
+    /// The latency comes from the reporter rather than the pipeline. The header is written on the
+    /// first tick that sees an output format, which can beat the player's latency ladder by a few
+    /// hundred milliseconds - so the pipeline's figure at that instant may still be the pre-Init
+    /// placeholder. A session that recorded "outputLatency=115ms" while the ladder resolved 100ms
+    /// four tenths of a second later is a real observation, and it made the header untrustworthy
+    /// for the one field it exists to report. Naming the provenance means a placeholder now says
+    /// so, and the ladder's own log line carries the resolved value.
+    /// </remarks>
     private void WriteSessionHeader()
     {
         var format = _pipeline.OutputFormat;
         var version = typeof(SyncHealthMonitor).Assembly.GetName().Version?.ToString(3) ?? "?";
+        var latency = FormatOutputLatency(_latencyReporter.Current, _pipeline.DetectedOutputLatencyMs);
+
         _log.WriteSessionHeader(
             $"app={version} os={Environment.OSVersion.VersionString} " +
             $"format={format?.SampleRate}Hz/{format?.Channels}ch " +
-            $"outputLatency={_pipeline.DetectedOutputLatencyMs}ms");
+            $"outputLatency={latency}");
     }
+
+    /// <summary>
+    /// Renders the session header's output latency, naming where the figure came from.
+    /// </summary>
+    /// <param name="reading">The player's published reading, or null if it has not resolved one.</param>
+    /// <param name="pipelineLatencyMs">The pipeline's figure, used only when there is no reading.</param>
+    /// <returns>The formatted latency field.</returns>
+    public static string FormatOutputLatency(OutputLatencyReading? reading, int pipelineLatencyMs) =>
+        reading is null
+            ? $"{pipelineLatencyMs}ms (unreported)"
+            : $"{reading.LatencyMs}ms ({reading.Provenance})";
 
     private static string Describe(SyncHealthClassification c) => c.Verdict switch
     {
