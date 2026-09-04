@@ -1,4 +1,4 @@
-// <copyright file="MultiRoomSyncAlignmentTests.cs" company="Sendspin Windows Client">
+﻿// <copyright file="MultiRoomSyncAlignmentTests.cs" company="Sendspin Windows Client">
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
@@ -79,7 +79,11 @@ public class MultiRoomSyncAlignmentTests
         public ClockSyncStatus GetStatus() => new() { IsConverged = true, IsDriftReliable = true };
     }
 
-    private readonly record struct SessionResult(long NetCorrectionSamples, double NetCorrectionMs, double FinalSyncErrorMs);
+    private readonly record struct SessionResult(
+        long NetCorrectionSamples,
+        double NetCorrectionMs,
+        double FinalSyncErrorMs,
+        double AlignmentErrorMs);
 
     /// <summary>
     /// Simulates a drift-free playback session and returns the net drop/insert correction.
@@ -93,7 +97,8 @@ public class MultiRoomSyncAlignmentTests
     /// the prefill. 0 = uncompensated (today's external-correction path).
     /// </param>
     /// <param name="seconds">Simulated session length.</param>
-    private SessionResult RunDriftFreeSession(long prefillMicros, long calibratedStartupMicros, int seconds)
+    private SessionResult RunDriftFreeSession(
+        long prefillMicros, long calibratedStartupMicros, int seconds, long outputDelayMicros = 0)
     {
         var format = new AudioFormat { Codec = "pcm", SampleRate = SampleRate, Channels = Channels, BitDepth = 32 };
 
@@ -103,6 +108,12 @@ public class MultiRoomSyncAlignmentTests
         using var buffer = new TimedAudioBuffer(format, clock, bufferCapacityMs: 4000, SyncCorrectionOptions.Default)
         {
             CalibratedStartupLatencyMicroseconds = calibratedStartupMicros,
+
+            // AudioPipeline sets this from the player's resolved output latency. It is the knob
+            // that actually moves audio in the air: ScheduledLocalTimeFor subtracts it, pulling
+            // every scheduled start earlier so samples handed over early still leave the device
+            // on the server's schedule.
+            OutputLatencyMicroseconds = outputDelayMicros,
         };
         var calculator = new SyncCorrectionCalculator(SyncCorrectionOptions.Default, SampleRate, Channels);
 
@@ -111,13 +122,26 @@ public class MultiRoomSyncAlignmentTests
 
         var prefillFrames = (long)(prefillMicros / UsPerFrame);
         var sampleData = new float[ChunkSamples];
-        Array.Fill(sampleData, 0.25f);
         var outBuf = new float[ChunkSamples];
 
         long framesWritten = 0;
 
         void WriteChunk()
         {
+            // Tag every frame with its own source index instead of a constant, so emitted audio
+            // carries its identity. This is what lets the harness measure where the player really
+            // is: SyncErrorMicroseconds has the self-measured baseline subtracted out of it
+            // (syncError = (elapsed - CalibratedStartupLatency) - samplesReadTime - baseline), so
+            // an absorbed constant offset is invisible to it by construction. A frame's tag is not.
+            for (var f = 0; f < ChunkFrames; f++)
+            {
+                var tag = (float)(framesWritten + f);
+                for (var c = 0; c < Channels; c++)
+                {
+                    sampleData[(f * Channels) + c] = tag;
+                }
+            }
+
             buffer.Write(sampleData, (long)(framesWritten * UsPerFrame));
             framesWritten += ChunkFrames;
         }
@@ -129,6 +153,11 @@ public class MultiRoomSyncAlignmentTests
         }
 
         var totalReads = seconds * 100; // 100 × 10 ms callbacks per second
+
+        // Everything handed to the DAC, in order, so the frame sounding at any device-clock
+        // instant can be looked up by its position in the output stream.
+        var emitted = new float[totalReads * ChunkFrames];
+
         for (var i = 0; i < totalReads; i++)
         {
             // The device clock = frames actually rendered = frames pushed (this read inclusive),
@@ -139,9 +168,27 @@ public class MultiRoomSyncAlignmentTests
 
             source.Read(outBuf, 0, ChunkSamples);
 
+            for (var f = 0; f < ChunkFrames; f++)
+            {
+                emitted[(i * ChunkFrames) + f] = outBuf[f * Channels];
+            }
+
             // Keep the buffer topped up to roughly its initial depth (produce 10 ms per 10 ms consumed).
             WriteChunk();
         }
+
+        // Absolute alignment, measured the way a microphone on one timebase would.
+        //
+        // Wall time is NOT the device clock: each callback is 10 ms of real time regardless of how
+        // much the DAC has drained, so after every read the wall clock has advanced one chunk while
+        // the DAC still holds the prefill. Deriving both from the same counter is what makes an
+        // uncompensated prefill invisible — the player looks on time against a clock that is itself
+        // late. Sync error is measured against the device clock; being in sync with another player
+        // is a statement about wall time, and the two only agree once the prefill is compensated.
+        var wallFrames = (long)totalReads * ChunkFrames;              // real time elapsed, in frames
+        var renderedFrames = Math.Max(0, wallFrames - prefillFrames); // what the DAC has sounded
+        var soundingTag = emitted[Math.Min(renderedFrames, emitted.Length - 1)];
+        var alignmentMs = (soundingTag - wallFrames) * UsPerFrame / 1000.0;
 
         var stats = buffer.GetStats();
         var net = stats.SamplesInsertedForSync - stats.SamplesDroppedForSync;
@@ -150,13 +197,14 @@ public class MultiRoomSyncAlignmentTests
         _output.WriteLine(
             $"prefill={prefillMicros / 1000.0:F0}ms calib={calibratedStartupMicros / 1000.0:F0}ms -> " +
             $"inserted={stats.SamplesInsertedForSync} dropped={stats.SamplesDroppedForSync} " +
-            $"net={net} samples ({netMs:F1}ms) finalErr={buffer.SyncErrorMicroseconds / 1000.0:F1}ms");
+            $"net={net} samples ({netMs:F1}ms) finalErr={buffer.SyncErrorMicroseconds / 1000.0:F1}ms " +
+            $"alignment={alignmentMs:F1}ms");
 
-        return new SessionResult(net, netMs, buffer.SyncErrorMicroseconds / 1000.0);
+        return new SessionResult(net, netMs, buffer.SyncErrorMicroseconds / 1000.0, alignmentMs);
     }
 
-    // A player whose steady-state sync error sits within a small margin of zero is putting sample-T
-    // out at ServerToClientTime(T) — i.e. in sync with every other player on the same server clock.
+    // A player whose absolute alignment sits within a small margin of zero is putting sample-T out
+    // at ServerToClientTime(T) — i.e. in sync with every other player on the same server clock.
     // The margin covers the harness's one-callback (10ms) granularity floor: the simulated DAC reads
     // a whole 10ms chunk before its clock ticks, a quantization of the real prefill effect, not a
     // property of the code under test. The signal we care about is ~100ms vs ~0ms, not the floor.
@@ -167,8 +215,8 @@ public class MultiRoomSyncAlignmentTests
     private const double OutOfSyncThresholdMs = 50.0;
 
     /// <summary>
-    /// Control: with no drift and no startup offset, the player holds the server schedule exactly
-    /// (steady-state sync error ≈ 0). Proves the harness measures real alignment, not noise.
+    /// Control: with no drift, no prefill and no declared latency, the player holds the server
+    /// schedule. Proves the harness measures real alignment, not noise.
     /// </summary>
     [Fact]
     public void ZeroDrift_NoStartupOffset_StaysOnSchedule()
@@ -176,40 +224,80 @@ public class MultiRoomSyncAlignmentTests
         var result = RunDriftFreeSession(prefillMicros: 0, calibratedStartupMicros: 0, seconds: 20);
 
         Assert.True(
-            Math.Abs(result.FinalSyncErrorMs) < InSyncToleranceMs,
-            $"drift-free playback should hold the schedule, but settled {result.FinalSyncErrorMs:F1}ms off");
+            Math.Abs(result.AlignmentErrorMs) < InSyncToleranceMs,
+            $"drift-free playback should hold the schedule, but sat {result.AlignmentErrorMs:F1}ms off");
     }
 
     /// <summary>
-    /// The box: an uncompensated WASAPI-style prefill leaks straight into the external-correction
-    /// path (ReadRaw never captures the startup baseline that the internal path does), leaving this
-    /// player ~100 ms off the server schedule for the whole session — out of sync with other players.
-    /// This is issue #33's "initial slowdown", and the multi-room-sync risk, measured at the code level.
+    /// The box: a prefill the buffer has not been told about leaves this player ~100 ms behind the
+    /// server schedule for the whole session — out of sync with every other player on that clock.
     /// </summary>
+    /// <remarks>
+    /// The reported sync error does not show it. The SDK self-measures the startup residual at the
+    /// end of the grace period and <em>absorbs</em> it, logging "constant offset will not be
+    /// corrected", so <see cref="ITimedAudioBuffer.SyncErrorMicroseconds"/> settles near zero while
+    /// the audio stays 100 ms late. That is why this asserts on measured alignment: an assertion on
+    /// the reported error passes at ~0 ms precisely when the misalignment is worst.
+    /// </remarks>
     [Fact]
-    public void StartupPrefill_Uncompensated_DriftsOffSchedule()
+    public void UndeclaredPrefill_LeavesThePlayerOffSchedule()
     {
         var result = RunDriftFreeSession(prefillMicros: 100_000, calibratedStartupMicros: 0, seconds: 20);
 
         Assert.True(
-            Math.Abs(result.FinalSyncErrorMs) > OutOfSyncThresholdMs,
-            $"expected the uncompensated prefill to leave the player far off schedule, " +
-            $"got {result.FinalSyncErrorMs:F1}ms (net correction {result.NetCorrectionMs:F1}ms)");
-    }
-
-    /// <summary>
-    /// The fix direction: seeding <see cref="ITimedAudioBuffer.CalibratedStartupLatencyMicroseconds"/>
-    /// with the prefill cancels the constant offset before the corrector ever sees it, so the player
-    /// holds the schedule (sync error ≈ 0). This is what the app must set on the buffer (≈ the WASAPI
-    /// output latency) so it stays in sync with other players from the first second.
-    /// </summary>
-    [Fact]
-    public void StartupPrefill_CompensatedViaCalibratedLatency_StaysOnSchedule()
-    {
-        var result = RunDriftFreeSession(prefillMicros: 100_000, calibratedStartupMicros: 100_000, seconds: 20);
+            Math.Abs(result.AlignmentErrorMs) > OutOfSyncThresholdMs,
+            $"expected an undeclared prefill to leave the player far off schedule, got " +
+            $"{result.AlignmentErrorMs:F1}ms alignment (reported error {result.FinalSyncErrorMs:F1}ms)");
 
         Assert.True(
             Math.Abs(result.FinalSyncErrorMs) < InSyncToleranceMs,
-            $"compensated prefill should hold the schedule, but settled {result.FinalSyncErrorMs:F1}ms off");
+            $"the reported error is expected to look healthy while the player is off schedule — if " +
+            $"this fails the SDK stopped absorbing the residual, and the box above can be reconsidered " +
+            $"(reported {result.FinalSyncErrorMs:F1}ms)");
+    }
+
+    /// <summary>
+    /// The fix, and what the app already does: declaring the output latency on the buffer pre-rolls
+    /// every scheduled start by that much (<c>ScheduledLocalTimeFor</c> subtracts it), so audio
+    /// handed over early still leaves the device on the server's schedule.
+    /// <c>AudioPipeline</c> sets this from <c>IAudioPlayer.OutputLatencyMs</c>, which
+    /// <c>WasapiAudioPlayer</c> resolves through its StreamLatency → DeviceBuffer → Estimated ladder.
+    /// </summary>
+    [Fact]
+    public void DeclaredOutputLatency_CompensatesThePrefill()
+    {
+        var result = RunDriftFreeSession(
+            prefillMicros: 100_000, calibratedStartupMicros: 0, seconds: 20, outputDelayMicros: 100_000);
+
+        Assert.True(
+            Math.Abs(result.AlignmentErrorMs) < InSyncToleranceMs,
+            $"a declared output latency should put the audio back on schedule, but the player sat " +
+            $"{result.AlignmentErrorMs:F1}ms off");
+    }
+
+    /// <summary>
+    /// <see cref="ITimedAudioBuffer.CalibratedStartupLatencyMicroseconds"/> does not move audio.
+    /// </summary>
+    /// <remarks>
+    /// It backdates the error anchor (<c>_playbackStartLocalTime = _scheduledStartLocalTime -
+    /// CalibratedStartupLatency</c>), which changes what the buffer <em>reports</em>, not what the
+    /// device emits or when. Pinned because it is an easy and expensive thing to assume otherwise:
+    /// seeding it does not improve multi-room alignment, and it is not a substitute for declaring
+    /// the output latency. Only <see cref="DeclaredOutputLatency_CompensatesThePrefill"/> does that.
+    /// </remarks>
+    [Fact]
+    public void CalibratedStartupLatency_DoesNotChangeAlignment()
+    {
+        var uncalibrated = RunDriftFreeSession(
+            prefillMicros: 100_000, calibratedStartupMicros: 0, seconds: 20);
+        var calibrated = RunDriftFreeSession(
+            prefillMicros: 100_000, calibratedStartupMicros: 100_000, seconds: 20);
+
+        Assert.Equal(uncalibrated.AlignmentErrorMs, calibrated.AlignmentErrorMs, precision: 1);
+
+        Assert.True(
+            Math.Abs(calibrated.AlignmentErrorMs) > OutOfSyncThresholdMs,
+            $"seeding the calibrated startup latency is not expected to correct alignment, but the " +
+            $"player came out {calibrated.AlignmentErrorMs:F1}ms off");
     }
 }

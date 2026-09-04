@@ -33,6 +33,11 @@ jobs:
       - name: Build
         run: dotnet build -c Release --no-restore
 
+      # The test projects were being compiled by the build above but never executed, so a red
+      # suite could sit unnoticed on a green PR.
+      - name: Test
+        run: dotnet test -c Release --no-build --verbosity normal
+
   # Dev builds - create signed installers for every push to branches
   dev-build:
     runs-on: windows-latest
