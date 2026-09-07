@@ -345,14 +345,46 @@ public class MultiRoomSyncAlignmentTests
     /// A start that arrives after its scheduled time takes <c>SkipStaleAudio</c>, discarding the
     /// audio that can no longer be played and re-deriving the anchor. That re-derivation runs
     /// <c>ScheduledLocalTimeFor</c> a second time, against a head cursor that has already advanced,
-    /// so it is worth pinning that it does not lose or double-count the output-latency pre-roll:
-    /// however late the start, the audio still lands on the server's schedule.
+    /// so it is worth pinning that it does not lose or double-count the output-latency pre-roll.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Scoped to the pre-roll, and to <b>one</b> start. <see cref="RunDriftFreeSession"/> builds a
+    /// single <see cref="TimedAudioBuffer"/> and starts playback once, so nothing here observes what
+    /// repeated starts do. Do not read this as "late starts stay on schedule": that is a claim about
+    /// the general case, and this measures start one.
+    /// </para>
+    /// <para>
+    /// Note also which path is covered. The stale-audio assertion below holds for every case
+    /// including <c>startLateMicros: 0</c>, so <c>SkipStaleAudio</c> runs on every start here —
+    /// declaring an output latency pre-rolls the schedule past the grace window, and this harness
+    /// cannot construct an ordinary start at all. Both limits are properties of the harness rather
+    /// than of the code under test, and both are checkable from this file.
+    /// </para>
+    /// <para>
+    /// They matter because the failure that prompted windowsSpin#63 lives in exactly what is not
+    /// covered: on a capture rig putting this player and the C++ CLI on one timebase, ordinary
+    /// stream restarts displace the .NET side permanently and cumulatively, so the error grows with
+    /// every track rather than settling. Two C++ instances under the same conditions stay bounded.
+    /// Two details are worth having here rather than only in the tracker, because they decide
+    /// whether a reproducer works at all: it is the stop/start cycle that displaces, while seeking
+    /// barely registers, and it reproduces on Linux/OpenAL, so it is the SDK's shared startup path
+    /// and not WASAPI. Covering it needs repeated starts against one timebase, asserting the
+    /// displacement after N restarts is not N times worse than after one — a different harness, not
+    /// another case, which is why the gap is recorded rather than filled.
+    /// </para>
+    /// <para>
+    /// Deliberately no mechanism here. Four candidates have looked settled and then failed a
+    /// disconfirming check — the resampler ratio, the absorbed startup baseline, the stale-start
+    /// branch, and the restart count — so the live diagnosis belongs in sendspin-dotnet#272, not in
+    /// a comment that cannot be re-run. What is stated above is what was measured.
+    /// </para>
+    /// </remarks>
     [Theory]
     [InlineData(0)]
     [InlineData(200_000)]
     [InlineData(500_000)]
-    public void LateStart_WithDeclaredOutputLatency_StaysOnSchedule(long startLateMicros)
+    public void LateStart_PreservesTheOutputLatencyPreRoll(long startLateMicros)
     {
         var result = RunDriftFreeSession(
             prefillMicros: 100_000, calibratedStartupMicros: 0, seconds: 20,
@@ -362,8 +394,8 @@ public class MultiRoomSyncAlignmentTests
 
         Assert.True(
             Math.Abs(result.AlignmentErrorMs) < InSyncToleranceMs,
-            $"a start {startLateMicros / 1000}ms late should still land on schedule, but the player " +
-            $"sat {result.AlignmentErrorMs:F1}ms off");
+            $"a start {startLateMicros / 1000}ms late should keep the output-latency pre-roll, but " +
+            $"the player sat {result.AlignmentErrorMs:F1}ms off on its first start");
     }
 
     /// <summary>
@@ -377,6 +409,15 @@ public class MultiRoomSyncAlignmentTests
     /// schedule. Reading a baseline in a log as a misalignment is the same self-report trap as
     /// treating <c>error=+0.00ms</c> as "aligned", and it is the reason a live session showing
     /// "Captured startup (raw) sync-error baseline: -95.5ms" is not by itself evidence of a bug.
+    /// <para>
+    /// Three independent hardware measurements have since agreed with this, from different
+    /// directions: pairing each restart's baseline against its measured displacement (no
+    /// correlation, and displacements of both signs against a near-constant baseline); counting how
+    /// often the outsized baselines occur at all (once in 29 starts, against displacement on nearly
+    /// all of them); and splitting restarts by kind (identical mean baseline either side of a
+    /// tenfold difference in displacement). The absorbed value stays put while the displacement
+    /// varies, which is the same statement this test makes in simulation.
+    /// </para>
     /// </remarks>
     [Fact]
     public void AbsorbedStartupBaseline_IsNotMisalignment()
