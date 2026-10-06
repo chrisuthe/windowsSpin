@@ -599,7 +599,8 @@ public partial class MainViewModel : ViewModelBase
         IUserSettingsService settingsService,
         SyncHealthMonitor syncHealthMonitor,
         PairingCodePresenter pairingCodePresenter,
-        OutputLatencyReporter outputLatencyReporter)
+        OutputLatencyReporter outputLatencyReporter,
+        OutputDelayStore outputDelayStore)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -644,6 +645,7 @@ public partial class MainViewModel : ViewModelBase
         _hostService.ServerDisconnected += OnServerDisconnected;
         _hostService.GroupStateChanged += OnGroupStateChanged;
         _hostService.PlayerStateChanged += OnPlayerStateChanged;
+        outputDelayStore.Saved += OnOutputDelaySavedBySdk;
         _hostService.ArtworkReceived += OnArtworkReceived;
         _hostService.ArtworkCleared += OnArtworkCleared;
         _hostService.ColorChanged += OnColorChanged;
@@ -1007,21 +1009,25 @@ public partial class MainViewModel : ViewModelBase
     /// Sends the current player state (volume, muted) to the server.
     /// This notifies Music Assistant of our current volume/mute state.
     /// </summary>
-    private async Task SendPlayerStateToActiveClientAsync(int volume, bool muted)
+    /// <param name="volume">Current volume level (0-100).</param>
+    /// <param name="muted">Current mute state.</param>
+    /// <param name="outputDelayMs">
+    /// A new output delay the user chose, or null for a volume or mute change. The SDK applies
+    /// and persists a supplied delay, so passing one here would overwrite a delay the server set.
+    /// </param>
+    private async Task SendPlayerStateToActiveClientAsync(int volume, bool muted, double? outputDelayMs = null)
     {
-        var outputDelay = SettingsOutputDelayMs;
-
         // Prefer manual client (discovery/manual connection mode)
         if (_manualClient?.ConnectionState == ConnectionState.Connected)
         {
             _logger.LogDebug("Sending player state via manual client: Volume={Volume}, Muted={Muted}", volume, muted);
-            await _manualClient.SendPlayerStateAsync(volume, muted, outputDelay);
+            await _manualClient.SendPlayerStateAsync(volume, muted, outputDelayMs);
         }
         // Fall back to host service (server-initiated connection mode)
         else if (ConnectedServers.Count > 0)
         {
             _logger.LogDebug("Sending player state via host service: Volume={Volume}, Muted={Muted}", volume, muted);
-            await _hostService.SendPlayerStateAsync(volume, muted, outputDelay);
+            await _hostService.SendPlayerStateAsync(volume, muted, outputDelayMs);
         }
         else
         {
@@ -1665,6 +1671,26 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Handles an output delay the SDK saved, which is how a server-set delay
+    /// (server/command set_output_delay) reaches the slider. The store has already persisted it.
+    /// </summary>
+    private void OnOutputDelaySavedBySdk(double outputDelayMs)
+    {
+        App.Current.Dispatcher.BeginInvoke(() =>
+        {
+            _isUpdatingFromServer = true;
+            try
+            {
+                SettingsOutputDelayMs = outputDelayMs;
+            }
+            finally
+            {
+                _isUpdatingFromServer = false;
+            }
+        });
+    }
+
+    /// <summary>
     /// Persists the last-played server ID when it changes.
     /// This is used for tie-breaking when multiple servers try to connect.
     /// </summary>
@@ -2018,8 +2044,16 @@ public partial class MainViewModel : ViewModelBase
         // (valid range 0-5000) and drops the connection. Clamp before applying/persisting.
         value = Math.Max(0, value);
 
+        // A server-set delay arrives here through OnOutputDelaySavedBySdk. The SDK has already
+        // applied it and acknowledged it to the server, so it is neither applied nor reported
+        // again; reporting it would send the server's own value back as if the user had chosen it.
+        var changedByUser = !_isUpdatingFromServer;
+
         // Apply delay value immediately (this is cheap)
-        _clockSynchronizer.OutputDelayMs = value;
+        if (changedByUser)
+        {
+            _clockSynchronizer.OutputDelayMs = value;
+        }
 
         // Debounce the re-anchor - only apply after the user stops adjusting the slider.
         // Re-anchor (not Clear): applies the new delay to the already-buffered audio in place.
@@ -2039,11 +2073,22 @@ public partial class MainViewModel : ViewModelBase
                 {
                     _audioPipeline.ReanchorTiming();
                     _logger.LogDebug("Output delay changed to {DelayMs}ms, sync timing re-anchored (buffer preserved)", value);
+
+                    // Tell the server, so it schedules with the new delay now rather than
+                    // after the next reconnect.
+                    if (changedByUser && IsConnected)
+                    {
+                        await SendPlayerStateToActiveClientAsync(Volume, IsMuted, value);
+                    }
                 }
             }
             catch (OperationCanceledException)
             {
                 // Slider still being adjusted, ignore
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send output delay change");
             }
         });
 

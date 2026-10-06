@@ -16,6 +16,7 @@ using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
 using Sendspin.Windows.Services.Audio;
+using Sendspin.Windows.Services.Configuration;
 using Sendspin.Windows.Services.Discord;
 using Sendspin.Windows.Services.MediaControls;
 using Sendspin.Windows.Services.Models;
@@ -451,10 +452,23 @@ public partial class App : Application
         // reaches 10, and FilePairingCodeLockoutStore persists that across restarts.
         services.AddSingleton<PairingWindow>();
 
+        // Output delay persistence for the SDK, backed by the same user setting as the delay
+        // slider. The configuration reloads when the user settings file changes, so Load sees
+        // what either the slider or the server last saved.
+        services.AddSingleton(sp =>
+        {
+            var settingsService = sp.GetRequiredService<IUserSettingsService>();
+            return new OutputDelayStore(
+                () => _configuration!.ReadOutputDelayMs(),
+                value => settingsService.UpdateSettingAsync("Audio", "OutputDelayMs", value),
+                sp.GetRequiredService<ILogger<OutputDelayStore>>());
+        });
+
         // Client options shared by both connection modes (host service and manual client),
         // so both present the same identity, pairing records, capabilities, and audio pipeline
         services.AddSingleton(sp => new SendspinClientOptions
         {
+            OutputDelayStore = sp.GetRequiredService<OutputDelayStore>(),
             Identity = sp.GetRequiredService<SendspinIdentity>(),
             PairingRecordStore = sp.GetRequiredService<IPairingRecordStore>(),
             Capabilities = sp.GetRequiredService<ClientCapabilities>(),
