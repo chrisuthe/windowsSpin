@@ -71,6 +71,12 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     private const int RequestedLatencyMs = 100;
     private const int WindowsAudioEngineOverheadMs = 15;
 
+    /// <summary>
+    /// The output latency assumed before the device has been measured: the requested latency plus
+    /// assumed engine overhead. Also what the app tells the SDK to expect before a player exists.
+    /// </summary>
+    public const int EstimatedOutputLatencyMs = RequestedLatencyMs + WindowsAudioEngineOverheadMs;
+
     private readonly OutputLatencyReporter? _latencyReporter;
 
     /// <summary>
@@ -897,7 +903,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// </remarks>
     /// <returns>The estimated reading.</returns>
     private static OutputLatencyReading EstimatedOutputLatency() =>
-        new(RequestedLatencyMs + WindowsAudioEngineOverheadMs, OutputLatencyProvenance.Estimated);
+        new(EstimatedOutputLatencyMs, OutputLatencyProvenance.Estimated);
 
     /// <summary>
     /// Records a resolved output latency as the player's current value and publishes it.

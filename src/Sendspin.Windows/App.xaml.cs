@@ -281,6 +281,10 @@ public partial class App : Application
                     BufferCapacity = visualizerBufferCapacity,
                 }
                 : null,
+
+            // WASAPI shared mode prefills its output buffer at start. The SDK adds this to the
+            // lead times it reports until the player has measured the real figure.
+            ExpectedOutputLatencyMs = WasapiAudioPlayer.EstimatedOutputLatencyMs,
         };
 
         Log.Information(
