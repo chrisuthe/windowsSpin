@@ -353,12 +353,16 @@ public partial class App : Application
         // could disagree about whether a resampler is in the chain.
         syncOptions.Mechanism = mechanism;
         services.AddSingleton(syncOptions);
+        // The player is transient and the stats view model holds only the pipeline, so the
+        // resolved output latency (and whether it was measured at all) travels through this.
+        services.AddSingleton<OutputLatencyReporter>();
 
         services.AddTransient<IAudioPlayer>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<WasapiAudioPlayer>>();
             var currentDeviceId = _configuration!.GetValue<string?>("Audio:DeviceId");
-            return new WasapiAudioPlayer(logger, currentDeviceId, mechanism, useDeviceClock);
+            var latencyReporter = sp.GetRequiredService<OutputLatencyReporter>();
+            return new WasapiAudioPlayer(logger, currentDeviceId, mechanism, useDeviceClock, latencyReporter);
         });
 
         // Audio pipeline - orchestrates decoder, buffer, and player

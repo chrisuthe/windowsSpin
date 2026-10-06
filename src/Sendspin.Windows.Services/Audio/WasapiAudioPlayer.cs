@@ -40,7 +40,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     private AudioFormat? _format;
     private float _volume = 1.0f;
     private bool _isMuted;
-    private int _outputLatencyMs;
+    private OutputLatencyReading? _outputLatency;
     private int _deviceNativeSampleRate = 48000;
 
     // Optional WASAPI device clock as the sync-timing source (issue #33). OFF by default: the device
@@ -71,11 +71,18 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     private const int RequestedLatencyMs = 100;
     private const int WindowsAudioEngineOverheadMs = 15;
 
+    private readonly OutputLatencyReporter? _latencyReporter;
+
     /// <summary>
     /// Gets the detected output latency in milliseconds.
     /// This is the buffer latency reported by the WASAPI audio device.
     /// </summary>
-    public int OutputLatencyMs => _outputLatencyMs;
+    /// <remarks>
+    /// Read from the same reading the reporter publishes, under <see cref="Volatile"/>. The SDK
+    /// subtracts this from the sync error on a different thread to the one that resolves it, so a
+    /// plain field leaves no guarantee the pipeline ever sees a device switch's new value.
+    /// </remarks>
+    public int OutputLatencyMs => Volatile.Read(ref _outputLatency)?.LatencyMs ?? 0;
 
     /// <summary>
     /// Gets the native sample rate of the audio output device.
@@ -177,16 +184,22 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// off the shared schedule, so it is opt-in only for genuinely divergent DAC clocks. Falls back
     /// to the wall clock when the device clock is unavailable or misbehaves. See <see cref="DeviceClockAnchor"/>.
     /// </param>
+    /// <param name="latencyReporter">
+    /// Optional sink for the resolved output latency and its provenance, so a display can tell a
+    /// measurement from an estimate. Null in tests and wherever nothing is watching.
+    /// </param>
     public WasapiAudioPlayer(
         ILogger<WasapiAudioPlayer> logger,
         string? deviceId = null,
         SyncCorrectionMechanism mechanism = SyncCorrectionMechanism.SmoothResampling,
-        bool useDeviceClock = false)
+        bool useDeviceClock = false,
+        OutputLatencyReporter? latencyReporter = null)
     {
         _logger = logger;
         _deviceId = deviceId;
         _mechanism = mechanism;
         _useDeviceClock = useDeviceClock;
+        _latencyReporter = latencyReporter;
     }
 
     /// <summary>
@@ -244,16 +257,18 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
                     _wasapiOut.PlaybackStopped += OnPlaybackStopped;
 
-                    // Preliminary estimate for this init log; the real device latency is read from
-                    // IAudioClient.StreamLatency in SetSampleSource, after WasapiOut.Init() runs.
-                    _outputLatencyMs = RequestedLatencyMs + WindowsAudioEngineOverheadMs;
+                    // Placeholder until SetSampleSource can query the client - the same estimate the
+                    // ladder's bottom tier produces, so the two paths can never disagree. Querying
+                    // before Init() throws AUDCLNT_E_NOT_INITIALIZED.
+                    SetOutputLatency(EstimatedOutputLatency());
 
                     SetState(AudioPlayerState.Stopped);
                     _logger.LogInformation(
-                        "WASAPI player initialized: {SampleRate}Hz {Channels}ch, latency: {Latency}ms, device: {Device}",
+                        "WASAPI player initialized: {SampleRate}Hz {Channels}ch, latency: {Latency}ms ({Provenance}), device: {Device}",
                         format.SampleRate,
                         format.Channels,
-                        _outputLatencyMs,
+                        OutputLatencyMs,
+                        OutputLatencyProvenance.Estimated,
                         device?.FriendlyName ?? "System Default");
                 }
                 catch (Exception ex)
@@ -312,7 +327,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
         // Now that Init() has initialized the underlying AudioClient, read the real device latency.
         // Querying earlier throws AUDCLNT_E_NOT_INITIALIZED and falls back to an estimate.
-        _outputLatencyMs = GetActualOutputLatency(_wasapiOut, RequestedLatencyMs);
+        SetOutputLatency(GetActualOutputLatency(_wasapiOut));
     }
 
     /// <summary>
@@ -498,7 +513,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                     }
 
                     // Read the real device latency now that Init() has initialized the AudioClient.
-                    _outputLatencyMs = GetActualOutputLatency(_wasapiOut, RequestedLatencyMs);
+                    SetOutputLatency(GetActualOutputLatency(_wasapiOut));
 
                     SetState(AudioPlayerState.Stopped);
 
@@ -513,7 +528,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                     _logger.LogInformation(
                         "Audio device switched successfully: {Device}, latency: {Latency}ms",
                         device?.FriendlyName ?? "System Default",
-                        _outputLatencyMs);
+                        OutputLatencyMs);
                 }
                 catch (Exception ex)
                 {
@@ -707,63 +722,194 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     }
 
     /// <summary>
-    /// Gets the actual output latency from the WASAPI audio client.
+    /// Queries the initialized audio client for whatever it can say about output latency, and hands
+    /// it to <see cref="ResolveOutputLatency"/> to be turned into a reading.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// NAudio's WasapiOut doesn't directly expose the StreamLatency property from the
-    /// underlying AudioClient. We use reflection to access it when possible, falling
-    /// back to the requested latency plus a safety margin for Windows Audio Engine overhead.
-    /// </para>
-    /// <para>
-    /// In shared mode, Windows Audio Engine adds additional buffering (~10-20ms) on top
-    /// of the requested latency. The StreamLatency property accounts for this overhead.
-    /// </para>
+    /// NAudio's WasapiOut does not expose the underlying AudioClient, so both figures are reached by
+    /// reflection. Anything unavailable is passed along as zero and the ladder decides what that
+    /// means - this method deliberately makes no judgement of its own, which keeps the policy in one
+    /// testable place.
     /// </remarks>
-    /// <param name="wasapiOut">The WasapiOut instance to query.</param>
-    /// <param name="requestedLatencyMs">The latency we requested when creating WasapiOut.</param>
-    /// <returns>The actual output latency in milliseconds.</returns>
-    private int GetActualOutputLatency(WasapiOut wasapiOut, int requestedLatencyMs)
+    /// <param name="wasapiOut">The initialized WasapiOut instance to query.</param>
+    /// <returns>The resolved latency and how it was obtained.</returns>
+    private OutputLatencyReading GetActualOutputLatency(WasapiOut wasapiOut)
+    {
+        var audioClient = TryGetAudioClient(wasapiOut);
+        if (audioClient == null)
+        {
+            return ResolveOutputLatency(0, 0, 0, _logger);
+        }
+
+        // Each probe is guarded separately: a driver that rejects StreamLatency must still be able
+        // to supply a buffer size, which is the entire point of having a second measured tier.
+        var streamLatency100Ns = TryProbe(() => audioClient.StreamLatency, "StreamLatency");
+        var bufferFrames = (int)TryProbe(() => audioClient.BufferSize, "BufferSize");
+
+        // BufferSize counts frames of the format the client was INITIALIZED with, which is not
+        // necessarily the device's mix format: in shared mode NAudio passes our provider's format
+        // through verbatim with AUTOCONVERTPCM and lets the engine convert. Under SmoothResampling
+        // that provider is the device-rate chain, already at the device rate; under FrameStepping
+        // it is the source, at the stream rate. Dividing by the device rate in the latter case would
+        // report a quarter of the real latency for a 48 kHz stream on a 192 kHz device - the same
+        // rate-domain confusion as the resampler defect this change set exists to fix.
+        var bufferRate = wasapiOut.OutputWaveFormat?.SampleRate ?? _deviceNativeSampleRate;
+
+        return ResolveOutputLatency(streamLatency100Ns, bufferFrames, bufferRate, _logger);
+    }
+
+    /// <summary>
+    /// Reaches NAudio's private audio client by reflection.
+    /// </summary>
+    /// <param name="wasapiOut">The initialized WasapiOut instance.</param>
+    /// <returns>The audio client, or <see langword="null"/> if it could not be reached.</returns>
+    private AudioClient? TryGetAudioClient(WasapiOut wasapiOut)
     {
         try
         {
-            // Try to get the actual stream latency via reflection
-            // WasapiOut has a private 'audioClient' field of type AudioClient
             var audioClientField = typeof(WasapiOut).GetField(
                 "audioClient",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
             if (audioClientField?.GetValue(wasapiOut) is AudioClient audioClient)
             {
-                // StreamLatency is in 100-nanosecond units, convert to milliseconds
-                var streamLatency = audioClient.StreamLatency;
-                var latencyMs = (int)(streamLatency / 10000);
-
-                _logger.LogDebug(
-                    "WASAPI StreamLatency: {StreamLatency} (100ns units) = {LatencyMs}ms",
-                    streamLatency,
-                    latencyMs);
-
-                // Ensure we return at least the requested latency
-                return Math.Max(latencyMs, requestedLatencyMs);
+                return audioClient;
             }
+
+            _logger.LogWarning("WasapiOut's audioClient field was not reachable by reflection");
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to query WASAPI StreamLatency via reflection, using fallback");
+            _logger.LogWarning(ex, "Failed to reach the WASAPI audio client by reflection");
         }
 
-        // Fallback: use requested latency plus typical Windows Audio Engine overhead
-        // In shared mode, Windows adds ~10-20ms of additional buffering
-        var fallbackLatency = requestedLatencyMs + WindowsAudioEngineOverheadMs;
+        return null;
+    }
 
-        _logger.LogDebug(
-            "Using fallback output latency: {Latency}ms (requested: {Requested}ms + overhead: {Overhead}ms)",
-            fallbackLatency,
-            requestedLatencyMs,
+    /// <summary>
+    /// Runs one latency probe, yielding 0 if the driver rejects it.
+    /// </summary>
+    /// <param name="probe">The property read to attempt.</param>
+    /// <param name="name">The probe's name, for the log line.</param>
+    /// <returns>The probed value, or 0 on failure.</returns>
+    private long TryProbe(Func<long> probe, string name)
+    {
+        try
+        {
+            return probe();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "WASAPI {Probe} probe failed", name);
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Turns whatever the audio client was willing to report into an output latency plus its
+    /// provenance.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Three tiers, most trustworthy first:
+    /// </para>
+    /// <list type="number">
+    /// <item><c>IAudioClient.StreamLatency</c>, when it reports anything at all - measured.</item>
+    /// <item>The initialized client's buffer frame count over the device rate - measured. Some
+    /// devices (the 192 kHz DAC in issue #73 among them) report a zero stream latency but a
+    /// perfectly good buffer size.</item>
+    /// <item>The requested latency plus assumed engine overhead - a guess, and labelled as one.</item>
+    /// </list>
+    /// <para>
+    /// A non-positive <c>StreamLatency</c> is a FAILED read, not a small number. It used to be run
+    /// through <c>Math.Max(latencyMs, requestedLatencyMs)</c>, which laundered a zero into exactly
+    /// the requested 100 ms - indistinguishable downstream from a device that really did report
+    /// 100 ms, and logged at debug so nobody saw it happen.
+    /// </para>
+    /// </remarks>
+    /// <param name="streamLatency100Ns">The client's reported stream latency in 100 ns units, or 0 if unavailable.</param>
+    /// <param name="bufferFrames">The client's buffer size in frames, or 0 if unavailable.</param>
+    /// <param name="bufferSampleRate">
+    /// The rate <paramref name="bufferFrames"/> is counted in, in Hz - that is, the rate of the
+    /// format the audio client was initialized with, which is not always the device's mix rate.
+    /// </param>
+    /// <param name="logger">Optional logger; the estimated tier logs a warning.</param>
+    /// <returns>The resolved latency and how it was obtained.</returns>
+    public static OutputLatencyReading ResolveOutputLatency(
+        long streamLatency100Ns,
+        int bufferFrames,
+        int bufferSampleRate,
+        ILogger? logger = null)
+    {
+        if (streamLatency100Ns > 0)
+        {
+            // Rounded, not truncated: truncation biases every reading ~0.5 ms low on average, and
+            // this figure is subtracted from the sync error, so that bias lands as a constant offset -
+            // a smaller instance of exactly the defect this ladder exists to remove.
+            var latencyMs = (int)Math.Round(streamLatency100Ns / 10000.0, MidpointRounding.AwayFromZero);
+            logger?.LogDebug(
+                "Output latency from StreamLatency: {StreamLatency} (100ns units) = {LatencyMs}ms",
+                streamLatency100Ns,
+                latencyMs);
+            return new OutputLatencyReading(latencyMs, OutputLatencyProvenance.StreamLatency);
+        }
+
+        if (bufferFrames > 0 && bufferSampleRate > 0)
+        {
+            var latencyMs = (int)Math.Round(bufferFrames * 1000.0 / bufferSampleRate, MidpointRounding.AwayFromZero);
+
+            // Warning, not debug. The primary probe failed on this device, and the shipped default
+            // log level is Warning, so at debug the fact would never reach a user's log - which is
+            // how the 100 ms substitution in #73 stayed invisible for so long. The condition is
+            // recovered rather than fatal, which is what Warning means in this codebase.
+            logger?.LogWarning(
+                "WASAPI StreamLatency reported nothing on this device; measured output latency from " +
+                "the client buffer instead: {Frames} frames at {Rate}Hz = {LatencyMs}ms",
+                bufferFrames,
+                bufferSampleRate,
+                latencyMs);
+            return new OutputLatencyReading(latencyMs, OutputLatencyProvenance.DeviceBuffer);
+        }
+
+        var estimated = EstimatedOutputLatency();
+        logger?.LogWarning(
+            "Output latency could not be measured (StreamLatency {StreamLatency}, buffer {Frames} frames, " +
+            "buffer rate {Rate}Hz); ESTIMATING {LatencyMs}ms from the requested {Requested}ms + " +
+            "{Overhead}ms assumed engine overhead. Sync error is compensated with this number, so a " +
+            "wrong estimate shows up as a constant offset against other players.",
+            streamLatency100Ns,
+            bufferFrames,
+            bufferSampleRate,
+            estimated.LatencyMs,
+            RequestedLatencyMs,
             WindowsAudioEngineOverheadMs);
 
-        return fallbackLatency;
+        return estimated;
+    }
+
+    /// <summary>
+    /// The bottom tier of the latency ladder: the requested latency plus assumed engine overhead.
+    /// </summary>
+    /// <remarks>
+    /// Shared by the pre-<c>Init()</c> placeholder and <see cref="ResolveOutputLatency"/>'s fallback
+    /// so that a player which never manages a measurement reports one number throughout, rather than
+    /// the 115 / 100 disagreement the two paths used to produce.
+    /// </remarks>
+    /// <returns>The estimated reading.</returns>
+    private static OutputLatencyReading EstimatedOutputLatency() =>
+        new(RequestedLatencyMs + WindowsAudioEngineOverheadMs, OutputLatencyProvenance.Estimated);
+
+    /// <summary>
+    /// Records a resolved output latency as the player's current value and publishes it.
+    /// </summary>
+    /// <param name="reading">The reading to adopt.</param>
+    private void SetOutputLatency(OutputLatencyReading reading)
+    {
+        // One reading, published as one reference, so the value and the provenance can never be
+        // read apart. Storing the milliseconds separately would reintroduce the split this ladder
+        // exists to close: a caller could see a measured figure still labelled an estimate.
+        Volatile.Write(ref _outputLatency, reading);
+        _latencyReporter?.Report(reading);
     }
 
     /// <summary>
