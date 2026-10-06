@@ -1692,7 +1692,7 @@ public partial class MainViewModel : ViewModelBase
     /// server gave up. Tell the operator to open the pairing dialog, which opens the window.
     /// </summary>
     /// <remarks>
-    /// dynamic_pin reaches here once its failure counter hits the spec's escalation threshold
+    /// dynamic_pairing_code reaches here once its failure counter hits the spec's escalation threshold
     /// of 10, and FilePairingCodeLockoutStore persists that across restarts — so this fires on a
     /// device that paired fine for weeks, not only on a fresh one.
     /// Raised on a connection's receive thread; SetError marshals its own UI work.
@@ -2014,7 +2014,7 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     partial void OnSettingsOutputDelayMsChanged(double value)
     {
-        // Output delay must be non-negative — the server rejects a negative static_delay_ms
+        // Output delay must be non-negative — the server rejects a negative output_delay_ms
         // (valid range 0-5000) and drops the connection. Clamp before applying/persisting.
         value = Math.Max(0, value);
 
@@ -3071,7 +3071,7 @@ public partial class MainViewModel : ViewModelBase
         {
             // Opening this dialog IS the operator gesture the spec asks for: a deliberate,
             // local action that cannot be induced remotely. It admits exactly one gesture-gated
-            // attempt (static_pin always, dynamic_pin once escalated) and lapses after the
+            // attempt (static_pairing_code always, dynamic_pairing_code once escalated) and lapses after the
             // window's lifetime, so leaving it open is not a standing invitation.
             _clientOptions.PairingWindow?.Open();
             _logger.LogInformation("Pairing window opened by operator gesture");

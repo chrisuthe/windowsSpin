@@ -241,6 +241,10 @@ public partial class App : Application
         var visualizerRateMax = _configuration!.GetValue<int>("Visualizer:RateMax", 30);
         var visualizerBufferCapacity = _configuration!.GetValue<int>("Visualizer:BufferCapacity", 4096);
 
+        // A zero in either makes the server reject the whole client, so a config that zeroes one
+        // drops the visualizer role instead of advertising it.
+        var advertiseVisualizer = visualizerRateMax > 0 && visualizerBufferCapacity > 0;
+
         // Unpaired access: when true, the client admits servers it has no pairing record for
         // over the encrypted protocol, which leaves the session open to a man-in-the-middle
         // on the local network. Off by default; exists for bring-up and testing only.
@@ -266,14 +270,17 @@ public partial class App : Application
 
             // Offer dynamic pairing code alongside the mandatory Pairing PSK method: the
             // operator reads a pairing code off this app's dialog and types it into the server.
-            // MinPairingCodeLength (6) and PairingCodeOutChannels (["display"]) keep their SDK defaults.
-            PairingCodeMethods = new List<string> { "dynamic_pin" },
-            VisualizerSupport = new VisualizerSupport
-            {
-                Types = new List<string> { VisualizerTypes.Loudness, VisualizerTypes.Beat },
-                RateMax = visualizerRateMax,
-                BufferCapacity = visualizerBufferCapacity,
-            },
+            // PairingCodeOutChannels (["display"]) keeps its SDK default; the code length is fixed
+            // by the spec.
+            PairingCodeMethods = new List<string> { PairMethods.DynamicPairingCode },
+            VisualizerRoleSupport = advertiseVisualizer
+                ? new VisualizerRoleSupport
+                {
+                    Types = new List<string> { VisualizerTypes.Loudness, VisualizerTypes.Beat },
+                    RateMax = visualizerRateMax,
+                    BufferCapacity = visualizerBufferCapacity,
+                }
+                : null,
         };
 
         Log.Information(
@@ -282,7 +289,7 @@ public partial class App : Application
 
         // Add the visualizer@v1 role so the server streams loudness/beat frames.
         // (color@v1 is included in the SDK's default roles and needs no explicit add.)
-        if (!clientCapabilities.Roles.Contains("visualizer@v1"))
+        if (advertiseVisualizer && !clientCapabilities.Roles.Contains("visualizer@v1"))
         {
             clientCapabilities.Roles.Add("visualizer@v1");
         }
@@ -436,7 +443,7 @@ public partial class App : Application
         // and the manual client must share this instance. Without it every gesture-gated
         // attempt waits forever — a null window reads as permanently closed, and the SDK
         // arms no timeout for the wait, so the app would sit on client/pair-pending with
-        // nothing shown to the operator. dynamic_pin is gated once its failure counter
+        // nothing shown to the operator. dynamic_pairing_code is gated once its failure counter
         // reaches 10, and FilePairingCodeLockoutStore persists that across restarts.
         services.AddSingleton<PairingWindow>();
 

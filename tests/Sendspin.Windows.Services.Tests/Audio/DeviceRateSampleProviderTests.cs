@@ -95,10 +95,6 @@ public class DeviceRateSampleProviderTests
     {
         public SyncCorrectionMode CurrentMode { get; set; } = SyncCorrectionMode.Resampling;
 
-        public int DropEveryNFrames => 0;
-
-        public int InsertEveryNFrames => 0;
-
         public double TargetPlaybackRate { get; set; } = 1.0;
 
         public event Action<ISyncCorrectionProvider>? CorrectionChanged;
