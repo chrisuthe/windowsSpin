@@ -43,6 +43,13 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     private OutputLatencyReading? _outputLatency;
     private int _deviceNativeSampleRate = 48000;
 
+    // What GetCurrentOutputLatencyMicroseconds needs, resolved once after Init() so the audio thread
+    // never reflects: the initialized client, the rate its frame counts are in, and the device's
+    // latency after its queue. One reference, so the audio thread can never pair one device's client
+    // with another's rate. Null whenever there is no initialized output.
+    private QueuedLatencyProbe? _queuedLatencyProbe;
+    private int _currentLatencyFailureLogged;
+
     // Optional WASAPI device clock as the sync-timing source (issue #33). OFF by default: the device
     // clock reads the DAC-rendered position, which permanently lags the samples read from our buffer
     // by the ~100ms WASAPI prefill, producing a constant -100ms sync error that pushes the player off
@@ -127,6 +134,88 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
     /// <inheritdoc/>
     public AudioPlayerState State { get; private set; } = AudioPlayerState.Uninitialized;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// NAudio fills the whole device buffer once before starting the device and then tops up whatever
+    /// is free on each wake, so a sample waits behind what is queued ahead of it: nothing on the first
+    /// fill, most of the buffer afterwards. <see cref="OutputLatencyMs"/> is one fixed figure and
+    /// cannot say which; this reads the queue as it is now.
+    /// </para>
+    /// <para>
+    /// Runs on the audio thread: one <c>GetCurrentPadding</c> call and arithmetic. Any failure yields
+    /// <see langword="null"/>, which sends the SDK back to <see cref="OutputLatencyMs"/>.
+    /// </para>
+    /// </remarks>
+    public long? GetCurrentOutputLatencyMicroseconds()
+    {
+        var probe = Volatile.Read(ref _queuedLatencyProbe);
+        if (probe == null)
+        {
+            LogCurrentLatencyFailureOnce(null, "no initialized audio client");
+            return null;
+        }
+
+        int queuedFrames;
+        try
+        {
+            queuedFrames = probe.Client.CurrentPadding;
+        }
+        catch (Exception ex)
+        {
+            LogCurrentLatencyFailureOnce(ex, "CurrentPadding read failed");
+            return null;
+        }
+
+        var latency = ComputeCurrentOutputLatencyMicroseconds(queuedFrames, probe.SampleRate, probe.FixedLatencyMicroseconds);
+        if (latency == null)
+        {
+            LogCurrentLatencyFailureOnce(null, "queued frame count or client rate was not usable");
+        }
+
+        return latency;
+    }
+
+    /// <summary>
+    /// The delay a sample handed to the device now will see: the frames queued ahead of it, plus the
+    /// device's fixed latency after its queue.
+    /// </summary>
+    /// <param name="queuedFrames">Frames queued in the device and not yet played.</param>
+    /// <param name="sampleRate">The rate <paramref name="queuedFrames"/> is counted in, in Hz.</param>
+    /// <param name="fixedLatencyMicroseconds">The device's latency after its queue.</param>
+    /// <returns>
+    /// The latency in microseconds, or <see langword="null"/> if the rate is not positive or the
+    /// frame count is negative.
+    /// </returns>
+    public static long? ComputeCurrentOutputLatencyMicroseconds(
+        int queuedFrames,
+        int sampleRate,
+        long fixedLatencyMicroseconds)
+    {
+        if (sampleRate <= 0 || queuedFrames < 0)
+        {
+            return null;
+        }
+
+        return (queuedFrames * 1_000_000L / sampleRate) + fixedLatencyMicroseconds;
+    }
+
+    /// <summary>
+    /// Logs the first failed current-latency read and stays silent after it, until the next output is
+    /// measured: the caller is the audio thread, which would otherwise log on every read.
+    /// </summary>
+    private void LogCurrentLatencyFailureOnce(Exception? ex, string reason)
+    {
+        if (Interlocked.Exchange(ref _currentLatencyFailureLogged, 1) == 0)
+        {
+            _logger.LogWarning(
+                ex,
+                "Current output latency unavailable ({Reason}); the SDK will use the fixed {LatencyMs}ms instead",
+                reason,
+                OutputLatencyMs);
+        }
+    }
 
     /// <inheritdoc/>
     /// <remarks>
@@ -455,6 +544,8 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                         _wasapiOut = null;
                     }
 
+                    Volatile.Write(ref _queuedLatencyProbe, null);
+
                     // The cached IAudioClock belongs to the disposed device; drop it and re-anchor so
                     // the new device's clock baseline is picked up cleanly (handled again on Playing,
                     // but cleared here too in case the switch happens while stopped). Also clear the
@@ -563,6 +654,8 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
             _wasapiOut.Dispose();
             _wasapiOut = null;
         }
+
+        Volatile.Write(ref _queuedLatencyProbe, null);
 
         DisposeCorrectionSource();
         _sampleProvider = null;
@@ -744,6 +837,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         var audioClient = TryGetAudioClient(wasapiOut);
         if (audioClient == null)
         {
+            Volatile.Write(ref _queuedLatencyProbe, null);
             return ResolveOutputLatency(0, 0, 0, _logger);
         }
 
@@ -761,8 +855,23 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         // rate-domain confusion as the resampler defect this change set exists to fix.
         var bufferRate = wasapiOut.OutputWaveFormat?.SampleRate ?? _deviceNativeSampleRate;
 
+        // Keep what the audio thread needs to read the queue for itself. CurrentPadding is counted
+        // in the same frames as BufferSize, so it takes the same rate; the latency after the queue is
+        // the driver's own figure when it reports one, the assumed engine overhead otherwise.
+        var fixedLatencyMicros = streamLatency100Ns > 0
+            ? streamLatency100Ns / 10
+            : WindowsAudioEngineOverheadMs * 1000L;
+        Volatile.Write(ref _queuedLatencyProbe, new QueuedLatencyProbe(audioClient, bufferRate, fixedLatencyMicros));
+        Interlocked.Exchange(ref _currentLatencyFailureLogged, 0);
+
         return ResolveOutputLatency(streamLatency100Ns, bufferFrames, bufferRate, _logger);
     }
+
+    /// <summary>
+    /// The initialized audio client and the two constants needed to turn its queued frame count into
+    /// a latency.
+    /// </summary>
+    private sealed record QueuedLatencyProbe(AudioClient Client, int SampleRate, long FixedLatencyMicroseconds);
 
     /// <summary>
     /// Reaches NAudio's private audio client by reflection.
