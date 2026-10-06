@@ -26,10 +26,6 @@ public partial class PairingTokenDialog : Window
         };
         _copyFeedbackTimer.Tick += OnCopyFeedbackTimerTick;
 
-        // A server can replace the pairing config (management/set-pairing-config or
-        // management/remove-record) while the dialog is open, making the displayed
-        // token stale. Unsubscribed when the dialog closes.
-        _hostService.PairingConfigChanged += OnPairingConfigChanged;
         Closed += OnDialogClosed;
 
         LoadToken();
@@ -37,7 +33,6 @@ public partial class PairingTokenDialog : Window
 
     private void OnDialogClosed(object? sender, EventArgs e)
     {
-        _hostService.PairingConfigChanged -= OnPairingConfigChanged;
         _copyFeedbackTimer.Stop();
     }
 
@@ -58,26 +53,6 @@ public partial class PairingTokenDialog : Window
             RegenerateButton.IsEnabled = false;
             ShowNotice($"No pairing token is available: {ex.Message}");
         }
-    }
-
-    /// <summary>
-    /// Handles a server-side pairing config change. The SDK raises this on a
-    /// connection's receive thread, so all UI work is marshalled through the
-    /// dispatcher (the same pattern MainViewModel uses for its SDK events).
-    /// </summary>
-    private void OnPairingConfigChanged(object? sender, PairingConfigChangedEventArgs e)
-    {
-        if (!e.PairingPskReplaced)
-        {
-            return;
-        }
-
-        Dispatcher.Invoke(() =>
-        {
-            LoadToken();
-            ShowNotice("The server changed this player's pairing configuration. " +
-                       "The token above has been refreshed; any token copied earlier no longer works.");
-        });
     }
 
     private void CopyButton_Click(object sender, RoutedEventArgs e)
