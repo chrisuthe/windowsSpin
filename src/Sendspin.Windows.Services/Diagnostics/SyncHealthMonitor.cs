@@ -21,10 +21,11 @@ public sealed class SyncHealthMonitor : IDisposable
 {
     private const int SampleIntervalMs = 100;
 
-    // A dead band of zero is a legal SDK setting ("always correct") but not a usable episode
-    // threshold — every tick of ordinary jitter would open one. Floor the detector's band here
-    // rather than in the pipeline, which is entitled to correct as tightly as it likes.
-    private const double MinEpisodeDeadbandMs = 0.1;
+    // A tight correction dead band (the default is 0.1 ms, and zero is legal) is not a usable
+    // episode threshold — ordinary jitter of a few tenths of a millisecond would open one every
+    // few seconds. Floor the detector's band at the spec's ±1 ms steady-state bound here rather
+    // than in the pipeline, which is entitled to correct as tightly as it likes.
+    private const double MinEpisodeDeadbandMs = 1.0;
 
     private readonly IAudioPipeline _pipeline;
     private readonly IClockSynchronizer _clockSync;
