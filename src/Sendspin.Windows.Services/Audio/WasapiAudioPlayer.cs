@@ -340,10 +340,14 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
                     // Create WASAPI output in shared mode with 100ms latency
                     // Shared mode adds Windows Audio Engine overhead (~10-20ms) on top of
-                    // the requested buffer latency, so we use 100ms for stability
+                    // the requested buffer latency, so we use 100ms for stability.
+                    // Event sync on both paths (NAudio's default-device overload already uses
+                    // it): refills stay locked to the engine's period. In timer mode NAudio
+                    // wakes at an arbitrary point in that period, the free space it reads varies by
+                    // up to one period from wake to wake, and the SDK sees it as sync-error jitter.
                     if (device != null)
                     {
-                        _wasapiOut = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: false, latency: RequestedLatencyMs);
+                        _wasapiOut = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: true, latency: RequestedLatencyMs);
                     }
                     else
                     {
@@ -579,10 +583,11 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                     // Query the new device's native sample rate
                     _deviceNativeSampleRate = QueryDeviceMixFormat(device);
 
-                    // Create new WASAPI output with 100ms latency
+                    // Create new WASAPI output with 100ms latency, event-driven like the initial
+                    // attach so refills stay locked to the engine's period
                     if (device != null)
                     {
-                        _wasapiOut = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: false, latency: RequestedLatencyMs);
+                        _wasapiOut = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: true, latency: RequestedLatencyMs);
                     }
                     else
                     {
