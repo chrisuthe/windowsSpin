@@ -101,6 +101,7 @@ public sealed class SyncHealthMonitor : IDisposable
             if (stats is null)
             {
                 _wasActive = false;
+                Report(_detector.StreamStopped());
                 return;
             }
 
@@ -140,16 +141,7 @@ public sealed class SyncHealthMonitor : IDisposable
                 Channels = format?.Channels ?? 2,
             };
 
-            if (_detector.Observe(in sample) is { } episode)
-            {
-                var classification = EpisodeClassifier.Classify(episode);
-                _log.WriteEpisode(episode, classification);
-                var count = Interlocked.Increment(ref _episodeCount);
-                _healthDisplay = $"{Describe(classification)} ({count} episode{(count == 1 ? string.Empty : "s")})";
-                _logger.LogWarning(
-                    "Sync health episode: {Verdict} duration={Duration:F1}s evidence={Evidence}",
-                    classification.Verdict, episode.DurationSeconds, classification.Evidence);
-            }
+            Report(_detector.Observe(in sample));
         }
         catch (Exception ex)
         {
@@ -163,6 +155,22 @@ public sealed class SyncHealthMonitor : IDisposable
         {
             Interlocked.Exchange(ref _tickRunning, 0);
         }
+    }
+
+    private void Report(EpisodeRecord? episode)
+    {
+        if (episode is null)
+        {
+            return;
+        }
+
+        var classification = EpisodeClassifier.Classify(episode);
+        _log.WriteEpisode(episode, classification);
+        var count = Interlocked.Increment(ref _episodeCount);
+        _healthDisplay = $"{Describe(classification)} ({count} episode{(count == 1 ? string.Empty : "s")})";
+        _logger.LogWarning(
+            "Sync health episode: {Verdict} duration={Duration:F1}s evidence={Evidence}",
+            classification.Verdict, episode.DurationSeconds, classification.Evidence);
     }
 
     /// <summary>

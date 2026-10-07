@@ -33,6 +33,14 @@ public sealed class EpisodeDetector
     internal const double HardCapSeconds = 120.0;
     private const int PreRollCapacity = 100; // 10 s at 10 Hz
 
+    // Samples before a pipeline stop that are play-out, not evidence (0.5 s at 10 Hz). See StreamStopped.
+    internal const int StopTailSamples = 5;
+
+    // The episode as it stood before each of its last StopTailSamples samples; oldest at _tailNext once full.
+    private readonly Accumulator[] _tail = new Accumulator[StopTailSamples];
+    private int _tailCount;
+    private int _tailNext;
+
     private readonly double _deadbandMs;
     private readonly double _maxSpeedCorrection;
     private readonly Func<DateTimeOffset> _clock;
@@ -94,9 +102,15 @@ public sealed class EpisodeDetector
             _active = true;
             _acc = Accumulator.Open(in _prev, in s, _clock(), ComputePreRollMins());
             _lastTriggerMs = s.TimestampMs;
+            _tailCount = 0;
+            _tailNext = 0;
         }
         else if (_active)
         {
+            _tail[_tailNext] = _acc;
+            _tailNext = (_tailNext + 1) % StopTailSamples;
+            _tailCount = Math.Min(_tailCount + 1, StopTailSamples);
+
             _acc.Accumulate(in s, in _prev, _deadbandMs, _maxSpeedCorrection);
             if (triggered)
             {
@@ -114,6 +128,33 @@ public sealed class EpisodeDetector
 
         PushPreRoll(s);
         _prev = s;
+        return closed;
+    }
+
+    /// <summary>
+    /// Tells the detector the pipeline stopped. Closes any open episode as it stood before its
+    /// last <see cref="StopTailSamples"/> samples, and forgets the sample history so the next
+    /// stream starts from a fresh baseline.
+    /// </summary>
+    /// <remarks>
+    /// A stream that ends normally plays its buffer out: the server stops sending, the buffer
+    /// drains to empty, and an underrun callback can fire a few tens of milliseconds before the
+    /// stop lands. On the samples alone that is indistinguishable from starvation, so what was
+    /// seen only in the moments before a stop is not held against the network. Starvation that
+    /// outlasts the tail — the buffer dry while the stream carries on — is on earlier samples
+    /// and is reported as before. An episode that lies wholly inside the tail is dropped.
+    /// </remarks>
+    /// <returns>The closed <see cref="EpisodeRecord"/>, or null if there is nothing to report.</returns>
+    public EpisodeRecord? StreamStopped()
+    {
+        EpisodeRecord? closed = null;
+        if (_active && _tailCount == StopTailSamples)
+        {
+            var beforeTail = _tail[_tailNext];
+            closed = beforeTail.Build((_prev.TimestampMs - beforeTail.StartTimestampMs) / 1000.0);
+        }
+
+        Reset();
         return closed;
     }
 

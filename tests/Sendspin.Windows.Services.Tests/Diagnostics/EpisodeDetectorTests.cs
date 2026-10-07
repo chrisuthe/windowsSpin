@@ -242,6 +242,63 @@ public class EpisodeDetectorTests
         Assert.Equal(400, second!.Drops); // 900 - 500 baseline
     }
 
+    [Fact]
+    public void EndOfStreamPlayOut_IsNotReportedAsStarvation()
+    {
+        // An episode is already open (sync error outside the deadband) when the track ends: the
+        // server has sent everything, the buffer drains to empty, and one underrun fires just
+        // before the pipeline stops.
+        var d = NewDetector();
+        d.Observe(Sample(0, bufferedMs: 2050));
+        for (long t = 100; t <= 1_900; t += 100)
+        {
+            Assert.Null(d.Observe(Sample(t, syncErrMs: 2.5, bufferedMs: 2050 - t) with { LastChunkAgeMs = 28_000 + t }));
+        }
+
+        Assert.Null(d.Observe(Sample(2_000, syncErrMs: 2.5, underruns: 1, bufferedMs: 0) with { LastChunkAgeMs = 30_000 }));
+
+        var closed = d.StreamStopped();
+
+        Assert.NotNull(closed);
+        Assert.Equal(0, closed!.Underruns);
+        Assert.Equal(550, closed.MinBufferedMs); // t=1500, the last sample before the tail
+        Assert.NotEqual(SyncHealthVerdict.NetworkStarvation, EpisodeClassifier.Classify(closed).Verdict);
+
+        // The next stream starts from a fresh baseline: the carried-over underrun count is not a trigger.
+        for (long t = 60_000; t <= 64_000; t += 100)
+        {
+            Assert.Null(d.Observe(Sample(t, underruns: 1)));
+        }
+    }
+
+    [Fact]
+    public void EpisodeOpenedByTheFinalUnderrun_IsDroppedWhenTheStreamStops()
+    {
+        var d = NewDetector();
+        d.Observe(Sample(0));
+        Assert.Null(d.Observe(Sample(100, underruns: 1, bufferedMs: 0)));
+
+        Assert.Null(d.StreamStopped());
+    }
+
+    [Fact]
+    public void MidStreamUnderruns_AreStillStarvation_WhenTheStreamLaterStops()
+    {
+        // The buffer runs dry and stays dry while the stream carries on; the stop comes 2 s later.
+        var d = NewDetector();
+        d.Observe(Sample(0));
+        for (long t = 100; t <= 2_000; t += 100)
+        {
+            Assert.Null(d.Observe(Sample(t, underruns: t / 100, bufferedMs: 0)));
+        }
+
+        var closed = d.StreamStopped();
+
+        Assert.NotNull(closed);
+        Assert.Equal(15, closed!.Underruns); // everything before the last 5 samples
+        Assert.Equal(SyncHealthVerdict.NetworkStarvation, EpisodeClassifier.Classify(closed).Verdict);
+    }
+
     [Theory]
     [InlineData(0.0, 0.02)]
     [InlineData(-1.0, 0.02)]
