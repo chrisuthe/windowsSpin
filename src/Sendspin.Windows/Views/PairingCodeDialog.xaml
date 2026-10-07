@@ -1,7 +1,7 @@
 <Window x:Class="Sendspin.Windows.Views.PairingCodeDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Pairing pairing code"
+        Title="Pairing code"
         Width="450"
         SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
@@ -20,7 +20,7 @@
         <!-- Key Icon and Title -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,16">
             <TextBlock Text="&#x1F511;" FontSize="24" Foreground="#F9E2AF" VerticalAlignment="Center" Margin="0,0,12,0"/>
-            <TextBlock Text="Pairing pairing code" FontSize="16" FontWeight="SemiBold" Foreground="#CDD6F4" VerticalAlignment="Center"/>
+            <TextBlock Text="Pairing code" FontSize="16" FontWeight="SemiBold" Foreground="#CDD6F4" VerticalAlignment="Center"/>
         </StackPanel>
 
         <!-- Explanation -->

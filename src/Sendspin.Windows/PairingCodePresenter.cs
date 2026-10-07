@@ -66,7 +66,7 @@ public sealed class PairingCodePresenter
 
         var generation = Interlocked.Increment(ref _generation);
         var dispatcher = Application.Current?.Dispatcher
-            ?? throw new InvalidOperationException("Cannot present a pairing pairing code: no WPF application is running");
+            ?? throw new InvalidOperationException("Cannot present the pairing code: no WPF application is running");
 
         var shown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -87,7 +87,7 @@ public sealed class PairingCodePresenter
         _ = dispatcher.InvokeAsync(() => ShowOrUpdate(pairingCode, cancellationToken, shown));
 
         await shown.Task.ConfigureAwait(false);
-        _logger.LogInformation("Pairing pairing code presented to the operator");
+        _logger.LogInformation("Pairing code presented to the operator");
     }
 
     /// <summary>
@@ -185,7 +185,7 @@ public sealed class PairingCodePresenter
                 _dialog = null;
             }
 
-            _logger.LogError(ex, "Failed to show the pairing pairing code dialog");
+            _logger.LogError(ex, "Failed to show the pairing code dialog");
             shown.TrySetException(ex);
         }
     }
@@ -225,7 +225,7 @@ public sealed class PairingCodePresenter
             return;
         }
 
-        _logger.LogInformation("Closing the pairing pairing code dialog ({Reason})", reason);
+        _logger.LogInformation("Closing the pairing code dialog ({Reason})", reason);
         dialog.Close();
     }
 }

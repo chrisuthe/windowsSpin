@@ -3,7 +3,7 @@ using System.Windows;
 namespace Sendspin.Windows.Views;
 
 /// <summary>
-/// Modal dialog that displays the dynamic pairing pairing code derived for the current pairing
+/// Modal dialog that displays the dynamic pairing code derived for the current pairing
 /// attempt so the operator can type it into the server (e.g. Music Assistant). The pairing code
 /// is the pairing secret while the attempt is live, so - like the pairing token - it
 /// must never be logged or written anywhere other than this dialog. Created, updated,
