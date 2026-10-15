@@ -159,48 +159,47 @@ begin
 end;
 
 #if !IsSelfContained
-// Check if .NET 10.0 Desktop Runtime is installed (only for framework-dependent builds)
-function IsDotNet10DesktopInstalled(): Boolean;
-var
-  ResultCode: Integer;
-begin
-  // Try to run dotnet --list-runtimes and check for Microsoft.WindowsDesktop.App 10.x
-  Result := Exec('cmd.exe', '/c dotnet --list-runtimes | findstr "Microsoft.WindowsDesktop.App 10"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Result := Result and (ResultCode = 0);
-end;
+#include "DotNetDetection.iss"
 
 function InitializeSetup(): Boolean;
 var
   ErrorCode: Integer;
   IsSilent: Boolean;
+  Location: String;
 begin
   Result := True;
   IsSilent := WizardSilent();
 
-  // Check for .NET 10 Desktop Runtime
+  // Check for the .NET 10 x64 Desktop Runtime where the app's launcher will look for it
   if not IsDotNet10DesktopInstalled() then
   begin
     // In silent mode, just fail without dialogs
     if IsSilent then
     begin
-      Log('.NET 10.0 Desktop Runtime is not installed. Silent install cannot continue.');
+      Log('.NET 10.0 Desktop Runtime (x64) not found. Silent install cannot continue.');
       Log('Consider using the Self-Contained installer which includes .NET runtime.');
       Result := False;
       Exit;
     end;
 
+    // Naming the folder matters when DOTNET_ROOT points somewhere unusual: installing the
+    // runtime in the usual place would not help, because the app would keep looking there.
+    Location := '';
+    if IsWin64 then
+      Location := #13#10 + #13#10 + 'Setup looked for it in:' + #13#10 + DotNetX64Root();
+
     // Interactive mode - show dialog
-    if MsgBox('.NET 10.0 Desktop Runtime is required but not installed.' + #13#10 + #13#10 +
-              'Would you like to download it now?' + #13#10 + #13#10 +
-              '(Tip: Use the "Self-Contained" installer to avoid this requirement)', mbConfirmation, MB_YESNO) = IDYES then
+    if MsgBox('.NET 10.0 Desktop Runtime (x64) is required but was not found.' + Location + #13#10 + #13#10 +
+              'Would you like to download the x64 installer now?' + #13#10 + #13#10 +
+              '(ARM-based PCs need the x64 runtime too. Tip: the "Self-Contained" installer avoids this requirement)', mbConfirmation, MB_YESNO) = IDYES then
     begin
-      ShellExec('open', 'https://dotnet.microsoft.com/download/dotnet/10.0/runtime', '', '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
-      MsgBox('Please install .NET 10.0 Desktop Runtime and run this installer again.', mbInformation, MB_OK);
+      ShellExec('open', 'https://aka.ms/dotnet/10.0/windowsdesktop-runtime-win-x64.exe', '', '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
+      MsgBox('Please install .NET 10.0 Desktop Runtime (x64) and run this installer again.', mbInformation, MB_OK);
       Result := False;
     end
     else
     begin
-      MsgBox('Installation cannot continue without .NET 10.0 Desktop Runtime.', mbError, MB_OK);
+      MsgBox('Installation cannot continue without .NET 10.0 Desktop Runtime (x64).', mbError, MB_OK);
       Result := False;
     end;
   end;
