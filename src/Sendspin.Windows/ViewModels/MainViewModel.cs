@@ -3349,7 +3349,24 @@ public partial class MainViewModel : ViewModelBase
     {
         _logger.LogInformation("Shutting down MainViewModel");
 
-        // Stop position interpolation timer
+        // Detach from the SDK first: its services keep raising events while they wind down, and
+        // nothing below must reach the UI thread.
+        _hostService.ServerConnected -= OnServerConnected;
+        _hostService.ServerDisconnected -= OnServerDisconnected;
+        _hostService.GroupStateChanged -= OnGroupStateChanged;
+        _hostService.PlayerStateChanged -= OnPlayerStateChanged;
+        _hostService.ArtworkReceived -= OnArtworkReceived;
+        _hostService.ArtworkCleared -= OnArtworkCleared;
+        _hostService.ColorChanged -= OnColorChanged;
+        _hostService.VisualizationReceived -= OnVisualizationReceived;
+        _hostService.LastPlayedServerIdChanged -= OnLastPlayedServerIdChanged;
+        _hostService.PairingCompleted -= OnPairingCompleted;
+        _hostService.PairingGestureRequested -= OnPairingGestureRequested;
+        _serverDiscovery.ServerFound -= OnDiscoveredServerFound;
+        _serverDiscovery.ServerLost -= OnDiscoveredServerLost;
+        _audioPipeline.StateChanged -= OnAudioPipelineStateChanged;
+
+        // Stop position interpolation timer (a DispatcherTimer may be stopped from any thread)
         _positionTimer.Stop();
 
         // Cancel any pending volume changes
@@ -3366,21 +3383,38 @@ public partial class MainViewModel : ViewModelBase
         _outputDelaySaveCts?.Cancel();
         _outputDelaySaveCts?.Dispose();
 
-        // Stop server discovery
-        await _serverDiscovery.StopAsync();
+        // Each transport is stopped on its own so a failure in one cannot leave the next running.
+        try
+        {
+            await StopStepAsync(() => _serverDiscovery.StopAsync(), "server discovery").ConfigureAwait(false);
+            CancelPendingDial();
+            await StopStepAsync(CleanupManualClientAsync, "manual client").ConfigureAwait(false);
+            await StopStepAsync(() => _hostService.StopAsync(), "host service").ConfigureAwait(false);
 
-        // Cleanup manual client
-        CancelPendingDial();
-        await CleanupManualClientAsync();
-        _cleanupLock.Dispose();
-        _connectionModeLock.Dispose();
-
-        // Stop host service
-        await _hostService.StopAsync();
-
-        // Dispose Discord Rich Presence service (clears presence)
-        _discordService.Dispose();
+            // Dispose Discord Rich Presence service (clears presence)
+            _discordService.Dispose();
+        }
+        finally
+        {
+            _cleanupLock.Dispose();
+            _connectionModeLock.Dispose();
+        }
 
         // Note: HttpClient is managed by IHttpClientFactory, no manual disposal needed
+    }
+
+    /// <summary>
+    /// Runs one shutdown step, logging a failure instead of letting it abort the remaining steps.
+    /// </summary>
+    private async Task StopStepAsync(Func<Task> step, string name)
+    {
+        try
+        {
+            await step().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to stop {Step} during shutdown", name);
+        }
     }
 }
