@@ -680,7 +680,7 @@ the same thing, and check by hand that events without a metadata object re-annou
 instance rather than rebuilding it.
 
 **The server floor moves with the SDK major.** SDK 10 speaks only the encrypted `1.0.0-rc1`
-protocol and needs `aiosendspin` 10.0.0 or later (Music Assistant 2.11+); there is no fallback
+protocol and needs `aiosendspin` 10.0.0 or later (Music Assistant 2.10.7+, which ships 10.1.0); there is no fallback
 to older servers. Check `docs/SPEC-VERSION.md` in the SDK for the floor before any major bump,
 and say it in the release notes.
 
