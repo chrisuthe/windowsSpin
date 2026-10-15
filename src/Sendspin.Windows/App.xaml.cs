@@ -18,6 +18,7 @@ using Sendspin.SDK.Synchronization;
 using Sendspin.Windows.Services.Audio;
 using Sendspin.Windows.Services.Configuration;
 using Sendspin.Windows.Services.Discord;
+using Sendspin.Windows.Services.Lifecycle;
 using Sendspin.Windows.Services.MediaControls;
 using Sendspin.Windows.Services.Models;
 using Sendspin.Windows.Services.Notifications;
