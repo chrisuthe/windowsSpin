@@ -773,46 +773,13 @@ public partial class App : Application
             // Dispose tray icon to remove from system tray
             _trayIcon?.Dispose();
 
-            // Gracefully shutdown the host service
-            if (_mainViewModel != null)
+            // Task.Run escapes the UI SynchronizationContext: blocking this thread on a continuation
+            // that wants to come back to it would deadlock instead.
+            if (!Task.Run(ShutdownServicesAsync).Wait(ShutdownTimeout))
             {
-                try
-                {
-                    // Task.Run escapes the UI SynchronizationContext: blocking this thread on
-                    // a continuation that wants to come back to it would deadlock instead.
-                    if (!Task.Run(() => _mainViewModel.ShutdownAsync()).Wait(ShutdownTimeout))
-                    {
-                        Log.Warning(
-                            "Shutdown did not complete within {Timeout}s; exiting anyway. The server may not have received client/goodbye",
-                            ShutdownTimeout.TotalSeconds);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // Log using Serilog's static logger (still available at this point)
-                    Log.Error(ex, "Error during MainViewModel shutdown");
-                }
-            }
-
-            // Dispose service provider (may throw during service disposal)
-            try
-            {
-                _serviceProvider?.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Error disposing service provider");
-            }
-
-            // Flush and close Serilog to ensure all logs are written
-            Log.Information("Sendspin for Windows shutting down");
-            try
-            {
-                Log.CloseAndFlush();
-            }
-            catch
-            {
-                // Ignore - nothing we can do if log flush fails, and no logger available
+                Log.Warning(
+                    "Shutdown did not complete within {Timeout}s; exiting anyway. The server may not have received client/goodbye",
+                    ShutdownTimeout.TotalSeconds);
             }
         }
         catch (Exception ex)
@@ -823,9 +790,55 @@ public partial class App : Application
         }
         finally
         {
+            // Flush and close Serilog to ensure all logs are written
+            try
+            {
+                Log.CloseAndFlush();
+            }
+            catch
+            {
+                // Ignore - nothing we can do if log flush fails, and no logger available
+            }
+
             // Always call base.OnExit to ensure proper WPF shutdown
             base.OnExit(e);
         }
+    }
+
+    /// <summary>
+    /// Stops the view model's transports and disposes the services, each step isolated so one
+    /// failure cannot skip the rest.
+    /// </summary>
+    private async Task ShutdownServicesAsync()
+    {
+        if (_mainViewModel != null)
+        {
+            try
+            {
+                await _mainViewModel.ShutdownAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // Log using Serilog's static logger (still available at this point)
+                Log.Error(ex, "Error during MainViewModel shutdown");
+            }
+        }
+
+        // ServiceProvider.Dispose throws for a service that only implements IAsyncDisposable, so
+        // the services are disposed asynchronously, inside the same bound as the shutdown.
+        if (_serviceProvider != null)
+        {
+            try
+            {
+                await _serviceProvider.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error disposing service provider");
+            }
+        }
+
+        Log.Information("Sendspin for Windows shutting down");
     }
 
     private void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
