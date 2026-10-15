@@ -1,0 +1,24 @@
+# Keeps NuGet packages and the SHA-pinned GitHub Actions current. Dependabot reads this file from
+# the default branch (master) and opens its PRs there, so it starts once this is merged to master.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      # Released together; the app keeps them on one version line.
+      microsoft-extensions:
+        patterns:
+          - "Microsoft.Extensions.*"
+
+  # Actions are pinned to commit SHAs with the version in a trailing comment; Dependabot updates
+  # both together.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"

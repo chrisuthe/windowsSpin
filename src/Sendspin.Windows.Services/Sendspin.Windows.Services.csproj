@@ -8,9 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" />
     <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.3" />
-    <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
+    <!-- Before upgrading NAudio: WasapiAudioPlayer reads WasapiOut's private "audioClient" field by
+         reflection (TryGetAudioClient, GetAudioClockClient). If a new version renames it, output latency
+         falls back to an estimate with only a log warning, costing multi-room sync, and the opt-in
+         device clock becomes unavailable without any message. Check the field still exists. -->
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="DiscordRichPresence" Version="1.3.0.28" />
   </ItemGroup>
