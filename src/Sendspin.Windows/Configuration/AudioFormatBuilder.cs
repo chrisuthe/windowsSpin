@@ -32,6 +32,18 @@ public static class AudioFormatBuilder
     private const int MaxFlacBitDepth = 24;
 
     /// <summary>
+    /// The one sample rate advertised for Opus, whatever the device runs at.
+    /// </summary>
+    /// <remarks>
+    /// Opus defines only 8, 12, 16, 24 and 48 kHz, and the SDK builds its decoder at the
+    /// announced rate, so a device rate such as 44.1 kHz cannot be advertised for it. Since
+    /// SDK 10 a stream in a format the client did not list plays nothing, so a server that
+    /// answered such an entry at 48 kHz went silent. The output chain converts 48 kHz to the
+    /// device rate, as it already does for the 48 kHz fallbacks below.
+    /// </remarks>
+    private const int OpusSampleRate = 48000;
+
+    /// <summary>
     /// Builds a list of audio formats to advertise to the server.
     /// </summary>
     /// <param name="capabilities">The device's native audio capabilities.</param>
@@ -65,22 +77,22 @@ public static class AudioFormatBuilder
                 BitDepth = flacBitDepth,
             });
 
-            // Opus is capped at 48kHz per codec specification
+            // Opus at its own rate; see OpusSampleRate
             formats.Add(new AudioFormat
             {
                 Codec = "opus",
-                SampleRate = Math.Min(sampleRate, 48000),
+                SampleRate = OpusSampleRate,
                 Channels = 2,
                 Bitrate = 256,
             });
         }
         else
         {
-            // Opus preferred - capped at 48kHz
+            // Opus preferred, at its own rate; see OpusSampleRate
             formats.Add(new AudioFormat
             {
                 Codec = "opus",
-                SampleRate = Math.Min(sampleRate, 48000),
+                SampleRate = OpusSampleRate,
                 Channels = 2,
                 Bitrate = 256,
             });
