@@ -103,6 +103,9 @@ public partial class MainViewModel : ViewModelBase
 
     private readonly IUserSettingsService _settingsService;
     private SendspinClientService? _manualClient;
+
+    // The dial in flight, if any; see CancelPendingDial.
+    private CancellationTokenSource? _dialCts;
     private readonly SemaphoreSlim _cleanupLock = new(1, 1);
 
     /// <summary>
@@ -1164,6 +1167,8 @@ public partial class MainViewModel : ViewModelBase
 
         IsConnecting = true;
         StatusMessage = $"Connecting to {ManualServerUrl}...";
+        using var dialCts = new CancellationTokenSource();
+        _dialCts = dialCts;
 
         try
         {
@@ -1203,24 +1208,49 @@ public partial class MainViewModel : ViewModelBase
             CreateAndConfigureManualClient();
 
             // Connect (null-forgiving: CreateAndConfigureManualClient always sets _manualClient)
-            await _manualClient!.ConnectAsync(serverUri);
+            await _manualClient!.ConnectAsync(serverUri, dialCts.Token);
 
             _logger.LogInformation("Manual connection initiated to {ServerUri}", serverUri);
         }
+        catch (OperationCanceledException ex) when (dialCts.IsCancellationRequested)
+        {
+            // The app abandoned this dial (see CancelPendingDial), and whatever cancelled it owns
+            // the teardown. Not a failure to report.
+            _logger.LogInformation(ex, "Connect to {ServerUrl} cancelled", ManualServerUrl);
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to connect to {ServerUrl}", ManualServerUrl);
-            StatusMessage = $"Connection failed: {ex.Message}";
-            SetError($"Failed to connect: {ex.Message}");
+            var message = DescribeConnectFailure(ex, ManualServerUrl);
+            StatusMessage = message;
+            SetError(message);
 
             // Cleanup on failure
             await CleanupManualClientAsync();
         }
         finally
         {
+            if (ReferenceEquals(_dialCts, dialCts))
+            {
+                _dialCts = null;
+            }
+
             IsConnecting = false;
         }
     }
+
+    /// <summary>
+    /// Abandons a dial in flight. Call before the app tears the manual client down on its own
+    /// initiative (disconnect, mode switch, shutdown), so the dial ends in
+    /// <see cref="OperationCanceledException"/> instead of a handshake failure the user is shown.
+    /// </summary>
+    /// <remarks>
+    /// Not called from the manual client's Disconnected handler: that disconnect comes from the
+    /// server, and its handshake failure — <see cref="HandshakeFailureKind.PairingRequired"/>
+    /// above all — is exactly what the dial's caller must report. Identity of the client cannot
+    /// tell the two apart: the SDK raises Disconnected before it completes the handshake wait, so
+    /// that handler has already cleared <c>_manualClient</c> by the time the dial resumes.
+    /// </remarks>
+    private void CancelPendingDial() => _dialCts?.Cancel();
 
     /// <summary>
     /// Disconnect from the manually connected server.
@@ -1232,6 +1262,7 @@ public partial class MainViewModel : ViewModelBase
         {
             _logger.LogInformation("Disconnecting from manual server");
             StatusMessage = "Disconnecting...";
+            CancelPendingDial();
             await CleanupManualClientAsync();
         }
         else if (ConnectedServers.Count > 0)
@@ -1254,6 +1285,34 @@ public partial class MainViewModel : ViewModelBase
         _ambient.Reset();
         StatusMessage = $"Disconnected. Waiting for connections...\nClient ID: {ClientId}";
         OnPropertyChanged(nameof(IsConnected));
+    }
+
+    /// <summary>
+    /// Logs a failed dial and returns the status-line message for it.
+    /// </summary>
+    /// <remarks>
+    /// Since SDK 10, <see cref="SendspinClientService.ConnectAsync"/> throws
+    /// <see cref="SendspinHandshakeException"/> when the connection closes before the server
+    /// admits it, where it used to return as though connected. The kind says whether the user
+    /// can act: <see cref="HandshakeFailureKind.PairingRequired"/> is the expected outcome of a
+    /// first dial to a server this player has not paired with, not an error.
+    /// </remarks>
+    private string DescribeConnectFailure(Exception ex, string serverName)
+    {
+        switch (ex)
+        {
+            case SendspinHandshakeException { Kind: HandshakeFailureKind.PairingRequired }:
+                _logger.LogInformation("{Server} requires pairing before this player can connect", serverName);
+                return $"{serverName} requires pairing. In Settings, choose Show Pairing Token and add the token on your server, then connect again.";
+
+            case SendspinHandshakeException { Kind: HandshakeFailureKind.PairingStateDiverged }:
+                _logger.LogWarning(ex, "The pairing with {Server} is out of date", serverName);
+                return $"The pairing with {serverName} is out of date. In Settings, choose Show Pairing Token and pair again.";
+
+            default:
+                _logger.LogError(ex, "Failed to connect to {Server}", serverName);
+                return $"Failed to connect to {serverName}: {ex.Message}";
+        }
     }
 
     private async Task CleanupManualClientAsync()
@@ -1935,6 +1994,8 @@ public partial class MainViewModel : ViewModelBase
 
         IsConnecting = true;
         StatusMessage = $"Connecting to {server.Name}...";
+        using var dialCts = new CancellationTokenSource();
+        _dialCts = dialCts;
 
         try
         {
@@ -1942,19 +2003,28 @@ public partial class MainViewModel : ViewModelBase
             CreateAndConfigureManualClient();
 
             // Connect (null-forgiving: CreateAndConfigureManualClient always sets _manualClient)
-            await _manualClient!.ConnectAsync(new Uri(url));
+            await _manualClient!.ConnectAsync(new Uri(url), dialCts.Token);
 
             _autoConnectedServerId = server.ServerId;
             _logger.LogInformation("Auto-connected to {Name}", server.Name);
         }
+        catch (OperationCanceledException ex) when (dialCts.IsCancellationRequested)
+        {
+            // Abandoned by the app; see CancelPendingDial.
+            _logger.LogInformation(ex, "Auto-connect to {Name} cancelled", server.Name);
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to auto-connect to {Name}", server.Name);
-            StatusMessage = $"Failed to connect to {server.Name}. Searching for servers...";
+            StatusMessage = DescribeConnectFailure(ex, server.Name);
             await CleanupManualClientAsync();
         }
         finally
         {
+            if (ReferenceEquals(_dialCts, dialCts))
+            {
+                _dialCts = null;
+            }
+
             IsConnecting = false;
         }
     }
@@ -2474,6 +2544,7 @@ public partial class MainViewModel : ViewModelBase
         {
             try
             {
+                CancelPendingDial();
                 await _manualClient.DisconnectAsync();
                 _logger.LogInformation("Manual client disconnected");
             }
@@ -3338,6 +3409,7 @@ public partial class MainViewModel : ViewModelBase
         await _serverDiscovery.StopAsync();
 
         // Cleanup manual client
+        CancelPendingDial();
         await CleanupManualClientAsync();
         _cleanupLock.Dispose();
         _connectionModeLock.Dispose();
