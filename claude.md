@@ -103,7 +103,7 @@ mode.**
 - Advertises as `_sendspin._tcp.local`, with a `path` TXT record (REQUIRED by the spec) and a
   `name` TXT record carrying the friendly player name
 - Music Assistant servers discover and connect to us
-- **Advertising must announce, not just answer.** SDK 9.3.2 sends unsolicited mDNS
+- **Advertising must announce, not just answer.** Since 9.3.2 the SDK sends unsolicited mDNS
   announcements when the interface set changes — which `MulticastService` raises inside
   `Start()`, and again when a NIC appears (Wi-Fi associating, resume from sleep). Before
   9.3.2 the SDK only registered a passive query responder, so a server whose browser had
@@ -113,29 +113,25 @@ mode.**
 - Server admission (which server wins when several connect) is arbitrated inside the SDK's
   `SendspinHostService` — the app does no arbitration of its own, and must not reimplement or
   override it
-- What the spec defines vs. what ships today:
-  - **Spec:** admission is ranked by connection *activity* — `management` > `playback` >
-    `pairing` — with a new connection held provisional until the server sends
-    `server/activate`, and dropped after 30s if it never does.
-  - **SDK 9.3.2 (the version this branch builds against):** arbitration is still the earlier
-    `connection_reason` comparison — `"playback"` beats `"discovery"` — with
-    `LastPlayedServerId` breaking ordinary ties. Activity-based arbitration arrives with the
-    v10 SDK; until then, do not write app code that assumes it.
-  - 9.3.1 also adds `SendspinHostService.AdoptClientInitiated` / `ReleaseClientInitiated`, which
-    let an embedder register a client-initiated connection so host arbitration will not tear it
-    down. **We do not use them, and should not:** they exist for clients that run both
-    transports, which this app deliberately no longer does. If you find yourself reaching for
-    them, the real problem is that something started two transports.
+- `SendspinHostService.AdoptClientInitiated` / `ReleaseClientInitiated` let an embedder register
+  a client-initiated connection so host arbitration will not tear it down. **We do not use
+  them, and should not:** they exist for clients that run both transports, which this app
+  deliberately no longer does. If you find yourself reaching for them, the real problem is that
+  something started two transports.
 - Discovery of `_sendspin-server._tcp` is NOT running in this mode
 
-Preferred because multi-server behavior is *standardized* here. The spec defines admission
-precisely: the client holds at most one admitted connection, ranked by its highest declared
-activity (`management` > `playback` > `pairing`, empty lowest); an incoming connection is
-compared against the current one and accepted on higher-or-equal priority, rejected on lower.
-A connection stays provisional until its first `server/activate` and is dropped after 30s.
-When both sides declare empty activities, the persistently stored "last-playback server"
-breaks the tie. Displaced connections get `client/goodbye` reason `another_server`; rejected
-incoming ones get `concurrent_attempt`.
+Preferred because multi-server behavior is *standardized* here. SDK 10.0.0 implements the
+spec's (`1.0.0-rc1`) admission rules in `ServerArbitration`: the client holds at most one
+admitted connection, ranked by the highest activity it declared in `server/activate` —
+`playback` > `pairing` > empty. An incoming connection is accepted on higher-or-equal priority
+and rejected on lower, with two exceptions: a pairing attempt in progress is not displaced by
+incoming playback or pairing, and an empty-vs-empty tie admits the incoming connection only
+when it is the persisted "last-playback server". A new connection is provisional until its
+first admitted `server/activate` — nothing it sends is applied before then — at most 8 may be
+provisional at once, and one that never activates is dropped after 30s. Displaced connections
+get `client/goodbye` reason `another_server`; rejected incoming ones get `concurrent_attempt`;
+a losing pairing handshake gets `pair/abort` instead. Note the ranking is the SDK's reading of
+rc1, not the `management` > `playback` > `pairing` order earlier drafts used.
 
 `SendspinHostService` implements this arbitration — do not reimplement it in the app, and do
 not override its decisions (for example by calling `DisconnectAllAsync` to reject a single
@@ -592,34 +588,28 @@ HighPrecisionTimer.Shared.GetCurrentTimeMicroseconds()
 ### 6. Track Change / Stream Restart
 When tracks change, the sync error calculation can get into a stuck "dropping" state. The buffer's `Clear()` method must reset **all** timing state, matching CLI's behavior.
 
-### 7. JSON Field Absent vs Explicit Null (Optional<T>)
-JSON has three states for a field, but C# nullable types only have two:
+### 7. Metadata Is Full State (SDK 10)
+Since SDK 10 (spec `1.0.0-rc1`), each role object in `server/state` is that role's
+**complete** state, and the SDK applies it that way:
 ```
-JSON                          C# Nullable      C# Optional<T>
-─────────────────────────────────────────────────────────────
-{"progress": {...}}           value            Present(value)
-{"progress": null}            null             Present(null)   ← TRACK ENDED
-{}                            null             Absent()        ← KEEP EXISTING
-```
-
-The SDK uses `Optional<T>` (in `Sendspin.SDK.Protocol`) for fields where explicit null has semantic meaning:
-- `ServerMetadata.Progress`: `null` means track ended, absent means no update
-
-```csharp
-// WRONG - treats track-end (null) same as no-update (absent)
-Progress = meta.Progress ?? existing.Progress;
-
-// CORRECT - uses Optional<T> to distinguish
-Progress = meta.Progress.IsPresent ? meta.Progress.Value : existing.Progress;
+server/state                        GroupState.Metadata
+──────────────────────────────────────────────────────────────────────────
+no "metadata" key                   unchanged — the same instance
+"metadata": null                    null — the role is cleared
+"metadata": { ... }                 a NEW TrackMetadata built from this object alone;
+                                    any leaf it omits (e.g. progress) is null
 ```
 
-This matches the CLI's `UndefinedField` pattern in Python.
+An omitted `progress` no longer means "keep existing": it clears the position, as the spec
+says ("Omitting it clears the client's position"). The 9.x `Optional<T>` carry-forward is
+gone. `Optional<T>` still distinguishes absent from present-null on the wire model, but
+`ApplyMetadata` reads both as null.
 
-**Corollary the app depends on**: when the progress field is absent, the SDK's
-carry-forward keeps the **same** `PlaybackProgress` instance (verified in 9.1.0's
-`SendspinClientService.HandleServerState`), and deserializes a **new** instance exactly
-when the server sent the field. `TrackProgressTracker` relies on this reference identity
-to distinguish fresh progress from carried-forward stale progress.
+**What the app depends on**: `TrackProgressTracker` tells fresh progress from repeated
+progress by reference. That works because the SDK creates a `PlaybackProgress` only when a
+metadata object arrives, and every other group-state event (`group/update`, a controller- or
+color-only `server/state`, stream start/stop) re-announces the metadata instance already
+held. Verified against 10.0.0's `HandleServerState` / `ApplyMetadata`.
 
 ---
 
@@ -663,6 +653,8 @@ Enable verbose logging in appsettings.json:
 
 **Release** (`.github/workflows/release.yml`):
 - Triggered by version tags (v*)
+- A tag with a suffix (`v3.1.0-beta.1`) publishes a GitHub prerelease; AssemblyVersion and
+  FileVersion take only the numeric part, since WPF rejects a non-numeric AssemblyVersion
 - Builds installers (framework-dependent and self-contained)
 - Signs executables using Azure Trusted Signing
 - Creates GitHub release with artifacts
@@ -680,12 +672,17 @@ The SDK is consumed as a NuGet package. Source and publishing are managed in [Se
 
 To update the SDK version, change the `Version` in the `<PackageReference Include="Sendspin.SDK">` entries in both `Sendspin.Windows.csproj` and `Sendspin.Windows.Services.csproj`.
 
-When bumping the SDK version, also verify that the carry-forward-by-reference behavior
-still holds: `SendspinClientService.HandleServerState` must reuse the **same**
-`PlaybackProgress` instance when the progress field is absent from a message —
-`TrackProgressTracker`'s freshness detection depends on it (see gotcha #7). An upstream
-contract test is being added to sendspin-dotnet; until it exists, this must be checked
-manually against the SDK source.
+When bumping the SDK version, re-check the reference behaviour `TrackProgressTracker` depends
+on (gotcha #7). Upstream pins most of it in `SendspinClientServiceServerStateTests`:
+`Metadata_Progress_Present_IsFreshInstance`, `Metadata_Progress_Absent_IsUnsetAndClearsPosition`
+and `MetadataRoleObject_Absent_LeavesMetadataState`. Confirm those still pass and still mean
+the same thing, and check by hand that events without a metadata object re-announce the held
+instance rather than rebuilding it.
+
+**The server floor moves with the SDK major.** SDK 10 speaks only the encrypted `1.0.0-rc1`
+protocol and needs `aiosendspin` 10.0.0 or later (Music Assistant 2.11+); there is no fallback
+to older servers. Check `docs/SPEC-VERSION.md` in the SDK for the floor before any major bump,
+and say it in the release notes.
 
 ---
 
