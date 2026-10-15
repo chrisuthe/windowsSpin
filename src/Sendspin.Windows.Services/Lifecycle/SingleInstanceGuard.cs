@@ -1,16 +1,33 @@
+using System.Diagnostics;
 using System.IO.Pipes;
 
-namespace Sendspin.Windows;
+namespace Sendspin.Windows.Services.Lifecycle;
 
 /// <summary>
-/// Ensures only one instance of the application runs at a time.
+/// Ensures only one instance of the application runs per Windows session.
 /// Uses a named mutex for detection and a named pipe to signal the
 /// existing instance to show its window.
 /// </summary>
-internal sealed class SingleInstanceGuard : IDisposable
+/// <remarks>
+/// Both names are scoped to the session, so another user's copy (fast user switching, Remote
+/// Desktop) neither blocks this one nor receives its requests. A mutex name without a prefix
+/// already lives in the session's <c>Local\</c> namespace; the prefix is written out so the scope
+/// is explicit, and so an installer <c>AppMutex</c> check can name the same object. Named pipes
+/// have no session namespace — every pipe on the machine shares one — so the pipe name carries the
+/// session id, and both ends use <see cref="PipeOptions.CurrentUserOnly"/>: the server's pipe
+/// admits only this user, and the client refuses a server that another user created under the
+/// same name.
+/// </remarks>
+public sealed class SingleInstanceGuard : IDisposable
 {
-    private const string MutexName = "Sendspin_SingleInstance";
-    private const string PipeName = "Sendspin_ShowWindow";
+    /// <summary>The mutex that marks a running instance in this session.</summary>
+    public const string DefaultMutexName = @"Local\Sendspin_SingleInstance";
+
+    /// <summary>Gets the pipe a second launch uses to ask the running instance to show its window.</summary>
+    public static string DefaultPipeName { get; } = $"Sendspin_ShowWindow_{CurrentSessionId()}";
+
+    private readonly string _mutexName;
+    private readonly string _pipeName;
 
     private Mutex? _mutex;
     private CancellationTokenSource? _pipeCts;
@@ -22,6 +39,25 @@ internal sealed class SingleInstanceGuard : IDisposable
     public event EventHandler? ShowWindowRequested;
 
     /// <summary>
+    /// Creates a guard on the app's own mutex and pipe.
+    /// </summary>
+    public SingleInstanceGuard()
+        : this(DefaultMutexName, DefaultPipeName)
+    {
+    }
+
+    /// <summary>
+    /// Creates a guard on the given names. Tests use this so they never share the app's.
+    /// </summary>
+    /// <param name="mutexName">The mutex marking a running instance.</param>
+    /// <param name="pipeName">The pipe a second launch signals through.</param>
+    public SingleInstanceGuard(string mutexName, string pipeName)
+    {
+        _mutexName = mutexName;
+        _pipeName = pipeName;
+    }
+
+    /// <summary>
     /// Attempts to become the single running instance.
     /// </summary>
     /// <returns>
@@ -30,7 +66,7 @@ internal sealed class SingleInstanceGuard : IDisposable
     /// </returns>
     public bool TryStart()
     {
-        _mutex = new Mutex(initiallyOwned: true, MutexName, out var createdNew);
+        _mutex = new Mutex(initiallyOwned: true, _mutexName, out var createdNew);
 
         if (createdNew)
         {
@@ -56,11 +92,11 @@ internal sealed class SingleInstanceGuard : IDisposable
             try
             {
                 await using var server = new NamedPipeServerStream(
-                    PipeName,
+                    _pipeName,
                     PipeDirection.In,
                     NamedPipeServerStream.MaxAllowedServerInstances,
                     PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous);
+                    PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
 
                 await server.WaitForConnectionAsync(ct);
 
@@ -84,11 +120,12 @@ internal sealed class SingleInstanceGuard : IDisposable
     /// Connects to the existing instance's named pipe to signal it
     /// to bring its window to the foreground.
     /// </summary>
-    private static void SignalExistingInstance()
+    private void SignalExistingInstance()
     {
         try
         {
-            using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out);
+            // CurrentUserOnly: refuse to signal a pipe another user created under this name.
+            using var client = new NamedPipeClientStream(".", _pipeName, PipeDirection.Out, PipeOptions.CurrentUserOnly);
             client.Connect(timeout: 2000);
             // Connection itself is the signal — no data needed
         }
@@ -97,6 +134,12 @@ internal sealed class SingleInstanceGuard : IDisposable
             // If pipe connect fails, the existing instance may be shutting down.
             // Either way, we exit — worst case the user clicks the tray icon.
         }
+    }
+
+    private static int CurrentSessionId()
+    {
+        using var process = Process.GetCurrentProcess();
+        return process.SessionId;
     }
 
     public void Dispose()
