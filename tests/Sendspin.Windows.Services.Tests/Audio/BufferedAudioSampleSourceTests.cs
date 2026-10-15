@@ -6,14 +6,13 @@ using Sendspin.SDK.Audio;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Synchronization;
 using Sendspin.Windows.Services.Audio;
-using Sendspin.Windows.Services.Diagnostics;
 using Xunit;
 
 namespace Sendspin.Windows.Services.Tests.Audio;
 
 /// <summary>
 /// The pipeline holds this source, not the correction source the player builds around it, so the
-/// pipeline's lifecycle calls and the audio callback only reach that correction source through it.
+/// pipeline's lifecycle calls only reach that correction source through it.
 /// </summary>
 public class BufferedAudioSampleSourceTests
 {
@@ -31,23 +30,6 @@ public class BufferedAudioSampleSourceTests
         lifecycle.Reset();
 
         Assert.Equal(1, resets);
-    }
-
-    [Fact]
-    public void RecordCallback_FeedsTheGapTracker()
-    {
-        // The player reads through the SDK's correction source, never this source's Read, so the
-        // audio callback must record here explicitly or the tracker never sees a callback.
-        using var buffer = CreateBuffer();
-        var tracker = new ReadCallbackGapTracker();
-        var source = new BufferedAudioSampleSource(buffer, () => 0, tracker);
-
-        // Well past the tracker's 100 ms gap floor, and 960 samples is a 10 ms callback.
-        source.RecordCallback(960);
-        Thread.Sleep(250);
-        source.RecordCallback(960);
-
-        Assert.Equal(1, tracker.GapCount);
     }
 
     private static TimedAudioBuffer CreateBuffer()

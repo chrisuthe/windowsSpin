@@ -399,7 +399,6 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         // Get buffer from source for sync correction (if source is BufferedAudioSampleSource)
         _buffer = null;
         IAudioSampleSource effectiveSource = source;
-        Action<int>? onRead = null;
 
         if (source is BufferedAudioSampleSource bufferedSource)
         {
@@ -416,11 +415,10 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
             effectiveSource = _correctedSource;
 
-            // The pipeline resets and the device reads only reach bufferedSource, which this
-            // player never reads from; pass both on to where they belong.
+            // The pipeline's resets only reach bufferedSource, which this player never reads
+            // from; pass them on to the correction source.
             _pipelineSource = bufferedSource;
             bufferedSource.ResetRequested += OnPipelineSourceReset;
-            onRead = bufferedSource.RecordCallback;
 
             _logger.LogDebug(
                 "Sync correction delegated to the SDK ({Mechanism})",
@@ -428,7 +426,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         }
 
         // Create NAudio adapter with current volume/mute state
-        _sampleProvider = new AudioSampleProviderAdapter(effectiveSource, _format, onRead);
+        _sampleProvider = new AudioSampleProviderAdapter(effectiveSource, _format);
         _sampleProvider.Volume = _volume;
         _sampleProvider.IsMuted = _isMuted;
 

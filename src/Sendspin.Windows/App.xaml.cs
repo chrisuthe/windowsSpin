@@ -20,7 +20,6 @@ using Sendspin.Windows.Services.Configuration;
 using Sendspin.Windows.Services.Discord;
 using Sendspin.Windows.Services.MediaControls;
 using Sendspin.Windows.Services.Models;
-using Sendspin.Windows.Services.Diagnostics;
 using Sendspin.Windows.Services.Notifications;
 using Sendspin.Windows.ViewModels;
 using Serilog;
@@ -106,9 +105,6 @@ public partial class App : Application
         var services = new ServiceCollection();
         ConfigureServices(services);
         _serviceProvider = services.BuildServiceProvider();
-
-        // Force-create the sync health monitor so its timer runs for the whole session
-        _ = _serviceProvider.GetRequiredService<SyncHealthMonitor>();
 
         // Handle unhandled exceptions
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
@@ -352,9 +348,8 @@ public partial class App : Application
         // setting: the spec caps it at 0.5% (MUST). It is clamped here because installs of 2.2.1
         // and 2.2.2 copied a 2% default into their user settings, which the SDK would clamp anyway
         // while warning on every stream.
-        // Built once and shared: the pipeline's buffers and the sync-health monitor must judge
-        // correction activity against the same numbers. Consumers that need to tweak the options
-        // (WasapiAudioPlayer) clone first, so this instance stays the configured truth.
+        // Built once and shared by every buffer the pipeline creates. Consumers that need to tweak
+        // the options (WasapiAudioPlayer) clone first, so this instance stays the configured truth.
         var syncOptions = SyncCorrectionOptions.Default;
         syncOptions.DeadbandMicroseconds = (long)(_configuration!.GetValue("Audio:SyncCorrection:DeadbandMs", 1.0) * 1000.0);
         syncOptions.MaxSpeedCorrection = Math.Min(
@@ -366,7 +361,7 @@ public partial class App : Application
         // on the options the pipeline builds its buffers with — not passed separately, or the two
         // could disagree about whether a resampler is in the chain.
         syncOptions.Mechanism = mechanism;
-        services.AddSingleton(syncOptions);
+
         // The player is transient and the stats view model holds only the pipeline, so the
         // resolved output latency (and whether it was measured at all) travels through this.
         services.AddSingleton<OutputLatencyReporter>();
@@ -411,17 +406,11 @@ public partial class App : Application
                     return buffer;
                 },
                 playerFactory: () => sp.GetRequiredService<IAudioPlayer>(),
-                sourceFactory: (buffer, timeFunc) => new BufferedAudioSampleSource(
-                    buffer, timeFunc, sp.GetRequiredService<ReadCallbackGapTracker>()),
+                sourceFactory: (buffer, timeFunc) => new BufferedAudioSampleSource(buffer, timeFunc),
                 precisionTimer: null,
                 waitForConvergence: waitForConvergence,
                 convergenceTimeoutMs: convergenceTimeoutMs);
         });
-
-        // Sync health diagnostics (issue #33): always-on episode detection + sync-health.log
-        services.AddSingleton<ReadCallbackGapTracker>();
-        services.AddSingleton(new SyncHealthLog(AppPaths.LogDirectory));
-        services.AddSingleton<SyncHealthMonitor>();
 
         // Server discovery for client-initiated mode
         // Discovers Music Assistant servers via mDNS and auto-connects

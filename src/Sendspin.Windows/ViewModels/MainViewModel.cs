@@ -22,7 +22,6 @@ using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
 using Sendspin.Windows.Services.Audio;
 using Sendspin.Windows.Services.Configuration;
-using Sendspin.Windows.Services.Diagnostics;
 using Sendspin.Windows.Services.Discord;
 using Sendspin.Windows.Services.MediaControls;
 using Sendspin.Windows.Services.Notifications;
@@ -86,7 +85,6 @@ public partial class MainViewModel : ViewModelBase
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ClientCapabilities _clientCapabilities;
     private readonly SendspinClientOptions _clientOptions;
-    private readonly SyncHealthMonitor _syncHealthMonitor;
     private readonly PairingCodePresenter _pairingCodePresenter;
     private readonly OutputLatencyReporter _outputLatencyReporter;
     private readonly AmbientBackdropViewModel _ambient;
@@ -615,7 +613,6 @@ public partial class MainViewModel : ViewModelBase
         SendspinClientOptions clientOptions,
         AmbientBackdropViewModel ambient,
         IUserSettingsService settingsService,
-        SyncHealthMonitor syncHealthMonitor,
         PairingCodePresenter pairingCodePresenter,
         OutputLatencyReporter outputLatencyReporter,
         OutputDelayStore outputDelayStore)
@@ -635,7 +632,6 @@ public partial class MainViewModel : ViewModelBase
         _clientOptions = clientOptions;
         _ambient = ambient;
         _settingsService = settingsService;
-        _syncHealthMonitor = syncHealthMonitor;
         _pairingCodePresenter = pairingCodePresenter;
         _outputLatencyReporter = outputLatencyReporter;
         _progressTracker = new TrackProgressTracker(
@@ -3229,7 +3225,7 @@ public partial class MainViewModel : ViewModelBase
     {
         try
         {
-            var statsViewModel = new StatsViewModel(_audioPipeline, _clockSynchronizer, _clientCapabilities, _syncHealthMonitor, _outputLatencyReporter);
+            var statsViewModel = new StatsViewModel(_audioPipeline, _clockSynchronizer, _clientCapabilities, _outputLatencyReporter);
             var statsWindow = new StatsWindow(statsViewModel)
             {
                 Owner = App.Current.MainWindow,

@@ -11,7 +11,6 @@ using Sendspin.SDK.Client;
 using Sendspin.SDK.Synchronization;
 using Sendspin.Windows.Configuration;
 using Sendspin.Windows.Services.Audio;
-using Sendspin.Windows.Services.Diagnostics;
 namespace Sendspin.Windows.ViewModels;
 
 /// <summary>
@@ -27,7 +26,6 @@ public partial class StatsViewModel : ViewModelBase
     private readonly IAudioPipeline _audioPipeline;
     private readonly IClockSynchronizer _clockSynchronizer;
     private readonly ClientCapabilities _clientCapabilities;
-    private readonly SyncHealthMonitor _syncHealthMonitor;
     private readonly OutputLatencyReporter _outputLatencyReporter;
     private readonly DispatcherTimer _updateTimer;
 
@@ -78,18 +76,6 @@ public partial class StatsViewModel : ViewModelBase
     /// </summary>
     [ObservableProperty]
     private string _isPlaybackActive = "No";
-
-    /// <summary>
-    /// Gets the sync health verdict line (latest episode classification, or all-clear).
-    /// </summary>
-    [ObservableProperty]
-    private string _healthDisplay = "No issues detected";
-
-    /// <summary>
-    /// Gets the color for the health display (green all-clear, yellow when episodes exist).
-    /// </summary>
-    [ObservableProperty]
-    private Brush _healthColor = ValueMuted;
 
     #endregion
 
@@ -351,7 +337,6 @@ public partial class StatsViewModel : ViewModelBase
     /// <param name="audioPipeline">The audio pipeline to monitor.</param>
     /// <param name="clockSynchronizer">The clock synchronizer to monitor.</param>
     /// <param name="clientCapabilities">The client capabilities for advertised format display.</param>
-    /// <param name="syncHealthMonitor">The sync health monitor for episode diagnostics.</param>
     /// <param name="outputLatencyReporter">
     /// Publishes the output latency the player resolved, and whether it was measured or estimated.
     /// </param>
@@ -359,13 +344,11 @@ public partial class StatsViewModel : ViewModelBase
         IAudioPipeline audioPipeline,
         IClockSynchronizer clockSynchronizer,
         ClientCapabilities clientCapabilities,
-        SyncHealthMonitor syncHealthMonitor,
         OutputLatencyReporter outputLatencyReporter)
     {
         _audioPipeline = audioPipeline;
         _clockSynchronizer = clockSynchronizer;
         _clientCapabilities = clientCapabilities;
-        _syncHealthMonitor = syncHealthMonitor;
         _outputLatencyReporter = outputLatencyReporter;
 
         _updateTimer = new DispatcherTimer
@@ -405,16 +388,8 @@ public partial class StatsViewModel : ViewModelBase
         UpdateBufferStats();
         UpdateClockSyncStats();
         UpdateAudioFormatStats();
-        UpdateHealthStats();
     }
 
-    private void UpdateHealthStats()
-    {
-        HealthDisplay = _syncHealthMonitor.HealthDisplay;
-        HealthColor = _syncHealthMonitor.EpisodeCount == 0
-            ? StatusGood  // Green
-            : StatusWarning; // Yellow
-    }
 
     private void UpdateBufferStats()
     {
