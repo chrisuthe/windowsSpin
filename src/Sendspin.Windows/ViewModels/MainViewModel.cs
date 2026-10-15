@@ -2,8 +2,6 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Net;
 using System.Net.Http;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -3052,72 +3050,39 @@ public partial class MainViewModel : ViewModelBase
     {
         try
         {
-            AppPaths.EnsureUserDataDirectoryExists();
-            var appSettingsPath = AppPaths.UserSettingsPath;
-
-            // Read existing settings or create new
-            JsonNode? root;
-            if (File.Exists(appSettingsPath))
-            {
-                var json = await File.ReadAllTextAsync(appSettingsPath);
-                root = JsonNode.Parse(json) ?? new JsonObject();
-            }
-            else
-            {
-                root = new JsonObject();
-            }
-
-            // Update logging section
-            var loggingSection = root["Logging"]?.AsObject() ?? new JsonObject();
-            loggingSection["LogLevel"] = SettingsLogLevel;
-            loggingSection["EnableFileLogging"] = SettingsEnableFileLogging;
-            loggingSection["EnableConsoleLogging"] = SettingsEnableConsoleLogging;
-            root["Logging"] = loggingSection;
-
-            // Update audio section
-            var audioSection = root["Audio"]?.AsObject() ?? new JsonObject();
-            audioSection["OutputDelayMs"] = SettingsOutputDelayMs;
-            audioSection["DeviceId"] = SettingsSelectedAudioDevice?.DeviceId;
+            // One update through the settings service, so this shares its file lock with every
+            // other settings save instead of racing them with a read-modify-write of its own.
             var preferredCodec = SettingsStreamType.StartsWith("FLAC", StringComparison.OrdinalIgnoreCase) ? "flac" : "opus";
-            audioSection["PreferredCodec"] = preferredCodec;
-            root["Audio"] = audioSection;
-
-            // Update notifications section
-            var notificationsSection = root["Notifications"]?.AsObject() ?? new JsonObject();
-            notificationsSection["Enabled"] = SettingsShowNotifications;
-            root["Notifications"] = notificationsSection;
-
-            // Update Discord section
-            var discordSection = root["Discord"]?.AsObject() ?? new JsonObject();
-            discordSection["Enabled"] = SettingsShowDiscordPresence;
-            root["Discord"] = discordSection;
-
-            // Update Visualizer section
-            var visualizerSection = root["Visualizer"]?.AsObject() ?? new JsonObject();
-            visualizerSection["Mode"] = StyleToToken(SettingsBackdropStyle);
-            visualizerSection["Enabled"] = SettingsBackdropStyle != "Off";
-            visualizerSection["Intensity"] = SettingsAmbientBackdropIntensity;
-            root["Visualizer"] = visualizerSection;
-
-            // Update MediaControls section
-            var mediaControlsSection = root["MediaControls"]?.AsObject() ?? new JsonObject();
-            mediaControlsSection["Enabled"] = SettingsEnableMediaKeys;
-            root["MediaControls"] = mediaControlsSection;
-
-            var appSection = root["App"]?.AsObject() ?? new JsonObject();
-            appSection["StartMinimized"] = SettingsStartMinimized;
-            appSection["ShowSwitchGroupButton"] = SettingsShowSwitchGroupButton;
-            root["App"] = appSection;
-
-            // Update player section
-            var playerSection = root["Player"]?.AsObject() ?? new JsonObject();
-            playerSection["Name"] = SettingsPlayerName;
-            root["Player"] = playerSection;
-
-            // Write back with nice formatting
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            var updatedJson = root.ToJsonString(options);
-            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+            await _settingsService.UpdateMultipleSectionsAsync(new Dictionary<string, Dictionary<string, object?>>
+            {
+                ["Logging"] = new()
+                {
+                    ["LogLevel"] = SettingsLogLevel,
+                    ["EnableFileLogging"] = SettingsEnableFileLogging,
+                    ["EnableConsoleLogging"] = SettingsEnableConsoleLogging,
+                },
+                ["Audio"] = new()
+                {
+                    ["OutputDelayMs"] = SettingsOutputDelayMs,
+                    ["DeviceId"] = SettingsSelectedAudioDevice?.DeviceId,
+                    ["PreferredCodec"] = preferredCodec,
+                },
+                ["Notifications"] = new() { ["Enabled"] = SettingsShowNotifications },
+                ["Discord"] = new() { ["Enabled"] = SettingsShowDiscordPresence },
+                ["Visualizer"] = new()
+                {
+                    ["Mode"] = StyleToToken(SettingsBackdropStyle),
+                    ["Enabled"] = SettingsBackdropStyle != "Off",
+                    ["Intensity"] = SettingsAmbientBackdropIntensity,
+                },
+                ["MediaControls"] = new() { ["Enabled"] = SettingsEnableMediaKeys },
+                ["App"] = new()
+                {
+                    ["StartMinimized"] = SettingsStartMinimized,
+                    ["ShowSwitchGroupButton"] = SettingsShowSwitchGroupButton,
+                },
+                ["Player"] = new() { ["Name"] = SettingsPlayerName },
+            });
 
             // Apply notification setting immediately
             _notificationService.IsEnabled = SettingsShowNotifications;

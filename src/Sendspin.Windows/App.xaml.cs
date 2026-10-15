@@ -124,19 +124,18 @@ public partial class App : Application
         _trayIcon = (TaskbarIcon)FindResource("TrayIcon");
         _trayIcon.DataContext = _mainViewModel;
 
-        // Check if this is the first launch - show welcome screen if so
+        // A first launch shows the welcome screen; after that, Start Minimized decides. An explicit
+        // Start Minimized choice wins even over a missing first-launch flag (issue #53).
         var hasLaunchedBefore = _configuration!.GetValue<bool>("App:HasLaunchedBefore", false);
+        if (StartupWindow.ShouldShow(hasLaunchedBefore, _configuration!.GetValue<bool?>("App:StartMinimized")))
+        {
+            mainWindow.Show();
+        }
+
         if (!hasLaunchedBefore)
         {
-            // First launch - show the welcome screen
-            mainWindow.Show();
-
             // Mark as launched (save immediately to prevent showing again if app crashes)
             _ = SaveFirstLaunchFlagAsync();
-        }
-        else if (!_configuration!.GetValue<bool>("App:StartMinimized", true))
-        {
-            mainWindow.Show();
         }
 
         // Initialize the view model
@@ -146,35 +145,22 @@ public partial class App : Application
     /// <summary>
     /// Saves the first launch flag to settings so the welcome screen is only shown once.
     /// </summary>
-    private static async Task SaveFirstLaunchFlagAsync()
+    /// <remarks>
+    /// Saved through <see cref="IUserSettingsService"/> so it shares that service's file lock with
+    /// the other settings saves made during startup. Writing the file directly let either update
+    /// overwrite the other.
+    /// </remarks>
+    private async Task SaveFirstLaunchFlagAsync()
     {
         try
         {
-            AppPaths.EnsureUserDataDirectoryExists();
-            var appSettingsPath = AppPaths.UserSettingsPath;
-
-            System.Text.Json.Nodes.JsonNode? root;
-            if (File.Exists(appSettingsPath))
-            {
-                var json = await File.ReadAllTextAsync(appSettingsPath);
-                root = System.Text.Json.Nodes.JsonNode.Parse(json) ?? new System.Text.Json.Nodes.JsonObject();
-            }
-            else
-            {
-                root = new System.Text.Json.Nodes.JsonObject();
-            }
-
-            var appSection = root["App"]?.AsObject() ?? new System.Text.Json.Nodes.JsonObject();
-            appSection["HasLaunchedBefore"] = true;
-            root["App"] = appSection;
-
-            var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
-            var updatedJson = root.ToJsonString(options);
-            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+            await _serviceProvider!.GetRequiredService<IUserSettingsService>()
+                .UpdateSettingAsync("App", "HasLaunchedBefore", true);
         }
-        catch
+        catch (Exception ex)
         {
-            // Ignore errors - next launch will just show welcome again
+            // The next launch shows the welcome screen again, unless Start Minimized is set
+            Log.Warning(ex, "Failed to save the first-launch flag");
         }
     }
 
@@ -699,6 +685,10 @@ public partial class App : Application
     /// <summary>
     /// Saves logging settings to the user's appsettings.json file.
     /// </summary>
+    /// <remarks>
+    /// Writes the file directly rather than through <see cref="IUserSettingsService"/>: it runs
+    /// before the service provider is built, when nothing else is writing the file.
+    /// </remarks>
     private static async Task SaveLoggingSettingsAsync(string logLevel, bool enableFileLogging, bool enableConsoleLogging)
     {
         try
@@ -706,16 +696,9 @@ public partial class App : Application
             AppPaths.EnsureUserDataDirectoryExists();
             var appSettingsPath = AppPaths.UserSettingsPath;
 
-            System.Text.Json.Nodes.JsonNode? root;
-            if (File.Exists(appSettingsPath))
-            {
-                var json = await File.ReadAllTextAsync(appSettingsPath).ConfigureAwait(false);
-                root = System.Text.Json.Nodes.JsonNode.Parse(json) ?? new System.Text.Json.Nodes.JsonObject();
-            }
-            else
-            {
-                root = new System.Text.Json.Nodes.JsonObject();
-            }
+            var root = File.Exists(appSettingsPath)
+                ? SettingsJson.Parse(await File.ReadAllTextAsync(appSettingsPath).ConfigureAwait(false))
+                : new System.Text.Json.Nodes.JsonObject();
 
             var loggingSection = root["Logging"]?.AsObject() ?? new System.Text.Json.Nodes.JsonObject();
             loggingSection["LogLevel"] = logLevel;
@@ -727,9 +710,10 @@ public partial class App : Application
             var updatedJson = root.ToJsonString(options);
             await File.WriteAllTextAsync(appSettingsPath, updatedJson).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex)
         {
-            // Ignore errors - settings won't persist but logging is already disabled
+            // Logging is already disabled for this run; the choice just won't persist
+            Log.Warning(ex, "Failed to save logging settings");
         }
     }
 
