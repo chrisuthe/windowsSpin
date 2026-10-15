@@ -89,22 +89,24 @@ public partial class App : Application
 
         // Load configuration: first from install directory (defaults), then from user AppData (overrides)
         // This ensures user can always save settings even when installed to Program Files
-        _configuration = new ConfigurationBuilder()
-            .SetBasePath(AppPaths.InstallDirectory)
-            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-            .AddJsonFile(AppPaths.UserSettingsPath, optional: true, reloadOnChange: true)
-            .Build();
+        _configuration = BuildConfiguration(out var userSettingsError);
 
         // Configure Serilog from settings
         ConfigureSerilog(_configuration);
 
-        // Check for verbose logging and show warning if needed
-        CheckVerboseLoggingOnStartup();
+        if (userSettingsError is not null)
+        {
+            ReportUnreadableUserSettings(userSettingsError);
+        }
 
         // Configure services
         var services = new ServiceCollection();
         ConfigureServices(services);
         _serviceProvider = services.BuildServiceProvider();
+
+        // Check for verbose logging and show warning if needed. Needs the settings service, so it
+        // runs after the container is built; nothing registered above reads the logging settings.
+        CheckVerboseLoggingOnStartup();
 
         // Handle unhandled exceptions
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
@@ -140,6 +142,60 @@ public partial class App : Application
 
         // Initialize the view model
         _ = _mainViewModel.InitializeAsync();
+    }
+
+    /// <summary>
+    /// Builds the configuration: the install directory defaults overlaid with the user's settings file.
+    /// </summary>
+    /// <param name="userSettingsError">
+    /// Set when the user's settings file exists but could not be read; the configuration then
+    /// carries the defaults only.
+    /// </param>
+    private static IConfigurationRoot BuildConfiguration(out Exception? userSettingsError)
+    {
+        Exception? loadError = null;
+        var configuration = new ConfigurationBuilder()
+            .SetBasePath(AppPaths.InstallDirectory)
+            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+            .AddJsonFile(source =>
+            {
+                source.Path = AppPaths.UserSettingsPath;
+                source.Optional = true;
+                source.ReloadOnChange = true;
+                source.ResolveFileProvider();
+
+                // An unreadable file must not take the process down. On the initial load the
+                // provider stays empty and the defaults apply; a failed reload, which runs on a
+                // thread-pool thread where a throw is fatal, empties it until the file is valid
+                // again. The exception is kept so startup can report it; the warning here is for
+                // reloads, since the logger is not configured yet on the initial load.
+                source.OnLoadException = context =>
+                {
+                    context.Ignore = true;
+                    loadError = context.Exception;
+                    Log.Warning(context.Exception, "User settings file could not be read; using defaults until it is valid again");
+                };
+            })
+            .Build();
+
+        userSettingsError = loadError;
+        return configuration;
+    }
+
+    /// <summary>
+    /// Tells the user once that the settings file could not be read, so the app keeps starting with
+    /// defaults instead of failing on every launch. The file is left as it is: settings saves refuse
+    /// to overwrite it until it is fixed or removed.
+    /// </summary>
+    private static void ReportUnreadableUserSettings(Exception error)
+    {
+        Log.Warning(error, "User settings file {Path} is unreadable; using defaults", AppPaths.UserSettingsPath);
+        MessageBox.Show(
+            "Your settings file could not be read, so default settings are in use. " +
+            $"Settings cannot be saved until it is fixed or removed:\n{AppPaths.UserSettingsPath}\n\n{error.GetBaseException().Message}",
+            "Sendspin for Windows",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
     }
 
     /// <summary>
@@ -597,8 +653,24 @@ public partial class App : Application
             // Disable logging immediately
             ReconfigureLogging("Warning", enableFileLogging: false, enableConsoleLogging: false);
 
-            // Save the settings synchronously so they persist before MainViewModel loads
-            SaveLoggingSettingsAsync("Warning", enableFileLogging: false, enableConsoleLogging: false).GetAwaiter().GetResult();
+            // Save the settings synchronously so they persist before MainViewModel loads. The
+            // service drops the dispatcher context on its awaits, so blocking here cannot deadlock.
+            try
+            {
+                _serviceProvider!.GetRequiredService<IUserSettingsService>()
+                    .UpdateSectionAsync(LoggingSettings.SectionName, new Dictionary<string, object?>
+                    {
+                        ["LogLevel"] = "Warning",
+                        ["EnableFileLogging"] = false,
+                        ["EnableConsoleLogging"] = false,
+                    })
+                    .GetAwaiter().GetResult();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                // Logging is already disabled for this run; the choice just won't persist
+                Log.Warning(ex, "Failed to save logging settings");
+            }
 
             // Reload configuration so MainViewModel sees the updated values
             // This is necessary because the IConfiguration was built before the dialog saved
@@ -680,41 +752,6 @@ public partial class App : Application
         Log.Logger = logConfig.CreateLogger();
         Log.Information("Logging reconfigured. Level: {LogLevel}, File: {FileLogging}, Console: {ConsoleLogging}",
             logLevel, enableFileLogging, enableConsoleLogging);
-    }
-
-    /// <summary>
-    /// Saves logging settings to the user's appsettings.json file.
-    /// </summary>
-    /// <remarks>
-    /// Writes the file directly rather than through <see cref="IUserSettingsService"/>: it runs
-    /// before the service provider is built, when nothing else is writing the file.
-    /// </remarks>
-    private static async Task SaveLoggingSettingsAsync(string logLevel, bool enableFileLogging, bool enableConsoleLogging)
-    {
-        try
-        {
-            AppPaths.EnsureUserDataDirectoryExists();
-            var appSettingsPath = AppPaths.UserSettingsPath;
-
-            var root = File.Exists(appSettingsPath)
-                ? SettingsJson.Parse(await File.ReadAllTextAsync(appSettingsPath).ConfigureAwait(false))
-                : new System.Text.Json.Nodes.JsonObject();
-
-            var loggingSection = root["Logging"]?.AsObject() ?? new System.Text.Json.Nodes.JsonObject();
-            loggingSection["LogLevel"] = logLevel;
-            loggingSection["EnableFileLogging"] = enableFileLogging;
-            loggingSection["EnableConsoleLogging"] = enableConsoleLogging;
-            root["Logging"] = loggingSection;
-
-            var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
-            var updatedJson = root.ToJsonString(options);
-            await File.WriteAllTextAsync(appSettingsPath, updatedJson).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            // Logging is already disabled for this run; the choice just won't persist
-            Log.Warning(ex, "Failed to save logging settings");
-        }
     }
 
     /// <summary>
