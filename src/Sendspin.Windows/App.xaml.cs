@@ -346,18 +346,20 @@ public partial class App : Application
         // DAC clock genuinely diverges from the system clock (most report a 1.0000 ratio = no benefit).
         var useDeviceClock = _configuration!.GetValue("Audio:SyncCorrection:UseDeviceClock", false);
 
-        // Correction-loop knobs, tunable so they can be dialed by ear. The dead band is
-        // deliberately wider than the SDK's 0.1 ms: WASAPI's per-callback jitter is
-        // millisecond-scale, and a tighter band just has the corrector hunting it. The speed cap
-        // is not a comfort setting — it defaults to the spec's 0.5% MUST, and the SDK clamps
-        // anything above that to the cap and logs a warning per stream, so a larger value buys
-        // log noise and nothing else.
+        // Correction-loop knobs, tunable so they can be dialed by ear. The shipped config sets the
+        // spec's 0.1 ms dead band; the 1 ms fallback applies only to a settings file without the
+        // key, and is still within the spec's ±1 ms accuracy floor. The speed cap is not a comfort
+        // setting: the spec caps it at 0.5% (MUST). It is clamped here because installs of 2.2.1
+        // and 2.2.2 copied a 2% default into their user settings, which the SDK would clamp anyway
+        // while warning on every stream.
         // Built once and shared: the pipeline's buffers and the sync-health monitor must judge
         // correction activity against the same numbers. Consumers that need to tweak the options
         // (WasapiAudioPlayer) clone first, so this instance stays the configured truth.
         var syncOptions = SyncCorrectionOptions.Default;
         syncOptions.DeadbandMicroseconds = (long)(_configuration!.GetValue("Audio:SyncCorrection:DeadbandMs", 1.0) * 1000.0);
-        syncOptions.MaxSpeedCorrection = _configuration!.GetValue("Audio:SyncCorrection:MaxSpeedCorrectionPercent", 0.5) / 100.0;
+        syncOptions.MaxSpeedCorrection = Math.Min(
+            _configuration!.GetValue("Audio:SyncCorrection:MaxSpeedCorrectionPercent", 0.5) / 100.0,
+            SyncCorrectionOptions.SpecMaxSpeedCorrection);
         syncOptions.CorrectionTargetSeconds = _configuration!.GetValue("Audio:SyncCorrection:CorrectionTargetSeconds", 3.0);
 
         // The correction source reads this off the buffer it is handed, so the mechanism has to be
