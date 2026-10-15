@@ -595,6 +595,16 @@ public partial class MainViewModel : ViewModelBase
             : ts.ToString(@"m\:ss");
     }
 
+    /// <summary>
+    /// Queues <paramref name="action"/> on the UI thread. SDK events and fetch continuations can
+    /// still arrive while the application is exiting; once it has gone they are dropped instead of
+    /// dereferencing a null <see cref="System.Windows.Application.Current"/>.
+    /// </summary>
+    private static void RunOnUi(Action action)
+    {
+        System.Windows.Application.Current?.Dispatcher.BeginInvoke(action);
+    }
+
     public MainViewModel(
         ILogger<MainViewModel> logger,
         ILoggerFactory loggerFactory,
@@ -637,7 +647,7 @@ public partial class MainViewModel : ViewModelBase
             loggerFactory.CreateLogger<TrackProgressTracker>());
 
         _mediaControlsService.PlayPauseRequested += (_, _) =>
-            App.Current.Dispatcher.InvokeAsync(() =>
+            RunOnUi(() =>
             {
                 _logger.LogInformation(
                     "SMTC PlayPauseRequested received: PlaybackState={State}, IsConnected={Connected}, IsMuted={Muted}",
@@ -645,9 +655,9 @@ public partial class MainViewModel : ViewModelBase
                 PlayPauseCommand.Execute(null);
             });
         _mediaControlsService.NextRequested += (_, _) =>
-            App.Current.Dispatcher.InvokeAsync(() => NextTrackCommand.Execute(null));
+            RunOnUi(() => NextTrackCommand.Execute(null));
         _mediaControlsService.PreviousRequested += (_, _) =>
-            App.Current.Dispatcher.InvokeAsync(() => PreviousTrackCommand.Execute(null));
+            RunOnUi(() => PreviousTrackCommand.Execute(null));
 
         // Load current logging settings
         LoadLoggingSettings();
@@ -1351,7 +1361,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnManualClientConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs e)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             _logger.LogInformation("Client state: {OldState} -> {NewState}",
                 e.OldState, e.NewState);
@@ -1401,7 +1411,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnManualClientGroupStateChanged(object? sender, GroupState group)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             _isUpdatingFromServer = true;
             try
@@ -1470,7 +1480,7 @@ public partial class MainViewModel : ViewModelBase
             using var httpClient = _httpClientFactory.CreateClient("Artwork");
             var imageData = await httpClient.GetByteArrayAsync(artworkUri);
 
-            App.Current.Dispatcher.BeginInvoke(() =>
+            RunOnUi(() =>
             {
                 // Discard stale results: a track change (or newer artwork) may have
                 // superseded this fetch while it was in flight.
@@ -1525,7 +1535,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnManualClientArtworkReceived(object? sender, ArtworkReceivedEventArgs e)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             AlbumArtwork = e.ImageData;
             _logger.LogDebug("Manual client artwork received: channel {Channel}, {Length} bytes", e.Channel, e.ImageData.Length);
@@ -1534,7 +1544,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnServerConnected(object? sender, ConnectedServerInfo server)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             // No app-side arbitration. SendspinHostService already applies the spec's admission
             // rules (activity ranking, LastPlayedServerId tiebreak) and disconnects only the
@@ -1556,7 +1566,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnServerDisconnected(object? sender, string serverId)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             var server = ConnectedServers.FirstOrDefault(s => s.ServerId == serverId);
             string? disconnectedServerName = server?.ServerName;
@@ -1592,7 +1602,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnGroupStateChanged(object? sender, GroupState group)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             _isUpdatingFromServer = true;
             try
@@ -1644,7 +1654,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnArtworkReceived(object? sender, ArtworkReceivedEventArgs e)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             AlbumArtwork = e.ImageData;
             _logger.LogDebug("Artwork received: channel {Channel}, {Length} bytes", e.Channel, e.ImageData.Length);
@@ -1653,7 +1663,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnArtworkCleared(object? sender, ArtworkClearedEventArgs e)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             AlbumArtwork = null;
             _logger.LogDebug("Artwork cleared on channel {Channel} (no artwork available)", e.Channel);
@@ -1662,7 +1672,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnColorChanged(object? sender, ColorPalette palette)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             _ambient.ApplyColorPalette(palette);
             _logger.LogDebug(
@@ -1673,7 +1683,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnVisualizationReceived(object? sender, VisualizerFrame frame)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             _ambient.ApplyVisualizerFrame(frame);
             LogVisualizationDiagnostics(frame);
@@ -1727,7 +1737,7 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     private void OnPlayerStateChanged(object? sender, PlayerState state)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             _isUpdatingFromServer = true;
             try
@@ -1762,7 +1772,7 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     private void OnManualClientPlayerStateChanged(object? sender, PlayerState state)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             _isUpdatingFromServer = true;
             try
@@ -1797,7 +1807,7 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     private void OnOutputDelaySavedBySdk(double outputDelayMs)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             _isUpdatingFromServer = true;
             try
@@ -1876,7 +1886,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnAudioPipelineStateChanged(object? sender, AudioPipelineState state)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             var format = _audioPipeline.CurrentFormat;
             if (state == AudioPipelineState.Idle || format == null)
@@ -1905,7 +1915,7 @@ public partial class MainViewModel : ViewModelBase
         _logger.LogInformation("Discovered server: {Name} at {Host}:{Port}",
             server.Name, server.IpAddresses.FirstOrDefault(), server.Port);
 
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             // Add to discovered servers list for UI display
             if (!DiscoveredServers.Any(s => s.ServerId == server.ServerId))
@@ -1930,7 +1940,7 @@ public partial class MainViewModel : ViewModelBase
     {
         _logger.LogInformation("Server lost: {Name} ({ServerId})", server.Name, server.ServerId);
 
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             // Remove from discovered servers list
             var existing = DiscoveredServers.FirstOrDefault(s => s.ServerId == server.ServerId);
@@ -1944,7 +1954,7 @@ public partial class MainViewModel : ViewModelBase
         // If we were connected to this server, mark for reconnection
         if (_autoConnectedServerId == server.ServerId)
         {
-            App.Current.Dispatcher.BeginInvoke(() =>
+            RunOnUi(() =>
             {
                 StatusMessage = $"Server {server.Name} went offline. Searching for servers...";
             });
@@ -2556,7 +2566,7 @@ public partial class MainViewModel : ViewModelBase
             try
             {
                 await _serverDiscovery.StopAsync();
-                App.Current.Dispatcher.BeginInvoke(() => DiscoveredServers.Clear());
+                RunOnUi(() => DiscoveredServers.Clear());
                 _logger.LogInformation("Server discovery stopped");
             }
             catch (Exception ex)
