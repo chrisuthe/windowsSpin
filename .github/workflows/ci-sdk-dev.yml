@@ -13,8 +13,10 @@ on:
         required: true
         default: 'dev'
 
+# Read-only by default; only the job that publishes gets write access. Nothing here uses
+# OIDC (the signing action authenticates with a client secret), so there is no id-token grant.
 permissions:
-  contents: write  # Required for creating prereleases
+  contents: read
 
 # SDK_REPO is hard-coded to the canonical repo. This workflow builds the
 # checked-out SDK with MSBuild (arbitrary build code) and then signs the result
@@ -29,20 +31,22 @@ env:
 jobs:
   sdk-dev-build:
     runs-on: windows-latest
+    permissions:
+      contents: write  # Creates the SDK-dev prerelease and deletes old ones
 
     steps:
       - name: Checkout Sendspin for Windows
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Checkout SDK source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: ${{ env.SDK_REPO }}
           ref: ${{ inputs.sdk_ref }}
           path: sdk-src
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -88,7 +92,7 @@ jobs:
 
       # Sign the main application EXEs before creating installers
       - name: Sign Application EXEs (framework-dependent)
-        uses: azure/trusted-signing-action@v0
+        uses: Azure/artifact-signing-action@1d365fec12862c4aa68fcac418143d73f0cea293 # v0.5.11
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -103,7 +107,7 @@ jobs:
           timestamp-digest: SHA256
 
       - name: Sign Application EXEs (self-contained)
-        uses: azure/trusted-signing-action@v0
+        uses: Azure/artifact-signing-action@1d365fec12862c4aa68fcac418143d73f0cea293 # v0.5.11
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -135,7 +139,7 @@ jobs:
 
       # Sign the installer EXEs
       - name: Sign Installer EXEs
-        uses: azure/trusted-signing-action@v0
+        uses: Azure/artifact-signing-action@1d365fec12862c4aa68fcac418143d73f0cea293 # v0.5.11
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -157,7 +161,7 @@ jobs:
       # Clean up old SDK-dev prereleases (keep last 5). Disjoint tag pattern from
       # ci.yml's v0.0.0-dev cleanup, so the two never delete each other's builds.
       - name: Clean up old SDK-dev prereleases
-        uses: dev-drprasad/delete-older-releases@v0.3.4
+        uses: dev-drprasad/delete-older-releases@dfbe6be2a006e9475dfcbe5b8d201f1824c2a9fe # v0.3.4
         with:
           keep_latest: 5
           delete_tag_pattern: v0.0.0-sdkdev
@@ -166,7 +170,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create SDK-Dev Prerelease
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ steps.version.outputs.VERSION }}
           name: SDK-Dev Build — app ${{ steps.version.outputs.APP_SHORT_SHA }} / sdk ${{ inputs.sdk_ref }}@${{ steps.version.outputs.SDK_SHORT_SHA }}
