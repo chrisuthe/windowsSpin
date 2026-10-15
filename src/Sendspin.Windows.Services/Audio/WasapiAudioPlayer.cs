@@ -71,6 +71,17 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     // reformatted, or grabbed in exclusive mode. Instead of dying in a terminal Error state (silence
     // until restart), re-initialize the output on the current device and resume.
     private int _recovering;
+
+    // Serializes everything that creates, replaces or disposes the WASAPI output: initialization,
+    // SetSampleSource, device switches (user-requested or recovery) and disposal. Without it, a
+    // recovery could rebuild the output in the middle of a user's switch, or after disposal on a
+    // player nobody owns. Deliberately never disposed: a recovery may still be waiting on it when
+    // the player is disposed, and SemaphoreSlim holds nothing unmanaged unless its wait handle is used.
+    private readonly SemaphoreSlim _outputLock = new(1, 1);
+
+    // Set under _outputLock by DisposeAsync. Read outside it only by the recovery loop, to stop
+    // early; the check that matters is the one made under the lock.
+    private bool _disposed;
     private const int DeviceInvalidatedHResult = unchecked((int)0x88890004);
     private const int MaxDeviceRecoveryAttempts = 5;
     private const int DeviceRecoveryBaseDelayMs = 200;
@@ -310,7 +321,24 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     }
 
     /// <inheritdoc/>
-    public Task InitializeAsync(AudioFormat format, CancellationToken cancellationToken = default)
+    public async Task InitializeAsync(AudioFormat format, CancellationToken cancellationToken = default)
+    {
+        await _outputLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            await InitializeOutputAsync(format, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _outputLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Creates the WASAPI output. Callers hold <see cref="_outputLock"/>.
+    /// </summary>
+    private Task InitializeOutputAsync(AudioFormat format, CancellationToken cancellationToken)
     {
         return Task.Run(
             () =>
@@ -387,12 +415,31 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// <inheritdoc/>
     public void SetSampleSource(IAudioSampleSource source)
     {
+        ArgumentNullException.ThrowIfNull(source);
+
+        // Synchronous because the interface is. The pipeline calls this on a pool thread, and a
+        // rebuild holding the lock runs to completion on its own pool thread, so the wait is bounded.
+        _outputLock.Wait();
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            AttachSampleSource(source);
+        }
+        finally
+        {
+            _outputLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Builds the output chain for <paramref name="source"/>. Callers hold <see cref="_outputLock"/>.
+    /// </summary>
+    private void AttachSampleSource(IAudioSampleSource source)
+    {
         if (_wasapiOut == null || _format == null)
         {
             throw new InvalidOperationException("Player not initialized. Call InitializeAsync first.");
         }
-
-        ArgumentNullException.ThrowIfNull(source);
 
         DisposeCorrectionSource();
 
@@ -536,15 +583,52 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// <inheritdoc/>
     public void Stop()
     {
-        _wasapiOut?.Stop();
+        try
+        {
+            _wasapiOut?.Stop();
+        }
+        catch (Exception ex)
+        {
+            // A device-invalidated output throws on Stop(), as the rebuild path also handles. The
+            // pipeline calls this just before DisposeAsync, so throwing here would skip disposal.
+            _logger.LogDebug(ex, "Ignoring error stopping audio output");
+        }
+
         SetState(AudioPlayerState.Stopped);
         _logger.LogInformation("Playback stopped");
     }
 
     /// <inheritdoc/>
     public Task SwitchDeviceAsync(string? deviceId, CancellationToken cancellationToken = default)
-        => SwitchDeviceInternalAsync(deviceId, forceResume: false, cancellationToken);
+        => RebuildOutputExclusiveAsync(() => deviceId, forceResume: false, cancellationToken);
 
+    /// <summary>
+    /// Runs one output rebuild under <see cref="_outputLock"/>, refusing once the player is disposed.
+    /// </summary>
+    /// <param name="deviceId">
+    /// Evaluated only once the lock is held, so a recovery queued behind a user's device switch
+    /// rebuilds on the device the user chose, not the one current when it started waiting.
+    /// </param>
+    /// <param name="forceResume">Passed through to <see cref="SwitchDeviceInternalAsync"/>.</param>
+    /// <param name="cancellationToken">Cancels the wait for the lock and the rebuild.</param>
+    private async Task RebuildOutputExclusiveAsync(Func<string?> deviceId, bool forceResume, CancellationToken cancellationToken)
+    {
+        await _outputLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            await SwitchDeviceInternalAsync(deviceId(), forceResume, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _outputLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Replaces the WASAPI output with one on <paramref name="deviceId"/>. Callers hold
+    /// <see cref="_outputLock"/>; go through <see cref="RebuildOutputExclusiveAsync"/>.
+    /// </summary>
     private Task SwitchDeviceInternalAsync(string? deviceId, bool forceResume, CancellationToken cancellationToken = default)
     {
         return Task.Run(
@@ -684,22 +768,46 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
-        if (_wasapiOut != null)
+        // Under the lock, so a rebuild in progress finishes before its output is torn down, and
+        // one still waiting sees _disposed and gives up instead of building a new output.
+        await _outputLock.WaitAsync().ConfigureAwait(false);
+        try
         {
-            _wasapiOut.PlaybackStopped -= OnPlaybackStopped;
-            _wasapiOut.Stop();
-            _wasapiOut.Dispose();
-            _wasapiOut = null;
+            if (_disposed)
+            {
+                return;
+            }
+
+            Volatile.Write(ref _disposed, true);
+
+            if (_wasapiOut != null)
+            {
+                _wasapiOut.PlaybackStopped -= OnPlaybackStopped;
+                try
+                {
+                    _wasapiOut.Stop();
+                }
+                catch (Exception stopEx)
+                {
+                    // A device-invalidated output throws on Stop(); it still has to be disposed.
+                    _logger.LogDebug(stopEx, "Ignoring error stopping audio output during dispose");
+                }
+
+                _wasapiOut.Dispose();
+                _wasapiOut = null;
+            }
+
+            Volatile.Write(ref _queuedLatencyProbe, null);
+
+            DisposeCorrectionSource();
+            _sampleProvider = null;
+
+            SetState(AudioPlayerState.Uninitialized);
         }
-
-        Volatile.Write(ref _queuedLatencyProbe, null);
-
-        DisposeCorrectionSource();
-        _sampleProvider = null;
-
-        SetState(AudioPlayerState.Uninitialized);
-
-        await Task.CompletedTask;
+        finally
+        {
+            _outputLock.Release();
+        }
     }
 
     private void OnPlaybackStopped(object? sender, StoppedEventArgs e)
@@ -749,13 +857,23 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                 // Back off increasingly so the OS has time to promote a new default device.
                 await Task.Delay(DeviceRecoveryBaseDelayMs * attempt).ConfigureAwait(false);
 
+                if (Volatile.Read(ref _disposed))
+                {
+                    return;
+                }
+
                 try
                 {
-                    await SwitchDeviceInternalAsync(_deviceId, forceResume: true).ConfigureAwait(false);
+                    await RebuildOutputExclusiveAsync(() => _deviceId, forceResume: true, CancellationToken.None).ConfigureAwait(false);
                     _logger.LogInformation(
                         "Recovered audio output after device invalidation (attempt {Attempt}/{Max})",
                         attempt,
                         MaxDeviceRecoveryAttempts);
+                    return;
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Disposed while this attempt waited for the lock: nothing left to recover.
                     return;
                 }
                 catch (Exception ex)
@@ -766,6 +884,11 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
                         attempt,
                         MaxDeviceRecoveryAttempts);
                 }
+            }
+
+            if (Volatile.Read(ref _disposed))
+            {
+                return;
             }
 
             _logger.LogError("Audio output could not be recovered after {Max} attempts", MaxDeviceRecoveryAttempts);
