@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
+using Sendspin.Windows.Services.Configuration;
 
 namespace Sendspin.Windows.Configuration;
 
@@ -133,9 +134,9 @@ public class UserSettingsService : IUserSettingsService, IDisposable
             }
 
             var json = await File.ReadAllTextAsync(AppPaths.UserSettingsPath);
-            var root = JsonNode.Parse(json);
+            var root = SettingsJson.Parse(json);
 
-            var value = root?[sectionName]?[propertyName];
+            var value = root[sectionName]?[propertyName];
             if (value == null)
             {
                 return defaultValue;
@@ -154,23 +155,32 @@ public class UserSettingsService : IUserSettingsService, IDisposable
         }
     }
 
-    private async Task<JsonObject> LoadSettingsFileAsync()
+    /// <summary>
+    /// Loads the settings file for an update.
+    /// </summary>
+    /// <exception cref="InvalidDataException">
+    /// The file cannot be parsed. The update is abandoned and the file left as it is. Reading it as
+    /// empty, as this used to, made the save replace every setting the user had with the one being
+    /// changed.
+    /// </exception>
+    private static async Task<JsonObject> LoadSettingsFileAsync()
     {
-        if (File.Exists(AppPaths.UserSettingsPath))
+        if (!File.Exists(AppPaths.UserSettingsPath))
         {
-            try
-            {
-                var json = await File.ReadAllTextAsync(AppPaths.UserSettingsPath);
-                return JsonNode.Parse(json)?.AsObject() ?? new JsonObject();
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogWarning(ex, "Malformed settings file, creating new one");
-                return new JsonObject();
-            }
+            return new JsonObject();
         }
 
-        return new JsonObject();
+        var json = await File.ReadAllTextAsync(AppPaths.UserSettingsPath);
+        try
+        {
+            return SettingsJson.Parse(json);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException(
+                $"The settings file {AppPaths.UserSettingsPath} is not valid JSON, so it was not changed. Fix or remove it to save settings again.",
+                ex);
+        }
     }
 
     private static async Task SaveSettingsFileAsync(JsonNode root)
