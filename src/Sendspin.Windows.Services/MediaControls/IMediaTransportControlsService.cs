@@ -20,6 +20,12 @@ public interface IMediaTransportControlsService : IDisposable
 
     void UpdateState(PlaybackState state);
 
+    /// <summary>
+    /// Enables only the media keys whose command the active group lists in its
+    /// <c>supported_commands</c>; null (not connected, or no list yet) disables them all.
+    /// </summary>
+    void UpdateSupportedCommands(IReadOnlyCollection<string>? supportedCommands);
+
     void UpdateMetadata(TrackMetadata? track);
 
     void UpdateThumbnail(byte[]? imageBytes);

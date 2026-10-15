@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Sendspin.SDK.Models;
+using Sendspin.SDK.Protocol.Messages;
+using Sendspin.Windows.Services.Playback;
 using Windows.Media;
 using Windows.Storage.Streams;
 
@@ -12,6 +14,9 @@ public sealed class MediaTransportControlsService : IMediaTransportControlsServi
     private SystemMediaTransportControlsDisplayUpdater? _displayUpdater;
     private bool _isEnabled = true;
     private bool _disposed;
+
+    // Held so Initialize can apply a list reported before the window handle existed.
+    private IReadOnlyCollection<string>? _supportedCommands;
 
     public MediaTransportControlsService(ILogger<MediaTransportControlsService> logger)
     {
@@ -55,10 +60,7 @@ public sealed class MediaTransportControlsService : IMediaTransportControlsServi
         {
             _smtc = SystemMediaTransportControlsInterop.GetForWindow(windowHandle);
             _smtc.IsEnabled = _isEnabled;
-            _smtc.IsPlayEnabled = true;
-            _smtc.IsPauseEnabled = true;
-            _smtc.IsNextEnabled = true;
-            _smtc.IsPreviousEnabled = true;
+            ApplySupportedCommands(_smtc);
             _smtc.PlaybackStatus = MediaPlaybackStatus.Stopped;
             _smtc.ButtonPressed += OnButtonPressed;
 
@@ -99,6 +101,15 @@ public sealed class MediaTransportControlsService : IMediaTransportControlsServi
                 newStatus,
                 state);
             _smtc.PlaybackStatus = newStatus;
+        }
+    }
+
+    public void UpdateSupportedCommands(IReadOnlyCollection<string>? supportedCommands)
+    {
+        _supportedCommands = supportedCommands;
+        if (_smtc != null)
+        {
+            ApplySupportedCommands(_smtc);
         }
     }
 
@@ -189,6 +200,14 @@ public sealed class MediaTransportControlsService : IMediaTransportControlsServi
                 PreviousRequested?.Invoke(this, EventArgs.Empty);
                 break;
         }
+    }
+
+    private void ApplySupportedCommands(SystemMediaTransportControls smtc)
+    {
+        smtc.IsPlayEnabled = TransportCommands.IsSupported(_supportedCommands, Commands.Play);
+        smtc.IsPauseEnabled = TransportCommands.IsSupported(_supportedCommands, Commands.Pause);
+        smtc.IsNextEnabled = TransportCommands.IsSupported(_supportedCommands, Commands.Next);
+        smtc.IsPreviousEnabled = TransportCommands.IsSupported(_supportedCommands, Commands.Previous);
     }
 
     private static RandomAccessStreamReference CreateStreamReference(byte[] bytes)

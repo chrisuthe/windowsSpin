@@ -187,6 +187,7 @@ public partial class MainViewModel : ViewModelBase
     /// Gets or sets the current playback state (Idle, Playing, Paused, Buffering, etc.).
     /// </summary>
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PlayPauseCommand))]
     private PlaybackState _playbackState = PlaybackState.Idle;
 
     /// <summary>
@@ -240,6 +241,7 @@ public partial class MainViewModel : ViewModelBase
     /// Reflects the server's authoritative state (Sendspin spec: shuffle is group-level).
     /// </summary>
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ToggleShuffleCommand))]
     private bool _isShuffleEnabled;
 
     /// <summary>
@@ -247,8 +249,21 @@ public partial class MainViewModel : ViewModelBase
     /// Reflects the server's authoritative state (Sendspin spec: repeat is group-level).
     /// </summary>
     [NotifyPropertyChangedFor(nameof(RepeatTooltip))]
+    [NotifyCanExecuteChangedFor(nameof(CycleRepeatCommand))]
     [ObservableProperty]
     private string _repeatMode = "off";
+
+    /// <summary>
+    /// The latest group <c>supported_commands</c>, or null before any server has reported them.
+    /// The SDK drops any controller command not listed here, so each transport control is
+    /// enabled only for a command in this list, and only while connected.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not cleared on disconnect. In a host-mode handover the SDK forwards the
+    /// incoming server's state before it raises the outgoing server's disconnect, so clearing
+    /// there would discard the new server's list and leave every control disabled.
+    /// </remarks>
+    private IReadOnlyCollection<string>? _supportedCommands;
 
     /// <summary>
     /// Gets the tooltip text for the Repeat button, describing the current mode.
@@ -819,16 +834,69 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsSearchingForServers));
     }
 
-    [RelayCommand]
+    /// <summary>
+    /// Whether the active group lists <paramref name="command"/>. Every transport control is
+    /// gated on this, in its CanExecute and again in its body: media keys and the tray call
+    /// Execute directly, and the SDK silently drops a command the group does not list.
+    /// </summary>
+    private bool IsCommandSupported(string command) =>
+        IsConnected && TransportCommands.IsSupported(_supportedCommands, command);
+
+    private bool CanPlayPause() => IsCommandSupported(TransportCommands.ForPlayPause(PlaybackState));
+
+    private bool CanNextTrack() => IsCommandSupported(Commands.Next);
+
+    private bool CanPreviousTrack() => IsCommandSupported(Commands.Previous);
+
+    private bool CanToggleShuffle() => IsCommandSupported(TransportCommands.ForShuffleToggle(IsShuffleEnabled));
+
+    private bool CanCycleRepeat() => IsCommandSupported(TransportCommands.ForRepeatCycle(RepeatMode, _supportedCommands));
+
+    private bool CanSwitchGroup() => IsCommandSupported(Commands.Switch);
+
+    /// <summary>
+    /// Records the group's <c>supported_commands</c> and re-evaluates every transport control.
+    /// </summary>
+    private void ApplySupportedCommands(IReadOnlyCollection<string>? supportedCommands)
+    {
+        _supportedCommands = supportedCommands;
+        RefreshTransportCommands();
+    }
+
+    private void RefreshTransportCommands()
+    {
+        PlayPauseCommand.NotifyCanExecuteChanged();
+        NextTrackCommand.NotifyCanExecuteChanged();
+        PreviousTrackCommand.NotifyCanExecuteChanged();
+        ToggleShuffleCommand.NotifyCanExecuteChanged();
+        CycleRepeatCommand.NotifyCanExecuteChanged();
+        SwitchGroupCommand.NotifyCanExecuteChanged();
+        _mediaControlsService.UpdateSupportedCommands(IsConnected ? _supportedCommands : null);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <see cref="IsConnected"/> is computed, so its several change sites raise it by name; this
+    /// is the one place that re-evaluates the transport controls when it changes.
+    /// </remarks>
+    protected override void OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+
+        if (e.PropertyName == nameof(IsConnected))
+        {
+            RefreshTransportCommands();
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanPlayPause))]
     private async Task PlayPauseAsync()
     {
-        if (!IsConnected) return;
+        if (!CanPlayPause()) return;
 
         try
         {
-            var command = PlaybackState == PlaybackState.Playing
-                ? Commands.Pause
-                : Commands.Play;
+            var command = TransportCommands.ForPlayPause(PlaybackState);
             _logger.LogInformation(
                 "PlayPause -> sending {Command} (PlaybackState was {State}, IsMuted={Muted})",
                 command, PlaybackState, IsMuted);
@@ -840,10 +908,12 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanNextTrack))]
     private async Task NextTrackAsync()
     {
-        if (!IsConnected) return;
+        // Checked before the optimistic reset below: a reset for a command the SDK then drops
+        // freezes the seek bar at zero while the track plays on.
+        if (!CanNextTrack()) return;
 
         // Optimistic reset: snap the seek bar to zero now; the next fresh server
         // progress re-anchors it authoritatively.
@@ -860,10 +930,11 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanPreviousTrack))]
     private async Task PreviousTrackAsync()
     {
-        if (!IsConnected) return;
+        // Checked before the optimistic reset, as in NextTrackAsync.
+        if (!CanPreviousTrack()) return;
 
         // Optimistic reset: snap the seek bar to zero now; the next fresh server
         // progress re-anchors it. Covers the server restarting the SAME track at zero,
@@ -912,14 +983,14 @@ public partial class MainViewModel : ViewModelBase
     /// Toggles shuffle on/off for the current group. The new state is reflected
     /// back via <see cref="GroupState.Shuffle"/> on the next group/update.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanToggleShuffle))]
     private async Task ToggleShuffleAsync()
     {
-        if (!IsConnected) return;
+        if (!CanToggleShuffle()) return;
 
         try
         {
-            var command = IsShuffleEnabled ? Commands.Unshuffle : Commands.Shuffle;
+            var command = TransportCommands.ForShuffleToggle(IsShuffleEnabled);
             _logger.LogInformation("ToggleShuffle -> sending {Command} (was {State})", command, IsShuffleEnabled);
             await SendCommandToActiveClientAsync(command);
         }
@@ -933,20 +1004,15 @@ public partial class MainViewModel : ViewModelBase
     /// Cycles the repeat mode off → all → one → off. The new state is reflected
     /// back via <see cref="GroupState.Repeat"/> on the next group/update.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanCycleRepeat))]
     private async Task CycleRepeatAsync()
     {
-        if (!IsConnected) return;
+        if (!CanCycleRepeat()) return;
 
         try
         {
             // off → all → one → off, matching the Now Playing design.
-            var command = RepeatMode switch
-            {
-                "all" => Commands.RepeatOne,
-                "one" => Commands.RepeatOff,
-                _ => Commands.RepeatAll,
-            };
+            var command = TransportCommands.ForRepeatCycle(RepeatMode, _supportedCommands);
             _logger.LogInformation("CycleRepeat -> sending {Command} (was {Mode})", command, RepeatMode);
             await SendCommandToActiveClientAsync(command);
         }
@@ -960,12 +1026,12 @@ public partial class MainViewModel : ViewModelBase
     /// Switches to the next available playback group.
     /// The server will automatically move this player to a different group.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanSwitchGroup))]
     private async Task SwitchGroupAsync()
     {
-        if (!IsConnected)
+        if (!CanSwitchGroup())
         {
-            _logger.LogWarning("Switch group command ignored - not connected");
+            _logger.LogWarning("Switch group command ignored - not connected or not supported by the group");
             return;
         }
 
@@ -1304,6 +1370,7 @@ public partial class MainViewModel : ViewModelBase
                 // Reflect the group's shuffle/repeat state on the transport buttons.
                 IsShuffleEnabled = group.Shuffle;
                 RepeatMode = group.Repeat ?? "off";
+                ApplySupportedCommands(group.SupportedCommands);
 
                 // Position/duration: tri-state progress handling and track-change resets
                 ApplyTrackProgress(group.Metadata, group.PlaybackState);
@@ -1488,6 +1555,7 @@ public partial class MainViewModel : ViewModelBase
                 // Reflect the group's shuffle/repeat state on the transport buttons.
                 IsShuffleEnabled = group.Shuffle;
                 RepeatMode = group.Repeat ?? "off";
+                ApplySupportedCommands(group.SupportedCommands);
 
                 // Position/duration: tri-state progress handling and track-change resets
                 ApplyTrackProgress(group.Metadata, group.PlaybackState);
