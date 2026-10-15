@@ -17,13 +17,16 @@ namespace Sendspin.Windows.Services.Playback;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The SDK merges <c>server/state</c> metadata with <c>Optional&lt;T&gt;</c> semantics and
-/// carries the previous <see cref="PlaybackProgress"/> instance forward when the field is
-/// absent from a message. This class therefore distinguishes <em>fresh</em> progress (a new
-/// instance, meaning the server actually sent the field) from <em>carried-forward</em>
-/// progress by reference. Carried progress never re-anchors the position: on the same track
-/// it leaves the extrapolation undisturbed, and on a track-identity change it is treated as
-/// no progress at all — the position resets to zero until the first fresh progress arrives.
+/// Since SDK 10 a <c>server/state</c> metadata object is the role's complete state: the SDK
+/// builds a new <see cref="TrackMetadata"/> from each one, so a <c>progress</c> leaf the server
+/// omits arrives as null and clears the position. Every other group-state event —
+/// <c>group/update</c>, a controller- or color-only <c>server/state</c>, a stream start or
+/// stop — re-announces the metadata instance already held. This class therefore distinguishes
+/// <em>fresh</em> progress (a new <see cref="PlaybackProgress"/> instance, meaning the server
+/// sent it in this message) from a <em>repeated</em> one by reference. Repeated progress never
+/// re-anchors the position: on the same track it leaves the extrapolation undisturbed. A new
+/// track identity paired with repeated progress, which the 9.x merge could produce, resets the
+/// position to zero; SDK 10 never produces it, and the reset is kept as a guard.
 /// </para>
 /// <para>
 /// Extrapolation follows the spec formula: displayed position is the anchored
@@ -55,9 +58,9 @@ public sealed class TrackProgressTracker
 {
     /// <summary>
     /// Maximum age of a converted metadata timestamp before it is considered implausible
-    /// and the anchor falls back to receipt time. Guards against a stale carried-forward
-    /// timestamp arriving next to fresh progress (the SDK merges metadata fields
-    /// independently).
+    /// and the anchor falls back to receipt time. Written for the 9.x merge, which could pair a
+    /// stale carried-forward timestamp with fresh progress; SDK 10 delivers both in one
+    /// metadata object, so this now only guards against a server sending an old timestamp.
     /// </summary>
     private const long MaxAnchorAgeMicroseconds = 5_000_000;
 
@@ -160,8 +163,9 @@ public sealed class TrackProgressTracker
 
         if (progress is null)
         {
-            // Explicit-null progress (track ended) or no progress yet: clear position and
-            // duration, matching the CLI's update_metadata handling.
+            // Progress omitted from the metadata object or sent as null (both read as null since
+            // SDK 10, and both clear the position per the spec), or none yet: clear position
+            // and duration, matching the CLI's update_metadata handling.
             _logger.LogDebug("Progress is null (track ended or none yet); clearing position and duration");
             ResetPosition();
             return;
@@ -169,7 +173,7 @@ public sealed class TrackProgressTracker
 
         if (!isFresh)
         {
-            // Carried-forward instance: the server did not send progress in this message.
+            // Repeated instance: this event re-announces metadata the server sent earlier.
             // Same track: leave the running extrapolation undisturbed (prevents rewinding
             // to a stale position). New track: stay at the reset applied above.
             return;
@@ -229,10 +233,10 @@ public sealed class TrackProgressTracker
         _anchor = null;
         _hasKnownPosition = false;
 
-        // _lastProgress is intentionally kept: any group-state event echoing the
-        // pre-change merged state carries the same stale progress instance and must
-        // not look fresh (metadata travels in server/state; group/update only carries
-        // playback state and group identity, but both re-emit the merged snapshot).
+        // _lastProgress is intentionally kept: any group-state event re-announcing the
+        // pre-change metadata carries the same progress instance and must not look fresh
+        // (group/update and controller- or color-only server/state both re-announce the
+        // metadata already held).
     }
 
     /// <summary>
