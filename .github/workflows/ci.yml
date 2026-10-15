@@ -41,6 +41,9 @@ jobs:
 
   # Dev builds - create signed installers for every push to branches
   dev-build:
+    # Waits for the build and test job, so no signed dev prerelease ships from a commit whose
+    # tests fail. Without this the two jobs ran in parallel and dev-build ignored the result.
+    needs: build
     runs-on: windows-latest
     # Only run on direct pushes to master, not PRs, tags (tags use release.yml) or release
     # branches, which get the build and test job above but no dev prerelease.
