@@ -16,8 +16,15 @@ namespace Sendspin.Windows.Services.Audio;
 /// This class is called from NAudio's audio thread and must be fast and non-blocking.
 /// It provides the current time to the timed buffer so that audio is released
 /// at the correct moment for synchronized playback.
+/// <para>
+/// This is the source the pipeline holds, but <see cref="WasapiAudioPlayer"/> plays the SDK's
+/// <c>SyncCorrectedSampleSource</c> built over <see cref="Buffer"/> instead of calling
+/// <see cref="Read"/>. What the pipeline and the audio callback would deliver here is therefore
+/// passed on: <see cref="ResetRequested"/> for the pipeline's resets, and
+/// <see cref="RecordCallback"/> for the player's audio callback.
+/// </para>
 /// </remarks>
-public sealed class BufferedAudioSampleSource : IAudioSampleSource
+public sealed class BufferedAudioSampleSource : IAudioSampleSource, IPlaybackLifecycleAware
 {
     private readonly ITimedAudioBuffer _buffer;
     private readonly Func<long> _getCurrentTimeMicroseconds;
@@ -32,6 +39,12 @@ public sealed class BufferedAudioSampleSource : IAudioSampleSource
     /// Used by the player to subscribe to rate changes for resampling sync correction.
     /// </summary>
     public ITimedAudioBuffer Buffer => _buffer;
+
+    /// <summary>
+    /// Raised when the pipeline resets this source — on a <c>stream/clear</c> or a re-anchor — so
+    /// the correction source wrapped around it can discard state from the audio being skipped.
+    /// </summary>
+    public event EventHandler? ResetRequested;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="BufferedAudioSampleSource"/> class.
@@ -55,13 +68,32 @@ public sealed class BufferedAudioSampleSource : IAudioSampleSource
     }
 
     /// <inheritdoc/>
+    public void Reset() => ResetRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Nothing to pass on: the pipeline calls <see cref="IAudioPlayer.NotifyReconnect"/> alongside
+    /// this, and the player already forwards that to its correction source.
+    /// </remarks>
+    public void NotifyReconnect()
+    {
+    }
+
+    /// <summary>
+    /// Records an audio callback of <paramref name="count"/> samples for starvation diagnostics.
+    /// Called on the audio thread by whatever actually serves the device's reads.
+    /// </summary>
+    /// <param name="count">Number of samples the callback requested.</param>
+    public void RecordCallback(int count)
+    {
+        // Expected interval: samples requested ÷ samples per ms (factor cached at construction)
+        _gapTracker?.RecordRead(Environment.TickCount64, count / _samplesPerMs);
+    }
+
+    /// <inheritdoc/>
     public int Read(float[] buffer, int offset, int count)
     {
-        if (_gapTracker is not null)
-        {
-            // Expected interval: samples requested ÷ samples per ms (factor cached at construction)
-            _gapTracker.RecordRead(Environment.TickCount64, count / _samplesPerMs);
-        }
+        RecordCallback(count);
 
         var currentTime = _getCurrentTimeMicroseconds();
 

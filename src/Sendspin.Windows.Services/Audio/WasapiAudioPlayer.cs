@@ -37,6 +37,9 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     private AudioSampleProviderAdapter? _sampleProvider;
     private ITimedAudioBuffer? _buffer;
     private SyncCorrectedSampleSource? _correctedSource;
+
+    // The source the pipeline holds and resets; _correctedSource wraps its buffer.
+    private BufferedAudioSampleSource? _pipelineSource;
     private AudioFormat? _format;
     private float _volume = 1.0f;
     private bool _isMuted;
@@ -396,6 +399,7 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
         // Get buffer from source for sync correction (if source is BufferedAudioSampleSource)
         _buffer = null;
         IAudioSampleSource effectiveSource = source;
+        Action<int>? onRead = null;
 
         if (source is BufferedAudioSampleSource bufferedSource)
         {
@@ -412,13 +416,19 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
 
             effectiveSource = _correctedSource;
 
+            // The pipeline resets and the device reads only reach bufferedSource, which this
+            // player never reads from; pass both on to where they belong.
+            _pipelineSource = bufferedSource;
+            bufferedSource.ResetRequested += OnPipelineSourceReset;
+            onRead = bufferedSource.RecordCallback;
+
             _logger.LogDebug(
                 "Sync correction delegated to the SDK ({Mechanism})",
                 _buffer.SyncOptions.Mechanism);
         }
 
         // Create NAudio adapter with current volume/mute state
-        _sampleProvider = new AudioSampleProviderAdapter(effectiveSource, _format);
+        _sampleProvider = new AudioSampleProviderAdapter(effectiveSource, _format, onRead);
         _sampleProvider.Volume = _volume;
         _sampleProvider.IsMuted = _isMuted;
 
@@ -476,8 +486,32 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
     /// </remarks>
     private void DisposeCorrectionSource()
     {
+        if (_pipelineSource != null)
+        {
+            _pipelineSource.ResetRequested -= OnPipelineSourceReset;
+            _pipelineSource = null;
+        }
+
         _correctedSource?.Dispose();
         _correctedSource = null;
+    }
+
+    /// <summary>
+    /// Passes the pipeline's reset on a <c>stream/clear</c> or re-anchor to the correction source,
+    /// which otherwise splices pre-seek resampler input into the new position and keeps
+    /// correcting at the old rate.
+    /// </summary>
+    private void OnPipelineSourceReset(object? sender, EventArgs e)
+    {
+        try
+        {
+            _correctedSource?.Reset();
+        }
+        catch (ObjectDisposedException)
+        {
+            // AudioPipeline.Clear is not serialized with the pipeline's stop, so a seek can land
+            // while this source is being torn down. There is nothing left to reset.
+        }
     }
 
     /// <inheritdoc/>

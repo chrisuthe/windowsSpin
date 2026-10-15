@@ -15,6 +15,7 @@ namespace Sendspin.Windows.Services.Audio;
 internal sealed class AudioSampleProviderAdapter : ISampleProvider
 {
     private readonly IAudioSampleSource _source;
+    private readonly Action<int>? _onRead;
 
     /// <summary>
     /// Gets the wave format for NAudio.
@@ -50,12 +51,14 @@ internal sealed class AudioSampleProviderAdapter : ISampleProvider
     /// </summary>
     /// <param name="source">The audio sample source to adapt.</param>
     /// <param name="format">Audio format configuration.</param>
-    public AudioSampleProviderAdapter(IAudioSampleSource source, AudioFormat format)
+    /// <param name="onRead">Optional hook told the sample count of each device read, on the audio thread.</param>
+    public AudioSampleProviderAdapter(IAudioSampleSource source, AudioFormat format, Action<int>? onRead = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(format);
 
         _source = source;
+        _onRead = onRead;
         WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(format.SampleRate, format.Channels);
     }
 
@@ -78,6 +81,7 @@ internal sealed class AudioSampleProviderAdapter : ISampleProvider
     /// <returns>Number of samples written, always <paramref name="count"/>.</returns>
     public int Read(float[] buffer, int offset, int count)
     {
+        _onRead?.Invoke(count);
         _source.Read(buffer, offset, count);
 
         if (IsMuted)
