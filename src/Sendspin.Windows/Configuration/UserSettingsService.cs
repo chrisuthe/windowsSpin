@@ -50,8 +50,16 @@ public interface IUserSettingsService
 /// <summary>
 /// Implementation of IUserSettingsService that persists to JSON files.
 /// </summary>
+/// <remarks>
+/// Writes are serialized on one lock and land atomically (written beside the file, then renamed over
+/// it), so a reader never observes a partially written file. Nothing here needs the caller's
+/// synchronization context, so every await drops it and callers may block on these tasks.
+/// </remarks>
 public class UserSettingsService : IUserSettingsService, IDisposable
 {
+    private const int ReplaceAttempts = 5;
+    private const int ReplaceRetryDelayMs = 100;
+
     private readonly ILogger<UserSettingsService> _logger;
     private readonly SemaphoreSlim _fileLock = new(1, 1);
     private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
@@ -74,7 +82,7 @@ public class UserSettingsService : IUserSettingsService, IDisposable
     /// <inheritdoc />
     public async Task UpdateSettingAsync(string sectionName, string propertyName, object? value)
     {
-        await UpdateSectionAsync(sectionName, new Dictionary<string, object?> { { propertyName, value } });
+        await UpdateSectionAsync(sectionName, new Dictionary<string, object?> { { propertyName, value } }).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -83,17 +91,17 @@ public class UserSettingsService : IUserSettingsService, IDisposable
         await UpdateMultipleSectionsAsync(new Dictionary<string, Dictionary<string, object?>>
         {
             { sectionName, settings }
-        });
+        }).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public async Task UpdateMultipleSectionsAsync(Dictionary<string, Dictionary<string, object?>> sections)
     {
-        await _fileLock.WaitAsync();
+        await _fileLock.WaitAsync().ConfigureAwait(false);
         try
         {
             AppPaths.EnsureUserDataDirectoryExists();
-            var root = await LoadSettingsFileAsync();
+            var root = await LoadSettingsFileAsync().ConfigureAwait(false);
 
             foreach (var (sectionName, settings) in sections)
             {
@@ -107,7 +115,7 @@ public class UserSettingsService : IUserSettingsService, IDisposable
                 root[sectionName] = section;
             }
 
-            await SaveSettingsFileAsync(root);
+            await SaveSettingsFileAsync(root).ConfigureAwait(false);
 
             _logger.LogDebug("Settings updated: {Sections}", string.Join(", ", sections.Keys));
         }
@@ -125,7 +133,7 @@ public class UserSettingsService : IUserSettingsService, IDisposable
     /// <inheritdoc />
     public async Task<T?> ReadSettingAsync<T>(string sectionName, string propertyName, T? defaultValue = default)
     {
-        await _fileLock.WaitAsync();
+        await _fileLock.WaitAsync().ConfigureAwait(false);
         try
         {
             if (!File.Exists(AppPaths.UserSettingsPath))
@@ -133,7 +141,7 @@ public class UserSettingsService : IUserSettingsService, IDisposable
                 return defaultValue;
             }
 
-            var json = await File.ReadAllTextAsync(AppPaths.UserSettingsPath);
+            var json = await File.ReadAllTextAsync(AppPaths.UserSettingsPath).ConfigureAwait(false);
             var root = SettingsJson.Parse(json);
 
             var value = root[sectionName]?[propertyName];
@@ -170,7 +178,7 @@ public class UserSettingsService : IUserSettingsService, IDisposable
             return new JsonObject();
         }
 
-        var json = await File.ReadAllTextAsync(AppPaths.UserSettingsPath);
+        var json = await File.ReadAllTextAsync(AppPaths.UserSettingsPath).ConfigureAwait(false);
         try
         {
             return SettingsJson.Parse(json);
@@ -185,8 +193,25 @@ public class UserSettingsService : IUserSettingsService, IDisposable
 
     private static async Task SaveSettingsFileAsync(JsonNode root)
     {
-        var updatedJson = root.ToJsonString(WriteOptions);
-        await File.WriteAllTextAsync(AppPaths.UserSettingsPath, updatedJson);
+        // Written beside the target and renamed over it, so a concurrent reader (including the
+        // configuration reload that watches this file) never sees a partially written file.
+        var tempPath = AppPaths.UserSettingsPath + ".tmp";
+        await File.WriteAllTextAsync(tempPath, root.ToJsonString(WriteOptions)).ConfigureAwait(false);
+
+        // Windows refuses to replace a file that another handle holds open without delete sharing,
+        // which that same reload reader, and virus scanners, do for a few milliseconds at a time.
+        for (var attempt = 1; attempt <= ReplaceAttempts; attempt++)
+        {
+            try
+            {
+                File.Move(tempPath, AppPaths.UserSettingsPath, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (attempt < ReplaceAttempts && ex is IOException or UnauthorizedAccessException)
+            {
+                await Task.Delay(ReplaceRetryDelayMs).ConfigureAwait(false);
+            }
+        }
     }
 
     private static JsonNode? ConvertToJsonNode(object? value)
