@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 // </copyright>
 
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging.Abstractions;
 using Sendspin.SDK.Client;
@@ -149,13 +150,80 @@ public class SourceSendControllerTests
         Assert.False(h.Signals[^1]);
     }
 
+    [Fact]
+    public async Task AQuickOffThenOn_EndsSending_WithTheGateOpen()
+    {
+        var h = new Harness();
+        await h.Controller.InitializeAsync(null);
+        h.Controller.UpdateServer(Active);
+        await h.Device.StartAsync();
+        h.DeferReports();
+
+        await h.CompleteAsync(h.Controller.SetSendingAsync(true));
+        var off = h.Controller.SetSendingAsync(false); // parks on its absent report
+        var on = h.Controller.SetSendingAsync(true);
+        await h.CompleteAsync(Task.WhenAll(off, on));
+
+        Assert.True(h.Controller.IsSending);
+        Assert.True(h.Signals[^1]);
+        Assert.True(h.Inputs[^1].Running);
+    }
+
+    [Fact]
+    public async Task AFaultWhileSending_TurnsSendOff_ReportsAbsent_AndExplains()
+    {
+        var h = new Harness();
+        await h.Controller.InitializeAsync(null);
+        h.Controller.UpdateServer(Active);
+        await h.Device.StartAsync();
+        await h.Controller.SetSendingAsync(true);
+
+        h.Inputs[^1].Fail(new COMException("gone", CaptureErrorMessages.DeviceInvalidated));
+        await WaitUntilAsync(() => !h.Controller.IsSending);
+
+        Assert.False(h.Signals[^1]);
+        Assert.Equal("Desktop audio was disconnected.", Assert.Single(h.StopMessages));
+    }
+
+    [Fact]
+    public async Task AFault_StillReportsAndExplains_WhenEnumeratingInputsThrows()
+    {
+        var h = new Harness();
+        await h.Controller.InitializeAsync(null);
+        h.Controller.UpdateServer(Active);
+        await h.Device.StartAsync();
+        await h.Controller.SetSendingAsync(true);
+        h.Catalog.ThrowOnGetInputs = true;
+
+        h.Inputs[^1].Fail(new COMException("gone", CaptureErrorMessages.DeviceInvalidated));
+        await WaitUntilAsync(() => !h.Controller.IsSending);
+
+        Assert.False(h.Signals[^1]);
+        Assert.Equal("Desktop audio was disconnected.", Assert.Single(h.StopMessages));
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "Timed out waiting for the condition.");
+            await Task.Delay(5);
+        }
+    }
+
     private sealed class Harness
     {
         public Harness()
         {
             Device = new WindowsAudioCaptureDevice(
                 () => new FakeCaptureSource("silence"),
-                id => new FakeCaptureSource(id) { ThrowOnStart = FailingInputs.Contains(id) },
+                id =>
+                {
+                    var source = new FakeCaptureSource(id) { ThrowOnStart = FailingInputs.Contains(id) };
+                    Inputs.Add(source);
+                    return source;
+                },
                 NullLogger<WindowsAudioCaptureDevice>.Instance);
             Controller = new SourceSendController(Device, Catalog, NullLogger<SourceSendController>.Instance)
             {
@@ -179,6 +247,40 @@ public class SourceSendControllerTests
         public List<bool> Signals { get; } = new();
 
         public List<string> StopMessages { get; } = new();
+
+        public List<FakeCaptureSource> Inputs { get; } = new();
+
+        private ConcurrentQueue<TaskCompletionSource> PendingReports { get; } = new();
+
+        /// <summary>Makes every report park until <see cref="CompleteAsync"/> releases it.</summary>
+        public void DeferReports() =>
+            Controller.ReportSignalAsync = present =>
+            {
+                Signals.Add(present);
+                var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                PendingReports.Enqueue(pending);
+                return pending.Task;
+            };
+
+        /// <summary>Releases deferred reports until <paramref name="task"/> completes.</summary>
+        /// <param name="task">The operation to drive to completion.</param>
+        /// <returns>A task that completes when <paramref name="task"/> has.</returns>
+        public async Task CompleteAsync(Task task)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (!task.IsCompleted)
+            {
+                Assert.True(DateTime.UtcNow < deadline, "Timed out driving the operation to completion.");
+                while (PendingReports.TryDequeue(out var pending))
+                {
+                    pending.SetResult();
+                }
+
+                await Task.Delay(1);
+            }
+
+            await task;
+        }
     }
 
     private sealed class FakeCatalog : ICaptureInputCatalog
@@ -187,7 +289,10 @@ public class SourceSendControllerTests
 
         public Dictionary<string, CaptureInput> Known { get; } = new();
 
-        public IReadOnlyList<CaptureInput> GetInputs() => Inputs.ToList();
+        public bool ThrowOnGetInputs { get; set; }
+
+        public IReadOnlyList<CaptureInput> GetInputs() =>
+            ThrowOnGetInputs ? throw new COMException("enumeration failed") : Inputs.ToList();
 
         public CaptureInput? Describe(string inputId) =>
             Inputs.FirstOrDefault(i => i.Id == inputId) ?? Known.GetValueOrDefault(inputId);

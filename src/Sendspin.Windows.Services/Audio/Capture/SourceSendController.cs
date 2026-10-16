@@ -39,6 +39,7 @@ public sealed class SourceSendController
     private readonly WindowsAudioCaptureDevice _device;
     private readonly ICaptureInputCatalog _catalog;
     private readonly ILogger _logger;
+    private readonly SemaphoreSlim _sendGate = new(1, 1);
     private IReadOnlyList<CaptureInput> _inputs = [];
     private SourceRoleState? _server;
 
@@ -154,38 +155,49 @@ public sealed class SourceSendController
     /// <returns>A task that completes once applied.</returns>
     public async Task SetSendingAsync(bool sending)
     {
-        if (sending == IsSending)
+        // Serialized so a quick off-then-on cannot interleave: the off's trailing gate-close would
+        // otherwise land after the on's gate-open no-op. OnDeviceFaulted must not take this gate:
+        // the device raises Faulted from inside SetSendEnabledAsync while it is held here.
+        await _sendGate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            return;
-        }
-
-        if (sending)
-        {
-            _inputs = _catalog.GetInputs();
-            if (Availability != SendAvailability.Available)
+            if (sending == IsSending)
             {
-                RaiseStateChanged();
                 return;
             }
-        }
 
-        IsSending = sending;
-        RaiseStateChanged();
-
-        if (sending)
-        {
-            await _device.SetSendEnabledAsync(true).ConfigureAwait(false);
-
-            // A failed start has already turned Send off (OnDeviceFaulted); don't claim signal.
-            if (IsSending)
+            if (sending)
             {
-                await ReportAsync(true).ConfigureAwait(false);
+                _inputs = _catalog.GetInputs();
+                if (Availability != SendAvailability.Available)
+                {
+                    RaiseStateChanged();
+                    return;
+                }
+            }
+
+            IsSending = sending;
+            RaiseStateChanged();
+
+            if (sending)
+            {
+                await _device.SetSendEnabledAsync(true).ConfigureAwait(false);
+
+                // A failed start has already turned Send off (OnDeviceFaulted); don't claim signal.
+                if (IsSending)
+                {
+                    await ReportAsync(true).ConfigureAwait(false);
+                }
+            }
+            else
+            {
+                await ReportAsync(false).ConfigureAwait(false);
+                await _device.SetSendEnabledAsync(false).ConfigureAwait(false);
             }
         }
-        else
+        finally
         {
-            await ReportAsync(false).ConfigureAwait(false);
-            await _device.SetSendEnabledAsync(false).ConfigureAwait(false);
+            _sendGate.Release();
         }
     }
 
@@ -212,15 +224,25 @@ public sealed class SourceSendController
             ?? "The input";
         bool wasSending = IsSending;
         IsSending = false;
-        _inputs = _catalog.GetInputs();
         RaiseStateChanged();
 
         if (wasSending)
         {
             _ = ReportAsync(false);
+            SendingStopped?.Invoke(this, CaptureErrorMessages.Describe(name, e.Exception));
         }
 
-        SendingStopped?.Invoke(this, CaptureErrorMessages.Describe(name, e.Exception));
+        // Last, and guarded: enumerating can fail while the device that just faulted is vanishing,
+        // and that must not cost the user the stop notice above.
+        try
+        {
+            _inputs = _catalog.GetInputs();
+            RaiseStateChanged();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not refresh inputs after a capture fault");
+        }
     }
 
     private void RaiseStateChanged() => StateChanged?.Invoke(this, EventArgs.Empty);

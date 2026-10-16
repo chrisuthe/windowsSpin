@@ -52,7 +52,14 @@ public sealed class CaptureInputCatalog : ICaptureInputCatalog
         {
             using (device)
             {
-                inputs.Add(new CaptureInput(device.ID, device.FriendlyName));
+                try
+                {
+                    inputs.Add(new CaptureInput(device.ID, device.FriendlyName));
+                }
+                catch (COMException)
+                {
+                    // Unplugged mid-enumeration; it is no longer an input.
+                }
             }
         }
 
