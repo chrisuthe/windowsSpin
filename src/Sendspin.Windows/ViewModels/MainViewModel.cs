@@ -1135,8 +1135,8 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>Gets a value indicating whether Send is on.</summary>
     public bool IsSending => _sourceSend.IsSending;
 
-    /// <summary>Gets a value indicating whether the red SENDING badge shows: sending, and connected.</summary>
-    public bool ShowSendingBadge => _sourceSend.IsSending && _sourceSend.Availability != SendAvailability.Disconnected;
+    /// <summary>Gets a value indicating whether the red SENDING badge shows: sending, and sending can actually happen.</summary>
+    public bool ShowSendingBadge => _sourceSend.IsSending && _sourceSend.Availability == SendAvailability.Available;
 
     /// <summary>Gets the selected input's short name.</summary>
     public string SendInputName => _sourceSend.SelectedInput?.Name ?? "audio";
