@@ -755,8 +755,15 @@ public partial class MainViewModel : ViewModelBase
 
         // Report 'absent' before any connection reports anything: MA ignores a client's first
         // signal report, so the first Send press must be a transition, not that first report.
-        await _sourceSend.InitializeAsync(_configuration.GetValue<string>("Audio:SourceInput"));
-        LoadSendInputs();
+        try
+        {
+            await _sourceSend.InitializeAsync(_configuration.GetValue<string>("Audio:SourceInput"));
+            LoadSendInputs();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Send input unavailable; continuing without it");
+        }
 
         await _connectionModeLock.WaitAsync();
         try
@@ -1521,6 +1528,10 @@ public partial class MainViewModel : ViewModelBase
             var client = _manualClient;
             if (client == null || (only != null && !ReferenceEquals(client, only)))
                 return;
+
+            // ConnectionStateChanged is unsubscribed just below, so the Disconnected handler never
+            // runs for a teardown started here (user disconnect, failed connect, shutdown).
+            RunOnUi(() => _sourceSend.UpdateServer(null));
 
             client.ConnectionStateChanged -= OnManualClientConnectionStateChanged;
             client.GroupStateChanged -= OnManualClientGroupStateChanged;
@@ -3139,7 +3150,14 @@ public partial class MainViewModel : ViewModelBase
         if (IsSettingsOpen)
         {
             // Inputs come and go (USB interfaces); re-read them whenever Settings opens.
-            LoadSendInputs();
+            try
+            {
+                LoadSendInputs();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Send input unavailable; continuing without it");
+            }
         }
     }
 
