@@ -19,6 +19,7 @@ using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
 using Sendspin.Windows.Services.Artwork;
 using Sendspin.Windows.Services.Audio;
+using Sendspin.Windows.Services.Audio.Capture;
 using Sendspin.Windows.Services.Configuration;
 using Sendspin.Windows.Services.Discord;
 using Sendspin.Windows.Services.MediaControls;
@@ -98,6 +99,8 @@ public partial class MainViewModel : ViewModelBase
     public AmbientBackdropViewModel Ambient => _ambient;
 
     private readonly IUserSettingsService _settingsService;
+    private readonly SourceSendController _sourceSend;
+    private bool _loadingSendInputs;
     private SendspinClientService? _manualClient;
 
     // The dial in flight, if any; see CancelPendingDial.
@@ -626,7 +629,8 @@ public partial class MainViewModel : ViewModelBase
         IUserSettingsService settingsService,
         PairingCodePresenter pairingCodePresenter,
         OutputLatencyReporter outputLatencyReporter,
-        OutputDelayStore outputDelayStore)
+        OutputDelayStore outputDelayStore,
+        SourceSendController sourceSend)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -638,6 +642,10 @@ public partial class MainViewModel : ViewModelBase
         _notificationService = notificationService;
         _discordService = discordService;
         _mediaControlsService = mediaControlsService;
+        _sourceSend = sourceSend;
+        _sourceSend.ReportSignalAsync = ReportSourceSignalAsync;
+        _sourceSend.StateChanged += (_, _) => RunOnUi(RefreshSendState);
+        _sourceSend.SendingStopped += (_, message) => RunOnUi(() => _notificationService.ShowError("Sending stopped", message));
         _httpClientFactory = httpClientFactory;
         _clientCapabilities = clientCapabilities;
         _clientOptions = clientOptions;
@@ -678,6 +686,7 @@ public partial class MainViewModel : ViewModelBase
         _hostService.LastPlayedServerIdChanged += OnLastPlayedServerIdChanged;
         _hostService.PairingCompleted += OnPairingCompleted;
         _hostService.PairingGestureRequested += OnPairingGestureRequested;
+        _hostService.SourceRoleStateChanged += OnSourceRoleStateChanged;
 
         // Subscribe to server discovery events (client-initiated mode - primary)
         _serverDiscovery.ServerFound += OnDiscoveredServerFound;
@@ -743,6 +752,18 @@ public partial class MainViewModel : ViewModelBase
     public async Task InitializeAsync()
     {
         _logger.LogInformation("Initializing MainViewModel");
+
+        // Report 'absent' before any connection reports anything: MA ignores a client's first
+        // signal report, so the first Send press must be a transition, not that first report.
+        try
+        {
+            await _sourceSend.InitializeAsync(_configuration.GetValue<string>("Audio:SourceInput"));
+            LoadSendInputs();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Send input unavailable; continuing without it");
+        }
 
         await _connectionModeLock.WaitAsync();
         try
@@ -1111,6 +1132,132 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Gets a value indicating whether Send is on.</summary>
+    public bool IsSending => _sourceSend.IsSending;
+
+    /// <summary>Gets a value indicating whether the red SENDING badge shows: sending, and sending can actually happen.</summary>
+    public bool ShowSendingBadge => _sourceSend.IsSending && _sourceSend.Availability == SendAvailability.Available;
+
+    /// <summary>Gets the selected input's short name.</summary>
+    public string SendInputName => _sourceSend.SelectedInput?.Name ?? "audio";
+
+    /// <summary>Gets the tray menu header.</summary>
+    public string SendMenuHeader => $"Send {SendInputName}";
+
+    /// <summary>Gets the badge text.</summary>
+    public string SendBadgeText => $"SENDING · {SendInputName}";
+
+    /// <summary>Gets the Send button tooltip: the action, or why it is unavailable.</summary>
+    public string SendButtonTooltip =>
+        _sourceSend.IsSending ? "Stop sending" : _sourceSend.UnavailableReason ?? $"Send {SendInputName}";
+
+    /// <summary>Gets the inputs offered in Settings.</summary>
+    public ObservableCollection<CaptureInput> AvailableSendInputs { get; } = new();
+
+    /// <summary>Gets or sets the input selected in Settings.</summary>
+    [ObservableProperty]
+    private CaptureInput? _settingsSelectedSendInput;
+
+    /// <summary>Gets a value indicating whether to warn about feedback: any input except desktop audio.</summary>
+    public bool ShowSendInputFeedbackHint =>
+        SettingsSelectedSendInput is { } input && input.Id != CaptureInputCatalog.DesktopId;
+
+    private bool CanToggleSend() => _sourceSend.IsSending || _sourceSend.Availability == SendAvailability.Available;
+
+    [RelayCommand(CanExecute = nameof(CanToggleSend))]
+    private Task ToggleSendAsync() => _sourceSend.SetSendingAsync(!_sourceSend.IsSending);
+
+    private void RefreshSendState()
+    {
+        OnPropertyChanged(nameof(IsSending));
+        OnPropertyChanged(nameof(ShowSendingBadge));
+        OnPropertyChanged(nameof(SendInputName));
+        OnPropertyChanged(nameof(SendMenuHeader));
+        OnPropertyChanged(nameof(SendBadgeText));
+        OnPropertyChanged(nameof(SendButtonTooltip));
+        ToggleSendCommand.NotifyCanExecuteChanged();
+    }
+
+    private void LoadSendInputs()
+    {
+        _loadingSendInputs = true;
+        try
+        {
+            _sourceSend.RefreshInputs();
+            AvailableSendInputs.Clear();
+            foreach (var input in _sourceSend.Inputs)
+            {
+                AvailableSendInputs.Add(input);
+            }
+
+            // A saved input that is unplugged stays visible, so the choice is never silently replaced.
+            if (_sourceSend.InputId is { } id && _sourceSend.SelectedInput is null
+                && _sourceSend.DescribeInput(id) is { } missing)
+            {
+                AvailableSendInputs.Add(missing with { IsAvailable = false });
+            }
+
+            SettingsSelectedSendInput = AvailableSendInputs.FirstOrDefault(i => i.Id == _sourceSend.InputId);
+        }
+        finally
+        {
+            _loadingSendInputs = false;
+        }
+    }
+
+    partial void OnSettingsSelectedSendInputChanged(CaptureInput? value)
+    {
+        OnPropertyChanged(nameof(ShowSendInputFeedbackHint));
+        if (_loadingSendInputs || value is null || value.Id == _sourceSend.InputId)
+        {
+            return;
+        }
+
+        ApplySendInputAsync(value.Id).SafeFireAndForget(_logger);
+    }
+
+    private async Task ApplySendInputAsync(string inputId)
+    {
+        await _sourceSend.SelectInputAsync(inputId);
+        await _settingsService.UpdateSettingAsync("Audio", "SourceInput", inputId);
+    }
+
+    private async Task ReportSourceSignalAsync(bool present)
+    {
+        // Always to the host: it remembers the signal for every connection it accepts later.
+        await _hostService.SetSourceSignalAsync(present);
+
+        if (_manualClient is { } client)
+        {
+            try
+            {
+                await client.SetSourceSignalAsync(present);
+            }
+            catch (Exception ex) when (client.ConnectionState != ConnectionState.Connected)
+            {
+                // Not connected: the next dial client is seeded in CreateAndConfigureManualClient.
+                _logger.LogDebug(ex, "Source signal not sent to a disconnected dial client");
+            }
+        }
+    }
+
+    private void OnSourceRoleStateChanged(object? sender, SourceRoleState state) =>
+        RunOnUi(() => _sourceSend.UpdateServer(state));
+
+    private void OnManualClientServerActivate(object? sender, ServerActivatePayload activate)
+    {
+        if (sender is not SendspinClientService client)
+        {
+            return;
+        }
+
+        var state = new SourceRoleState(
+            client.ServerId ?? "dial",
+            client.LastServerHello?.ActiveRoles.Any(r => r.StartsWith("source@", StringComparison.Ordinal)) ?? false,
+            client.TrustLevel);
+        RunOnUi(() => _sourceSend.UpdateServer(state));
+    }
+
     /// <summary>
     /// Creates and configures the manual client for connecting to a server.
     /// This handles creation of the client service (which owns its connection) and event
@@ -1140,6 +1287,10 @@ public partial class MainViewModel : ViewModelBase
         _manualClient.VisualizationReceived += OnVisualizationReceived;
         _manualClient.PairingCompleted += OnPairingCompleted;
         _manualClient.PairingGestureRequested += OnPairingGestureRequested;
+        _manualClient.ServerActivateReceived += OnManualClientServerActivate;
+
+        // Seeded before connecting: the dial client's initial client/state reads it live.
+        _manualClient.SetSourceSignalAsync(_sourceSend.IsSending).SafeFireAndForget(_logger);
     }
 
     /// <summary>
@@ -1378,6 +1529,10 @@ public partial class MainViewModel : ViewModelBase
             if (client == null || (only != null && !ReferenceEquals(client, only)))
                 return;
 
+            // ConnectionStateChanged is unsubscribed just below, so the Disconnected handler never
+            // runs for a teardown started here (user disconnect, failed connect, shutdown).
+            RunOnUi(() => _sourceSend.UpdateServer(null));
+
             client.ConnectionStateChanged -= OnManualClientConnectionStateChanged;
             client.GroupStateChanged -= OnManualClientGroupStateChanged;
             client.PlayerStateChanged -= OnManualClientPlayerStateChanged;
@@ -1387,6 +1542,7 @@ public partial class MainViewModel : ViewModelBase
             client.VisualizationReceived -= OnVisualizationReceived;
             client.PairingCompleted -= OnPairingCompleted;
             client.PairingGestureRequested -= OnPairingGestureRequested;
+            client.ServerActivateReceived -= OnManualClientServerActivate;
             _ambient.Reset();
 
             try
@@ -1428,6 +1584,7 @@ public partial class MainViewModel : ViewModelBase
             }
             else if (e.NewState == ConnectionState.Disconnected)
             {
+                _sourceSend.UpdateServer(null);
                 var wasAutoConnected = _autoConnectedServerId != null;
                 ConnectedServerName = null;
                 CurrentTrack = null;
@@ -1597,6 +1754,7 @@ public partial class MainViewModel : ViewModelBase
 
             if (ConnectedServers.Count == 0)
             {
+                _sourceSend.UpdateServer(null);
                 ConnectedServerName = null;
                 CurrentTrack = null;
                 PlaybackState = PlaybackState.Idle;
@@ -2989,6 +3147,18 @@ public partial class MainViewModel : ViewModelBase
     private void ToggleSettings()
     {
         IsSettingsOpen = !IsSettingsOpen;
+        if (IsSettingsOpen)
+        {
+            // Inputs come and go (USB interfaces); re-read them whenever Settings opens.
+            try
+            {
+                LoadSendInputs();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Send input unavailable; continuing without it");
+            }
+        }
     }
 
     /// <summary>
@@ -3402,6 +3572,7 @@ public partial class MainViewModel : ViewModelBase
         _hostService.LastPlayedServerIdChanged -= OnLastPlayedServerIdChanged;
         _hostService.PairingCompleted -= OnPairingCompleted;
         _hostService.PairingGestureRequested -= OnPairingGestureRequested;
+        _hostService.SourceRoleStateChanged -= OnSourceRoleStateChanged;
         _serverDiscovery.ServerFound -= OnDiscoveredServerFound;
         _serverDiscovery.ServerLost -= OnDiscoveredServerLost;
         _audioPipeline.StateChanged -= OnAudioPipelineStateChanged;
@@ -3430,6 +3601,7 @@ public partial class MainViewModel : ViewModelBase
             CancelPendingDial();
             await StopStepAsync(() => CleanupManualClientAsync(), "manual client").ConfigureAwait(false);
             await StopStepAsync(() => _hostService.StopAsync(), "host service").ConfigureAwait(false);
+            await StopStepAsync(() => _sourceSend.StopAsync(), "source input").ConfigureAwait(false);
 
             // Dispose Discord Rich Presence service (clears presence)
             _discordService.Dispose();

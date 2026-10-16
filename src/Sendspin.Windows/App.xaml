@@ -35,6 +35,9 @@
                         <MenuItem Header="▶▶ Next" Command="{Binding NextTrackCommand}"/>
                         <MenuItem Header="◀◀ Previous" Command="{Binding PreviousTrackCommand}"/>
                         <MenuItem Header="📡 Switch Group" Command="{Binding SwitchGroupCommand}"/>
+                        <MenuItem Header="{Binding SendMenuHeader}"
+                                  IsChecked="{Binding IsSending, Mode=OneWay}"
+                                  Command="{Binding ToggleSendCommand}"/>
                         <Separator/>
 
                         <!-- Volume Controls -->

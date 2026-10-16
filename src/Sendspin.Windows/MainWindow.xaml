@@ -516,6 +516,26 @@
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"/>
                                 </Border>
+
+                                <!-- Sending badge: a red pulsing light while this PC's input goes to Music
+                                     Assistant. Overlaid on the art rather than stacked under it: the window is
+                                     a fixed height, so an extra row pushed the transport controls off screen. -->
+                                <Border HorizontalAlignment="Center"
+                                        VerticalAlignment="Bottom"
+                                        Margin="0,0,0,12"
+                                        Padding="10,4"
+                                        CornerRadius="10"
+                                        Background="#CC000000"
+                                        Visibility="{Binding ShowSendingBadge, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse Style="{StaticResource SendingIndicator}"/>
+                                        <TextBlock Text="{Binding SendBadgeText}"
+                                                   Style="{StaticResource CaptionText}"
+                                                   Foreground="{StaticResource ErrorBrush}"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
                             </Grid>
                         </Border>
                     </Border>
@@ -1029,6 +1049,32 @@
                                           ItemContainerStyle="{StaticResource DarkComboBoxItem}"/>
                             </StackPanel>
 
+                            <!-- Input Section -->
+                            <TextBlock Text="INPUT" Style="{StaticResource CaptionText}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,8,0,12"/>
+
+                            <StackPanel Margin="0,0,0,16">
+                                <TextBlock Text="Send Input" Style="{StaticResource BodyText}"/>
+                                <TextBlock Text="What the Send button streams to Music Assistant"
+                                           Style="{StaticResource CaptionText}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Margin="0,2,0,0"/>
+                                <ComboBox Margin="0,8,0,0"
+                                          HorizontalAlignment="Stretch"
+                                          ItemsSource="{Binding AvailableSendInputs}"
+                                          SelectedItem="{Binding SettingsSelectedSendInput}"
+                                          DisplayMemberPath="DisplayName"
+                                          Style="{StaticResource DarkComboBox}"
+                                          ItemContainerStyle="{StaticResource DarkComboBoxItem}"/>
+                                <TextBlock Text="If Music Assistant plays this input back on this PC, use headphones or choose another target."
+                                           Style="{StaticResource CaptionText}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,6,0,0"
+                                           Visibility="{Binding ShowSendInputFeedbackHint, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            </StackPanel>
+
                             <!-- Audio Sync Section -->
                             <TextBlock Text="AUDIO SYNC" Style="{StaticResource CaptionText}"
                                        Foreground="{StaticResource TextMutedBrush}"
@@ -1402,6 +1448,7 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
                         <Button Grid.Column="0"
@@ -1425,8 +1472,35 @@
                                    VerticalAlignment="Center"
                                    Width="35"/>
 
-                        <!-- Switch Group: output belongs with the volume row, not the transport row -->
+                        <!-- Send: lights up while this PC's input goes to Music Assistant -->
                         <Button Grid.Column="3"
+                                Command="{Binding ToggleSendCommand}"
+                                ToolTip="{Binding SendButtonTooltip}"
+                                ToolTipService.ShowOnDisabled="True"
+                                Width="32" Height="32"
+                                Margin="4,0,0,0">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSending}" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                        </DataTrigger>
+                                        <Trigger Property="IsEnabled" Value="False">
+                                            <Setter Property="Opacity" Value="0.4"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <Path Width="18" Height="18" Stretch="Uniform"
+                                  StrokeThickness="1.7" StrokeLineJoin="Round"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                  Data="M12,20 V9 M7.5,13.5 L12,9 L16.5,13.5 M5,4.5 H19"/>
+                        </Button>
+
+                        <!-- Switch Group: output belongs with the volume row, not the transport row -->
+                        <Button Grid.Column="4"
                                 Command="{Binding SwitchGroupCommand}"
                                 Style="{StaticResource IconButton}"
                                 ToolTip="{Binding CurrentGroupTooltip}"
