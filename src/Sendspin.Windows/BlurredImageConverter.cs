@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.IO;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
@@ -24,13 +23,8 @@ public class BlurredImageConverter : IValueConverter
 
         try
         {
-            // Load original image
-            var original = LoadBitmap(imageData);
-            if (original == null)
-                return null;
-
-            // Scale down for performance (blur on small image, then stretch)
-            var scaled = ScaleDown(original, ScaledSize);
+            // Decode straight at the small size for performance (blur on small image, then stretch)
+            var scaled = ArtworkBitmap.Decode(imageData, ScaledSize);
 
             // Apply blur effect and render to bitmap
             var blurred = ApplyBlur(scaled, BlurRadius);
@@ -47,32 +41,6 @@ public class BlurredImageConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
     {
         throw new NotImplementedException();
-    }
-
-    private static BitmapImage? LoadBitmap(byte[] imageData)
-    {
-        var bitmap = new BitmapImage();
-        using var stream = new MemoryStream(imageData);
-        bitmap.BeginInit();
-        bitmap.CacheOption = BitmapCacheOption.OnLoad;
-        bitmap.StreamSource = stream;
-        bitmap.EndInit();
-        bitmap.Freeze();
-        return bitmap;
-    }
-
-    private static BitmapSource ScaleDown(BitmapSource source, int maxSize)
-    {
-        // Calculate scale to fit within maxSize while maintaining aspect ratio
-        var scale = Math.Min((double)maxSize / source.PixelWidth, (double)maxSize / source.PixelHeight);
-
-        if (scale >= 1.0)
-            return source; // Already small enough
-
-        var transform = new ScaleTransform(scale, scale);
-        var scaled = new TransformedBitmap(source, transform);
-        scaled.Freeze();
-        return scaled;
     }
 
     private static BitmapSource ApplyBlur(BitmapSource source, double radius)

@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Net;
 using System.Net.Http;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -18,6 +17,7 @@ using Sendspin.SDK.Extensions;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
+using Sendspin.Windows.Services.Artwork;
 using Sendspin.Windows.Services.Audio;
 using Sendspin.Windows.Services.Configuration;
 using Sendspin.Windows.Services.Discord;
@@ -1467,18 +1467,17 @@ public partial class MainViewModel : ViewModelBase
 
     private async Task FetchArtworkAsync(string url)
     {
-        // Validate URL before fetching to prevent SSRF attacks
-        if (!IsValidArtworkUrl(url, out var artworkUri))
-        {
-            _logger.LogWarning("Blocked artwork fetch from invalid or unsafe URL: {Url}", url);
-            return;
-        }
-
         try
         {
             _logger.LogDebug("Fetching artwork from {Url}", url);
             using var httpClient = _httpClientFactory.CreateClient("Artwork");
-            var imageData = await httpClient.GetByteArrayAsync(artworkUri);
+
+            // Validates the URL and every redirect hop, and caps the body (see ArtworkDownloader).
+            var imageData = await new ArtworkDownloader(httpClient, _logger).DownloadAsync(url);
+            if (imageData == null)
+            {
+                return;
+            }
 
             RunOnUi(() =>
             {
@@ -1500,38 +1499,6 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    /// <summary>
-    /// Validates that an artwork URL is safe to fetch.
-    /// Blocks non-HTTP schemes and localhost to prevent SSRF attacks.
-    /// </summary>
-    /// <param name="url">The URL to validate.</param>
-    /// <param name="uri">The parsed URI if valid.</param>
-    /// <returns>True if the URL is safe to fetch.</returns>
-    private static bool IsValidArtworkUrl(string url, out Uri? uri)
-    {
-        uri = null;
-
-        if (string.IsNullOrWhiteSpace(url))
-            return false;
-
-        if (!Uri.TryCreate(url, UriKind.Absolute, out uri))
-            return false;
-
-        // Only allow HTTP/HTTPS schemes
-        if (uri.Scheme != "http" && uri.Scheme != "https")
-            return false;
-
-        // Block localhost and loopback addresses to prevent accessing local services
-        var host = uri.Host.ToLowerInvariant();
-        if (host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]")
-            return false;
-
-        // Check for loopback IP addresses
-        if (IPAddress.TryParse(uri.Host, out var ip) && IPAddress.IsLoopback(ip))
-            return false;
-
-        return true;
-    }
 
     private void OnManualClientArtworkReceived(object? sender, ArtworkReceivedEventArgs e)
     {
