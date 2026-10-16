@@ -292,6 +292,9 @@ public partial class MainViewModel : ViewModelBase
     /// Gets or sets whether a connection attempt is currently in progress.
     /// </summary>
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ConnectToServerCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConnectOnceCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConnectAlwaysCommand))]
     private bool _isConnecting;
 
     /// <summary>
@@ -1142,9 +1145,37 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>
     /// Manually connect to a Sendspin server by URL (for cross-subnet scenarios).
     /// </summary>
-    [RelayCommand]
+    /// <summary>
+    /// Whether a dial may start: one at a time.
+    /// </summary>
+    private bool CanStartDial() => !IsConnecting;
+
+    /// <summary>
+    /// Refuses a dial while another is in flight. A second dial used to replace
+    /// <c>_manualClient</c> while the first was still connecting, leaving that client undisposed
+    /// with its handlers still firing into this view model. Every entry point (Connect, the server
+    /// picker, discovery auto-connect) runs on the UI thread and sets <see cref="IsConnecting"/>
+    /// before its first await, so this check cannot race.
+    /// </summary>
+    private bool IsDialInFlight(string attempt)
+    {
+        if (!IsConnecting)
+        {
+            return false;
+        }
+
+        _logger.LogInformation("Ignoring {Attempt}: a connection attempt is already in progress", attempt);
+        return true;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanStartDial))]
     private async Task ConnectToServerAsync()
     {
+        if (IsDialInFlight("manual connect"))
+        {
+            return;
+        }
+
         if (!CanInitiateOutboundConnection)
         {
             _logger.LogWarning(
@@ -1207,6 +1238,13 @@ public partial class MainViewModel : ViewModelBase
             }
 
             _logger.LogInformation("Normalized URL: {OriginalUrl} -> {NormalizedUrl}", ManualServerUrl, serverUri);
+
+            // A client left from a dial that already ended may still be waiting for its queued
+            // cleanup; dispose it now rather than orphan it with its handlers attached.
+            if (_manualClient != null)
+            {
+                await CleanupManualClientAsync(_manualClient);
+            }
 
             // Create and configure the client
             CreateAndConfigureManualClient();
@@ -1319,7 +1357,15 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    private async Task CleanupManualClientAsync()
+    /// <summary>
+    /// Unsubscribes, disconnects and disposes the manual client.
+    /// </summary>
+    /// <param name="only">
+    /// When given, clean up only if <c>_manualClient</c> is still this client. The Disconnected
+    /// handler queues its cleanup, and by the time it runs a new dial may have created another
+    /// client, which this must not dispose.
+    /// </param>
+    private async Task CleanupManualClientAsync(SendspinClientService? only = null)
     {
         // Use semaphore to prevent concurrent cleanup calls from racing
         // This can happen when connection failure triggers both an event handler
@@ -1327,31 +1373,36 @@ public partial class MainViewModel : ViewModelBase
         await _cleanupLock.WaitAsync();
         try
         {
-            if (_manualClient == null)
+            // A local, so the awaits below can't end up acting on a client created meanwhile
+            var client = _manualClient;
+            if (client == null || (only != null && !ReferenceEquals(client, only)))
                 return;
 
-            _manualClient.ConnectionStateChanged -= OnManualClientConnectionStateChanged;
-            _manualClient.GroupStateChanged -= OnManualClientGroupStateChanged;
-            _manualClient.PlayerStateChanged -= OnManualClientPlayerStateChanged;
-            _manualClient.ArtworkReceived -= OnManualClientArtworkReceived;
-            _manualClient.ArtworkCleared -= OnArtworkCleared;
-            _manualClient.ColorChanged -= OnColorChanged;
-            _manualClient.VisualizationReceived -= OnVisualizationReceived;
-            _manualClient.PairingCompleted -= OnPairingCompleted;
-            _manualClient.PairingGestureRequested -= OnPairingGestureRequested;
+            client.ConnectionStateChanged -= OnManualClientConnectionStateChanged;
+            client.GroupStateChanged -= OnManualClientGroupStateChanged;
+            client.PlayerStateChanged -= OnManualClientPlayerStateChanged;
+            client.ArtworkReceived -= OnManualClientArtworkReceived;
+            client.ArtworkCleared -= OnArtworkCleared;
+            client.ColorChanged -= OnColorChanged;
+            client.VisualizationReceived -= OnVisualizationReceived;
+            client.PairingCompleted -= OnPairingCompleted;
+            client.PairingGestureRequested -= OnPairingGestureRequested;
             _ambient.Reset();
 
             try
             {
-                await _manualClient.DisconnectAsync();
-                await _manualClient.DisposeAsync();
+                await client.DisconnectAsync();
+                await client.DisposeAsync();
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error during manual client cleanup");
             }
 
-            _manualClient = null;
+            if (ReferenceEquals(_manualClient, client))
+            {
+                _manualClient = null;
+            }
         }
         finally
         {
@@ -1404,7 +1455,7 @@ public partial class MainViewModel : ViewModelBase
                 // ApplyConnectionModeAsync alone.
 
                 // Cleanup in background to avoid blocking UI
-                CleanupManualClientAsync().SafeFireAndForget(_logger);
+                CleanupManualClientAsync(sender as SendspinClientService).SafeFireAndForget(_logger);
             }
         });
     }
@@ -1930,6 +1981,11 @@ public partial class MainViewModel : ViewModelBase
 
     private async Task AutoConnectToServerAsync(DiscoveredServer server)
     {
+        if (IsDialInFlight($"auto-connect to {server.Name}"))
+        {
+            return;
+        }
+
         if (!CanInitiateOutboundConnection)
         {
             _logger.LogWarning(
@@ -1970,6 +2026,13 @@ public partial class MainViewModel : ViewModelBase
 
         try
         {
+            // A client left from a dial that already ended may still be waiting for its queued
+            // cleanup; dispose it now rather than orphan it with its handlers attached.
+            if (_manualClient != null)
+            {
+                await CleanupManualClientAsync(_manualClient);
+            }
+
             // Create and configure the client
             CreateAndConfigureManualClient();
 
@@ -2951,7 +3014,7 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>
     /// Connects to the pending server without saving auto-connect preference.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanStartDial))]
     private async Task ConnectOnceAsync()
     {
         if (PendingConnectionServer == null) return;
@@ -2966,7 +3029,7 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>
     /// Connects to the pending server and saves it as the auto-connect preference.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanStartDial))]
     private async Task ConnectAlwaysAsync()
     {
         if (PendingConnectionServer == null) return;
@@ -3365,7 +3428,7 @@ public partial class MainViewModel : ViewModelBase
         {
             await StopStepAsync(() => _serverDiscovery.StopAsync(), "server discovery").ConfigureAwait(false);
             CancelPendingDial();
-            await StopStepAsync(CleanupManualClientAsync, "manual client").ConfigureAwait(false);
+            await StopStepAsync(() => CleanupManualClientAsync(), "manual client").ConfigureAwait(false);
             await StopStepAsync(() => _hostService.StopAsync(), "host service").ConfigureAwait(false);
 
             // Dispose Discord Rich Presence service (clears presence)
