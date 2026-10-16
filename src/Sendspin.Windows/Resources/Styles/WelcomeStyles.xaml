@@ -61,9 +61,32 @@
         </Style.Triggers>
     </Style>
 
-    <!-- Red sibling of BroadcastingIndicator: shown while this PC's input is being sent -->
-    <Style x:Key="SendingIndicator" TargetType="Ellipse" BasedOn="{StaticResource BroadcastingIndicator}">
+    <!-- Red sibling of BroadcastingIndicator: shown while this PC's input is being sent.
+         Deliberately not BasedOn it: an inherited StopStoryboard resolves its BeginStoryboardName
+         in the derived style's name scope, where the base's BeginStoryboard isn't registered, so
+         hiding the dot threw. -->
+    <Style x:Key="SendingIndicator" TargetType="Ellipse">
+        <Setter Property="Width" Value="8"/>
+        <Setter Property="Height" Value="8"/>
         <Setter Property="Fill" Value="{StaticResource ErrorBrush}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="0,0,8,0"/>
+        <Style.Triggers>
+            <Trigger Property="IsVisible" Value="True">
+                <Trigger.EnterActions>
+                    <BeginStoryboard x:Name="SendingPulseStoryboard">
+                        <Storyboard RepeatBehavior="Forever">
+                            <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                           From="1.0" To="0.3" Duration="0:0:1.5"
+                                           AutoReverse="True"/>
+                        </Storyboard>
+                    </BeginStoryboard>
+                </Trigger.EnterActions>
+                <Trigger.ExitActions>
+                    <StopStoryboard BeginStoryboardName="SendingPulseStoryboard"/>
+                </Trigger.ExitActions>
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <!-- Indeterminate progress spinner: a brand-green arc sweeping a faint track.
