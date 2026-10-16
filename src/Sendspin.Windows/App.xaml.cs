@@ -17,6 +17,7 @@ using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
 using Sendspin.Windows.Services.Audio;
+using Sendspin.Windows.Services.Audio.Capture;
 using Sendspin.Windows.Services.Configuration;
 using Sendspin.Windows.Services.Discord;
 using Sendspin.Windows.Services.Lifecycle;
@@ -323,6 +324,9 @@ public partial class App : Application
                 }
                 : null,
 
+            // Line-sense lets the Send button drive Music Assistant's autostart.
+            SourceRoleSupport = new SourceRoleSupport { LineSense = true },
+
             // WASAPI shared mode prefills its output buffer at start. The SDK adds this to the
             // lead times it reports until the player has measured the real figure.
             ExpectedOutputLatencyMs = WasapiAudioPlayer.EstimatedOutputLatencyMs,
@@ -337,6 +341,14 @@ public partial class App : Application
         if (advertiseVisualizer && !clientCapabilities.Roles.Contains("visualizer@v1"))
         {
             clientCapabilities.Roles.Add("visualizer@v1");
+        }
+
+        // source@v1 is always advertised. Whether real audio leaves the PC is decided by Send in
+        // the app — the capture device streams generated silence until then — because roles are
+        // negotiated per connection and cannot change once it is open.
+        if (!clientCapabilities.Roles.Contains("source@v1"))
+        {
+            clientCapabilities.Roles.Add("source@v1");
         }
 
         services.AddSingleton(clientCapabilities);
@@ -499,6 +511,21 @@ public partial class App : Application
                 sp.GetRequiredService<ILogger<OutputDelayStore>>());
         });
 
+        // Source input (Send). One device for every connection: silence until Send, then the
+        // selected input.
+        services.AddSingleton<ICaptureInputCatalog, CaptureInputCatalog>();
+        services.AddSingleton(sp =>
+        {
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            return new WindowsAudioCaptureDevice(
+                createSilence: () => new SilenceSource(HighPrecisionTimer.Shared),
+                createInput: id => id == CaptureInputCatalog.DesktopId
+                    ? new ProcessLoopbackCaptureSource(HighPrecisionTimer.Shared, loggerFactory.CreateLogger<ProcessLoopbackCaptureSource>())
+                    : new EndpointCaptureSource(id, HighPrecisionTimer.Shared, loggerFactory.CreateLogger<EndpointCaptureSource>()),
+                loggerFactory.CreateLogger<WindowsAudioCaptureDevice>());
+        });
+        services.AddSingleton<SourceSendController>();
+
         // Client options shared by both connection modes (host service and manual client),
         // so both present the same identity, pairing records, capabilities, and audio pipeline
         services.AddSingleton(sp => new SendspinClientOptions
@@ -512,6 +539,7 @@ public partial class App : Application
             PairingCodeLockoutStore = sp.GetRequiredService<IPairingCodeLockoutStore>(),
             PresentPairingCodeAsync = sp.GetRequiredService<PairingCodePresenter>().PresentPairingCodeAsync,
             PairingWindow = sp.GetRequiredService<PairingWindow>(),
+            CaptureDevice = sp.GetRequiredService<WindowsAudioCaptureDevice>(),
         });
 
         // Host service for server-initiated mode
