@@ -343,6 +343,29 @@ var time = HighPrecisionTimer.Shared.GetCurrentTimeMicroseconds();
 var time = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000;
 ```
 
+### Source Input (Send)
+
+The app advertises `source@v1` on every connection and offers one input to Music Assistant's
+Live Inputs: desktop audio (WASAPI process loopback, excluding Sendspin's own process tree — so
+MA playing it back here cannot feed back) or a recording endpoint. Spec:
+`docs/superpowers/specs/2026-10-15-source-input-design.md`.
+
+- **Consent lives in the device, not the protocol.** MA owns whether a stream is open
+  (`start`/`stop`); the user owns what fills it. `WindowsAudioCaptureDevice` answers every
+  `start` with generated silence (`SilenceSource`, which opens nothing) until Send opens its
+  gate. Refusing a `start` instead would look broken to MA, which drops a silent-from-the-start
+  source after 5 s.
+- **Report `absent` before the first `present`.** MA records a client's first line-sense report
+  without acting on it, so `SourceSendController.InitializeAsync` reports `absent` before any
+  transport starts; otherwise the first Send press autostarts nothing.
+- **The device survives `DisposeAsync`.** The SDK disposes the shared capture device with every
+  client that owns its pipelines (dial cleanup, host stop). Disposal only stops it.
+- **One fixed format, 48k/16/2.** Windows converts every input (`AUTOCONVERTPCM`), so switching
+  input or between silence and capture never re-announces the stream.
+- **Host-level signal (SDK 10.1+).** `SendspinHostService.SetSourceSignalAsync` and
+  `SourceRoleStateChanged` exist because the host keeps its per-connection clients private;
+  don't reach around it.
+
 ---
 
 ## Protocol Messages
@@ -395,6 +418,7 @@ Settings are stored in two locations:
   "Audio": {
     "OutputDelayMs": 0,
     "DeviceId": null,
+    "SourceInput": "desktop",
     "Buffer": {
       "TargetMs": 250,
       "CapacityMs": 8000
@@ -443,6 +467,7 @@ Settings are stored in two locations:
 ### Audio Buffer Configuration
 - `Buffer.TargetMs`: Target buffer depth before starting playback (default: 250ms)
 - `Buffer.CapacityMs`: Maximum buffer capacity (default: 30000ms / 30s — sized to absorb server's initial burst)
+- `SourceInput`: what Send captures — `"desktop"` or a WASAPI recording endpoint ID (default: desktop when supported)
 
 ### Clock Sync Configuration
 - `ClockSync.WaitForConvergence`: Wait for Kalman filter to converge before playback (default: true)
@@ -740,6 +765,8 @@ and say it in the release notes.
 | `src/Sendspin.Windows.Services/Audio/WasapiAudioPlayer.cs` | Windows audio output |
 | `src/Sendspin.Windows.Services/Audio/DeviceRateSampleProvider.cs` | Converts to the device's native mixer rate |
 | `src/Sendspin.Windows.Services/Audio/BufferedAudioSampleSource.cs` | Bridges SDK buffer to NAudio |
+| `src/Sendspin.Windows.Services/Audio/Capture/WindowsAudioCaptureDevice.cs` | Source-role capture device: silence until Send, then the selected input |
+| `src/Sendspin.Windows.Services/Audio/Capture/SourceSendController.cs` | Send state, line-sense reporting, availability reasons |
 
 SDK classes (in NuGet package — source at [sendspin-dotnet](https://github.com/Sendspin/sendspin-dotnet)):
 - `AudioPipeline` — Audio flow orchestration
