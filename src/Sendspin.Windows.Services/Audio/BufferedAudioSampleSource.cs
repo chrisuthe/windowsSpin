@@ -4,7 +4,6 @@
 
 using Sendspin.SDK.Audio;
 using Sendspin.SDK.Models;
-using Sendspin.Windows.Services.Diagnostics;
 
 namespace Sendspin.Windows.Services.Audio;
 
@@ -16,13 +15,17 @@ namespace Sendspin.Windows.Services.Audio;
 /// This class is called from NAudio's audio thread and must be fast and non-blocking.
 /// It provides the current time to the timed buffer so that audio is released
 /// at the correct moment for synchronized playback.
+/// <para>
+/// This is the source the pipeline holds, but <see cref="WasapiAudioPlayer"/> plays the SDK's
+/// <c>SyncCorrectedSampleSource</c> built over <see cref="Buffer"/> instead of calling
+/// <see cref="Read"/>. The pipeline's resets are therefore passed on through
+/// <see cref="ResetRequested"/>.
+/// </para>
 /// </remarks>
-public sealed class BufferedAudioSampleSource : IAudioSampleSource
+public sealed class BufferedAudioSampleSource : IAudioSampleSource, IPlaybackLifecycleAware
 {
     private readonly ITimedAudioBuffer _buffer;
     private readonly Func<long> _getCurrentTimeMicroseconds;
-    private readonly ReadCallbackGapTracker? _gapTracker;
-    private readonly double _samplesPerMs;
 
     /// <inheritdoc/>
     public AudioFormat Format => _buffer.Format;
@@ -34,35 +37,42 @@ public sealed class BufferedAudioSampleSource : IAudioSampleSource
     public ITimedAudioBuffer Buffer => _buffer;
 
     /// <summary>
+    /// Raised when the pipeline resets this source — on a <c>stream/clear</c> or a re-anchor — so
+    /// the correction source wrapped around it can discard state from the audio being skipped.
+    /// </summary>
+    public event EventHandler? ResetRequested;
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="BufferedAudioSampleSource"/> class.
     /// </summary>
     /// <param name="buffer">The timed audio buffer to read from.</param>
     /// <param name="getCurrentTimeMicroseconds">Function that returns current local time in microseconds.</param>
-    /// <param name="gapTracker">Optional tracker for audio-thread starvation diagnostics.</param>
     public BufferedAudioSampleSource(
         ITimedAudioBuffer buffer,
-        Func<long> getCurrentTimeMicroseconds,
-        ReadCallbackGapTracker? gapTracker = null)
+        Func<long> getCurrentTimeMicroseconds)
     {
         ArgumentNullException.ThrowIfNull(buffer);
         ArgumentNullException.ThrowIfNull(getCurrentTimeMicroseconds);
 
         _buffer = buffer;
         _getCurrentTimeMicroseconds = getCurrentTimeMicroseconds;
-        _gapTracker = gapTracker;
-        _samplesPerMs = (double)buffer.Format.SampleRate * buffer.Format.Channels / 1000.0;
-        _gapTracker?.Reset();
+    }
+
+    /// <inheritdoc/>
+    public void Reset() => ResetRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Nothing to pass on: the pipeline calls <see cref="IAudioPlayer.NotifyReconnect"/> alongside
+    /// this, and the player already forwards that to its correction source.
+    /// </remarks>
+    public void NotifyReconnect()
+    {
     }
 
     /// <inheritdoc/>
     public int Read(float[] buffer, int offset, int count)
     {
-        if (_gapTracker is not null)
-        {
-            // Expected interval: samples requested ÷ samples per ms (factor cached at construction)
-            _gapTracker.RecordRead(Environment.TickCount64, count / _samplesPerMs);
-        }
-
         var currentTime = _getCurrentTimeMicroseconds();
 
         // Read from the timed buffer using the portion we need to fill

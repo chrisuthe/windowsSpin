@@ -1,7 +1,5 @@
 using System.Globalization;
-using System.IO;
 using System.Windows.Data;
-using System.Windows.Media.Imaging;
 
 namespace Sendspin.Windows;
 
@@ -18,16 +16,7 @@ public class ByteArrayToImageConverter : IValueConverter
 
         try
         {
-            var bitmap = new BitmapImage();
-            using (var stream = new MemoryStream(imageData))
-            {
-                bitmap.BeginInit();
-                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                bitmap.StreamSource = stream;
-                bitmap.EndInit();
-                bitmap.Freeze(); // Required for cross-thread access
-            }
-            return bitmap;
+            return ArtworkBitmap.Decode(imageData, ArtworkBitmap.DisplayMaxPixels);
         }
         catch
         {

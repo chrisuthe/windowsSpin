@@ -1,0 +1,94 @@
+<Window x:Class="Sendspin.Windows.Views.PairingTokenDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Pairing Token"
+        Width="450"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="ToolWindow"
+        ResizeMode="NoResize"
+        Background="#1E1E2E">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Key Icon and Title -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,16">
+            <TextBlock Text="&#x1F511;" FontSize="24" Foreground="#F9E2AF" VerticalAlignment="Center" Margin="0,0,12,0"/>
+            <TextBlock Text="Pairing Token" FontSize="16" FontWeight="SemiBold" Foreground="#CDD6F4" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Explanation -->
+        <TextBlock Grid.Row="1"
+                   Text="This token pairs the player with a server. When Music Assistant asks for a pairing token, copy the token below and paste it into the server's pairing prompt. Keep it private: anyone with this token can pair with this player."
+                   TextWrapping="Wrap"
+                   Foreground="#A6ADC8"
+                   FontSize="13"
+                   LineHeight="20"
+                   Margin="0,0,0,12"/>
+
+        <!-- Token (read-only, selectable, monospace) -->
+        <TextBox Grid.Row="2"
+                 x:Name="TokenTextBox"
+                 IsReadOnly="True"
+                 TextWrapping="Wrap"
+                 FontFamily="Consolas"
+                 FontSize="13"
+                 Padding="10"
+                 Background="#11111B"
+                 Foreground="#CDD6F4"
+                 BorderBrush="#45475A"
+                 BorderThickness="1"/>
+
+        <!-- Notice (stale token, regeneration, errors) -->
+        <TextBlock Grid.Row="3"
+                   x:Name="NoticeText"
+                   TextWrapping="Wrap"
+                   Foreground="#F9E2AF"
+                   FontSize="12"
+                   LineHeight="18"
+                   Margin="0,8,0,0"
+                   Visibility="Collapsed"/>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button x:Name="RegenerateButton"
+                    Content="Regenerate..."
+                    Click="RegenerateButton_Click"
+                    Width="110"
+                    Padding="12,8"
+                    Margin="0,0,12,0"
+                    Background="Transparent"
+                    Foreground="#A6ADC8"
+                    BorderBrush="#45475A"
+                    BorderThickness="1"
+                    Cursor="Hand"/>
+            <Button x:Name="CopyButton"
+                    Content="Copy"
+                    Click="CopyButton_Click"
+                    Width="100"
+                    Padding="12,8"
+                    Margin="0,0,12,0"
+                    Background="#89B4FA"
+                    Foreground="#1E1E2E"
+                    BorderThickness="0"
+                    Cursor="Hand"
+                    FontWeight="Medium"/>
+            <Button x:Name="CloseButton"
+                    Content="Close"
+                    Click="CloseButton_Click"
+                    Width="80"
+                    Padding="12,8"
+                    Background="Transparent"
+                    Foreground="#A6ADC8"
+                    BorderBrush="#45475A"
+                    BorderThickness="1"
+                    Cursor="Hand"/>
+        </StackPanel>
+    </Grid>
+</Window>

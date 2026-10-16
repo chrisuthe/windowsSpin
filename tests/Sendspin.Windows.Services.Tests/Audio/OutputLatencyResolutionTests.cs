@@ -135,6 +135,61 @@ public class OutputLatencyResolutionTests
     }
 
     /// <summary>
+    /// On the first fill nothing is queued ahead of the sample, so it is delayed only by the device's
+    /// latency after its queue - not by the whole buffer, which is what starting on
+    /// <c>OutputLatencyMs</c> assumed.
+    /// </summary>
+    [Fact]
+    public void CurrentLatency_EmptyDevice_IsJustTheFixedLatency()
+    {
+        var latency = WasapiAudioPlayer.ComputeCurrentOutputLatencyMicroseconds(
+            queuedFrames: 0, sampleRate: 48000, fixedLatencyMicroseconds: 15_000);
+
+        Assert.Equal(15_000, latency);
+    }
+
+    /// <summary>
+    /// A full 100 ms device buffer ahead of the sample adds its whole duration to the fixed latency.
+    /// </summary>
+    [Fact]
+    public void CurrentLatency_FullDevice_IsTheQueuePlusTheFixedLatency()
+    {
+        var latency = WasapiAudioPlayer.ComputeCurrentOutputLatencyMicroseconds(
+            queuedFrames: 4800, sampleRate: 48000, fixedLatencyMicroseconds: 15_000);
+
+        Assert.Equal(115_000, latency);
+    }
+
+    /// <summary>
+    /// Queued frames are counted at the rate the client was initialized with, as the buffer tier's
+    /// are: the same 100 ms is 19200 frames on a client running at 192 kHz.
+    /// </summary>
+    [Fact]
+    public void CurrentLatency_CountsQueuedFramesAtTheGivenRate()
+    {
+        var latency = WasapiAudioPlayer.ComputeCurrentOutputLatencyMicroseconds(
+            queuedFrames: 19200, sampleRate: DeviceSampleRate, fixedLatencyMicroseconds: 0);
+
+        Assert.Equal(100_000, latency);
+    }
+
+    /// <summary>
+    /// Inputs that cannot be turned into a time yield null, which sends the SDK back to
+    /// <c>OutputLatencyMs</c> rather than handing it a fabricated figure.
+    /// </summary>
+    [Theory]
+    [InlineData(4800, 0)]
+    [InlineData(4800, -48000)]
+    [InlineData(-1, 48000)]
+    public void CurrentLatency_UnusableInputs_YieldNull(int queuedFrames, int sampleRate)
+    {
+        var latency = WasapiAudioPlayer.ComputeCurrentOutputLatencyMicroseconds(
+            queuedFrames, sampleRate, fixedLatencyMicroseconds: 15_000);
+
+        Assert.Null(latency);
+    }
+
+    /// <summary>
     /// The reporter is the route from the transient player to the stats view model; until an output
     /// is initialized it must say "nothing known" rather than a default that reads as a measurement.
     /// </summary>

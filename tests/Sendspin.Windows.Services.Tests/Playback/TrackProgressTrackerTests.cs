@@ -492,11 +492,12 @@ public class TrackProgressTrackerTests
     }
 
     [Fact]
-    public void StaticDelay_DoesNotShiftDisplayAnchor()
+    public void OutputDelay_DoesNotShiftDisplayAnchor()
     {
         // ServerToClientTime targets audio scheduling and subtracts the configured static
-        // delay; the display anchor adds it back so the seek bar reflects measurement time.
-        var sync = new FakeClockSynchronizer { OffsetMicroseconds = 7_000_000_000_000L, IsConverged = true, StaticDelayMs = 400 };
+        // delay; the display anchor converts with the clock offset alone, so the seek bar
+        // reflects measurement time whatever the hardware delay is set to.
+        var sync = new FakeClockSynchronizer { OffsetMicroseconds = 7_000_000_000_000L, IsConverged = true, OutputDelayMs = 400 };
         var tracker = CreateTracker(sync);
         var measuredAt = sync.ClientToServerTime(T0 - 200_000);
 
@@ -506,11 +507,11 @@ public class TrackProgressTrackerTests
     }
 
     [Fact]
-    public void NegativeStaticDelay_StillUsesServerAnchor()
+    public void NegativeOutputDelay_StillUsesServerAnchor()
     {
         // A negative delay used to push every converted anchor into the future, tripping
         // the plausibility guard so the spec-anchor path silently never engaged.
-        var sync = new FakeClockSynchronizer { OffsetMicroseconds = 7_000_000_000_000L, IsConverged = true, StaticDelayMs = -400 };
+        var sync = new FakeClockSynchronizer { OffsetMicroseconds = 7_000_000_000_000L, IsConverged = true, OutputDelayMs = -400 };
         var tracker = CreateTracker(sync);
         var measuredAt = sync.ClientToServerTime(T0 - 200_000);
 
@@ -700,9 +701,10 @@ public class TrackProgressTrackerTests
     /// <summary>
     /// Minimal clock synchronizer with a fixed offset: server = client + offset.
     /// Mirrors the real Kalman contract where <see cref="ServerToClientTime"/> also
-    /// subtracts the configured static delay (audio-scheduling compensation), while
-    /// <see cref="ClientToServerTime"/> is the pure domain shift used to fabricate
-    /// server-side measurement timestamps.
+    /// subtracts the configured output delay (audio-scheduling compensation), while
+    /// <see cref="ServerToClientTimeUncompensated"/> and <see cref="ClientToServerTime"/>
+    /// are the pure domain shift — exact inverses of each other, used to fabricate
+    /// server-side measurement timestamps and convert them back.
     /// </summary>
     private sealed class FakeClockSynchronizer : IClockSynchronizer
     {
@@ -712,11 +714,13 @@ public class TrackProgressTrackerTests
 
         public bool HasMinimalSync => IsConverged;
 
-        public double StaticDelayMs { get; set; }
+        public double OutputDelayMs { get; set; }
 
         public long ClientToServerTime(long clientTime) => clientTime + OffsetMicroseconds;
 
-        public long ServerToClientTime(long serverTime) => serverTime - OffsetMicroseconds - (long)(StaticDelayMs * 1000);
+        public long ServerToClientTime(long serverTime) => serverTime - OffsetMicroseconds - (long)(OutputDelayMs * 1000);
+
+        public long ServerToClientTimeUncompensated(long serverTime) => serverTime - OffsetMicroseconds;
 
         public void ProcessMeasurement(long t1, long t2, long t3, long t4)
         {

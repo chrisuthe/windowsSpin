@@ -17,6 +17,7 @@ Sendspin for Windows connects your Windows computer to [Music Assistant](https:/
 ### Requirements
 - Windows 10 version 1809 or later
 - [.NET 10.0 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) (or use the self-contained installer)
+- **Music Assistant 2.10.7 or later.** Version 3.0 speaks the encrypted Sendspin 1.0 protocol and cannot connect to older servers. On Music Assistant 2.10.6 or earlier, stay on [Sendspin for Windows 2.2.6](https://github.com/chrisuthe/windowsSpin/releases/tag/v2.2.6) until you upgrade the server.
 
 ### Installation
 
@@ -54,6 +55,12 @@ That's it!
 ---
 
 ## Troubleshooting
+
+**Server says pairing is required?**
+- Open Settings, choose **Show Pairing Token**, and enter the token on your Music Assistant server
+
+**Connected before upgrading to 3.0, but not since?**
+- Check the Music Assistant version: 3.0 needs 2.10.7 or later (see Requirements)
 
 **Server not discovered?**
 - Ensure client and server are on the same network

@@ -4,15 +4,14 @@ using Xunit;
 
 namespace Sendspin.Windows.Services.Tests.Configuration;
 
-// SDK 9.3.1 marks ConnectionMode.Auto [Obsolete] because it describes a spec violation, and
-// removes it in 10.0.0. These tests name it deliberately: their whole point is proving the
-// mapping NEVER returns it and coerces it away on the rare path that can still supply it
-// (it remains the enum's zero value on this release line, so default(ConnectionMode) is Auto).
-// Silencing the warning by deleting them would discard the property most worth guarding.
-// When the SDK drops to 10.0.0 these tests stop compiling, which is the correct prompt to
-// revisit them rather than a regression.
-#pragma warning disable CS0618 // Type or member is obsolete
-
+// SDK 10 removed ConnectionMode.Auto and made AdvertiseOnly the zero value, so the legacy mode
+// is no longer representable and the CS0618 suppression these tests needed on 9.3.x is gone.
+// The properties it guarded still matter, now expressed without naming Auto: every input
+// resolves to one of the two supported modes, and an out-of-range cast is coerced rather than
+// round-tripped.
+//
+// The legacy *config string* "Auto" is a separate concern and still tested below — the enum
+// change does not touch it, because upgrading installs still carry that value on disk.
 public class ConnectionModeMappingTests
 {
     [Theory]
@@ -60,9 +59,11 @@ public class ConnectionModeMappingTests
     [InlineData("Nonsense")]
     [InlineData("AdvertiseOnly")]
     [InlineData("DiscoverOnly")]
-    public void FromConfigValue_NeverReturnsAuto(string? configValue)
+    public void FromConfigValue_AlwaysReturnsASupportedMode(string? configValue)
     {
-        Assert.NotEqual(ConnectionMode.Auto, ConnectionModeMapping.FromConfigValue(configValue));
+        Assert.Contains(
+            ConnectionModeMapping.FromConfigValue(configValue),
+            new[] { ConnectionMode.AdvertiseOnly, ConnectionMode.DiscoverOnly });
     }
 
     [Theory]
@@ -72,9 +73,11 @@ public class ConnectionModeMappingTests
     [InlineData("Advertise Only")]
     [InlineData("Let servers connect to me")]
     [InlineData("I choose a server")]
-    public void FromDisplayName_NeverReturnsAuto(string? displayName)
+    public void FromDisplayName_AlwaysReturnsASupportedMode(string? displayName)
     {
-        Assert.NotEqual(ConnectionMode.Auto, ConnectionModeMapping.FromDisplayName(displayName));
+        Assert.Contains(
+            ConnectionModeMapping.FromDisplayName(displayName),
+            new[] { ConnectionMode.AdvertiseOnly, ConnectionMode.DiscoverOnly });
     }
 
     [Fact]
@@ -100,19 +103,20 @@ public class ConnectionModeMappingTests
     }
 
     [Fact]
-    public void ToConfigValue_Auto_CoercedToAdvertiseOnly()
+    public void ToConfigValue_UnknownMode_CoercedToAdvertiseOnly()
     {
-        // Auto is unreachable through our own mapping, but the SDK enum still allows it.
-        // Coerce rather than emit a value we would refuse to read back.
-        Assert.Equal("AdvertiseOnly", ConnectionModeMapping.ToConfigValue(ConnectionMode.Auto));
+        // Nothing in the enum is invalid any more — SDK 10 removed Auto — but an out-of-range
+        // cast still reaches this method (a stale persisted int, a future enum member on an
+        // older build). Coerce rather than emit a value we would refuse to read back.
+        Assert.Equal("AdvertiseOnly", ConnectionModeMapping.ToConfigValue((ConnectionMode)999));
     }
 
     [Fact]
-    public void ToDisplayName_Auto_CoercedToAdvertiseOnlyLabel()
+    public void ToDisplayName_UnknownMode_CoercedToAdvertiseOnlyLabel()
     {
         Assert.Equal(
             ConnectionModeMapping.AdvertiseOnlyDisplayName,
-            ConnectionModeMapping.ToDisplayName(ConnectionMode.Auto));
+            ConnectionModeMapping.ToDisplayName((ConnectionMode)999));
     }
 
     [Fact]
@@ -123,5 +127,3 @@ public class ConnectionModeMappingTests
             ConnectionModeMapping.DisplayNames);
     }
 }
-
-#pragma warning restore CS0618

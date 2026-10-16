@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net.Http;
 using System.Windows;
 using System.Windows.Interop;
 using Hardcodet.Wpf.TaskbarNotification;
@@ -9,15 +10,19 @@ using Sendspin.Windows.Configuration;
 using Sendspin.Windows.Views;
 using Sendspin.SDK.Audio;
 using Sendspin.SDK.Client;
+using Sendspin.SDK.Connection.Noise;
+using Sendspin.SDK.Connection.Noise.Pairing;
 using Sendspin.SDK.Discovery;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
 using Sendspin.Windows.Services.Audio;
+using Sendspin.Windows.Services.Audio.Capture;
+using Sendspin.Windows.Services.Configuration;
 using Sendspin.Windows.Services.Discord;
+using Sendspin.Windows.Services.Lifecycle;
 using Sendspin.Windows.Services.MediaControls;
 using Sendspin.Windows.Services.Models;
-using Sendspin.Windows.Services.Diagnostics;
 using Sendspin.Windows.Services.Notifications;
 using Sendspin.Windows.ViewModels;
 using Serilog;
@@ -30,6 +35,13 @@ namespace Sendspin.Windows;
 /// </summary>
 public partial class App : Application
 {
+    /// <summary>
+    /// How long exit waits for a graceful shutdown — long enough for client/goodbye to reach
+    /// the server on a local network, short enough that an unresponsive server cannot leave
+    /// the app un-closable.
+    /// </summary>
+    private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(3);
+
     private SingleInstanceGuard? _singleInstanceGuard;
     private ServiceProvider? _serviceProvider;
     private IConfiguration? _configuration;
@@ -80,25 +92,24 @@ public partial class App : Application
 
         // Load configuration: first from install directory (defaults), then from user AppData (overrides)
         // This ensures user can always save settings even when installed to Program Files
-        _configuration = new ConfigurationBuilder()
-            .SetBasePath(AppPaths.InstallDirectory)
-            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-            .AddJsonFile(AppPaths.UserSettingsPath, optional: true, reloadOnChange: true)
-            .Build();
+        _configuration = BuildConfiguration(out var userSettingsError);
 
         // Configure Serilog from settings
         ConfigureSerilog(_configuration);
 
-        // Check for verbose logging and show warning if needed
-        CheckVerboseLoggingOnStartup();
+        if (userSettingsError is not null)
+        {
+            ReportUnreadableUserSettings(userSettingsError);
+        }
 
         // Configure services
         var services = new ServiceCollection();
         ConfigureServices(services);
         _serviceProvider = services.BuildServiceProvider();
 
-        // Force-create the sync health monitor so its timer runs for the whole session
-        _ = _serviceProvider.GetRequiredService<SyncHealthMonitor>();
+        // Check for verbose logging and show warning if needed. Needs the settings service, so it
+        // runs after the container is built; nothing registered above reads the logging settings.
+        CheckVerboseLoggingOnStartup();
 
         // Handle unhandled exceptions
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
@@ -118,19 +129,18 @@ public partial class App : Application
         _trayIcon = (TaskbarIcon)FindResource("TrayIcon");
         _trayIcon.DataContext = _mainViewModel;
 
-        // Check if this is the first launch - show welcome screen if so
+        // A first launch shows the welcome screen; after that, Start Minimized decides. An explicit
+        // Start Minimized choice wins even over a missing first-launch flag (issue #53).
         var hasLaunchedBefore = _configuration!.GetValue<bool>("App:HasLaunchedBefore", false);
+        if (StartupWindow.ShouldShow(hasLaunchedBefore, _configuration!.GetValue<bool?>("App:StartMinimized")))
+        {
+            mainWindow.Show();
+        }
+
         if (!hasLaunchedBefore)
         {
-            // First launch - show the welcome screen
-            mainWindow.Show();
-
             // Mark as launched (save immediately to prevent showing again if app crashes)
             _ = SaveFirstLaunchFlagAsync();
-        }
-        else if (!_configuration!.GetValue<bool>("App:StartMinimized", true))
-        {
-            mainWindow.Show();
         }
 
         // Initialize the view model
@@ -138,37 +148,78 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// Builds the configuration: the install directory defaults overlaid with the user's settings file.
+    /// </summary>
+    /// <param name="userSettingsError">
+    /// Set when the user's settings file exists but could not be read; the configuration then
+    /// carries the defaults only.
+    /// </param>
+    private static IConfigurationRoot BuildConfiguration(out Exception? userSettingsError)
+    {
+        Exception? loadError = null;
+        var configuration = new ConfigurationBuilder()
+            .SetBasePath(AppPaths.InstallDirectory)
+            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+            .AddJsonFile(source =>
+            {
+                source.Path = AppPaths.UserSettingsPath;
+                source.Optional = true;
+                source.ReloadOnChange = true;
+                source.ResolveFileProvider();
+
+                // An unreadable file must not take the process down. On the initial load the
+                // provider stays empty and the defaults apply; a failed reload, which runs on a
+                // thread-pool thread where a throw is fatal, empties it until the file is valid
+                // again. The exception is kept so startup can report it; the warning here is for
+                // reloads, since the logger is not configured yet on the initial load.
+                source.OnLoadException = context =>
+                {
+                    context.Ignore = true;
+                    loadError = context.Exception;
+                    Log.Warning(context.Exception, "User settings file could not be read; using defaults until it is valid again");
+                };
+            })
+            .Build();
+
+        userSettingsError = loadError;
+        return configuration;
+    }
+
+    /// <summary>
+    /// Tells the user once that the settings file could not be read, so the app keeps starting with
+    /// defaults instead of failing on every launch. The file is left as it is: settings saves refuse
+    /// to overwrite it until it is fixed or removed.
+    /// </summary>
+    private static void ReportUnreadableUserSettings(Exception error)
+    {
+        Log.Warning(error, "User settings file {Path} is unreadable; using defaults", AppPaths.UserSettingsPath);
+        MessageBox.Show(
+            "Your settings file could not be read, so default settings are in use. " +
+            $"Settings cannot be saved until it is fixed or removed:\n{AppPaths.UserSettingsPath}\n\n{error.GetBaseException().Message}",
+            "Sendspin for Windows",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
+    }
+
+    /// <summary>
     /// Saves the first launch flag to settings so the welcome screen is only shown once.
     /// </summary>
-    private static async Task SaveFirstLaunchFlagAsync()
+    /// <remarks>
+    /// Saved through <see cref="IUserSettingsService"/> so it shares that service's file lock with
+    /// the other settings saves made during startup. Writing the file directly let either update
+    /// overwrite the other.
+    /// </remarks>
+    private async Task SaveFirstLaunchFlagAsync()
     {
         try
         {
-            AppPaths.EnsureUserDataDirectoryExists();
-            var appSettingsPath = AppPaths.UserSettingsPath;
-
-            System.Text.Json.Nodes.JsonNode? root;
-            if (File.Exists(appSettingsPath))
-            {
-                var json = await File.ReadAllTextAsync(appSettingsPath);
-                root = System.Text.Json.Nodes.JsonNode.Parse(json) ?? new System.Text.Json.Nodes.JsonObject();
-            }
-            else
-            {
-                root = new System.Text.Json.Nodes.JsonObject();
-            }
-
-            var appSection = root["App"]?.AsObject() ?? new System.Text.Json.Nodes.JsonObject();
-            appSection["HasLaunchedBefore"] = true;
-            root["App"] = appSection;
-
-            var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
-            var updatedJson = root.ToJsonString(options);
-            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+            await _serviceProvider!.GetRequiredService<IUserSettingsService>()
+                .UpdateSettingAsync("App", "HasLaunchedBefore", true);
         }
-        catch
+        catch (Exception ex)
         {
-            // Ignore errors - next launch will just show welcome again
+            // The next launch shows the welcome screen again, unless Start Minimized is set
+            Log.Warning(ex, "Failed to save the first-launch flag");
         }
     }
 
@@ -196,9 +247,6 @@ public partial class App : Application
 
         // Get app version for device info
         var appVersion = GetAppVersion();
-
-        // Get persistent client ID (generated once per installation, survives reinstalls)
-        var clientId = ClientIdService.GetOrCreateClientId();
 
         // Read audio device ID from configuration (null = system default)
         var audioDeviceId = _configuration!.GetValue<string?>("Audio:DeviceId");
@@ -231,26 +279,21 @@ public partial class App : Application
         var configuredCapacityMs = _configuration!.GetValue<int>("Audio:Buffer:CapacityMs", 120000);
         var bufferCapacityMs = Math.Max(configuredCapacityMs, minBufferCapacityMs);
 
-        // Derive compressed-byte buffer capacity from our PCM buffer duration.
-        // The server uses this to limit how much audio it sends ahead.
-        // Use worst-case bitrate (PCM uncompressed) so no codec can overflow our buffer.
-        var maxBytesPerSecond = audioFormats
-            .Select(f => f.Codec == "opus" && f.Bitrate > 0
-                ? f.Bitrate * 1000 / 8  // OPUS: use declared bitrate (kbps → bytes/sec)
-                : f.SampleRate * f.Channels * Math.Max(f.BitDepth ?? 16, 16) / 8)  // PCM/FLAC: raw sample rate
-            .Max();
-        var bufferCapacityBytes = (int)((long)bufferCapacityMs * maxBytesPerSecond / 1000);
-        Log.Information(
-            "Buffer: {CapacityMs}ms PCM → {CapacityMB:F1}MB advertised to server (worst-case {MaxKbps}kbps)",
-            bufferCapacityMs, bufferCapacityBytes / 1024.0 / 1024.0, maxBytesPerSecond * 8 / 1000);
-
         // Visualizer (ambient glow) capability — request only loudness + beat features.
         var visualizerRateMax = _configuration!.GetValue<int>("Visualizer:RateMax", 30);
         var visualizerBufferCapacity = _configuration!.GetValue<int>("Visualizer:BufferCapacity", 4096);
 
+        // A zero in either makes the server reject the whole client, so a config that zeroes one
+        // drops the visualizer role instead of advertising it.
+        var advertiseVisualizer = visualizerRateMax > 0 && visualizerBufferCapacity > 0;
+
+        // Unpaired access: when true, the client admits servers it has no pairing record for
+        // over the encrypted protocol, which leaves the session open to a man-in-the-middle
+        // on the local network. Off by default; exists for bring-up and testing only.
+        var unpairedAccessEnabled = _configuration!.GetValue<bool>("Connection:UnpairedAccessEnabled", false);
+
         var clientCapabilities = new ClientCapabilities
         {
-            ClientId = clientId,
             ClientName = playerName,
             ProductName = "Sendspin for Windows",
             Manufacturer = null, // Set by SDK consumers as needed
@@ -258,20 +301,54 @@ public partial class App : Application
             AudioFormats = audioFormats,
             InitialVolume = playerVolume,
             InitialMuted = playerMuted,
-            BufferCapacity = bufferCapacityBytes,
-            VisualizerSupport = new VisualizerSupport
-            {
-                Types = new List<string> { VisualizerTypes.Loudness, VisualizerTypes.Beat },
-                RateMax = visualizerRateMax,
-                BufferCapacity = visualizerBufferCapacity,
-            },
+
+            // Single source of truth for buffering: the SDK derives the advertised
+            // compressed-byte BufferCapacity from this duration and the advertised formats,
+            // using the *minimum* byte rate across them so the promise holds whichever codec
+            // the server picks (a megabyte of Opus is minutes; of PCM, seconds). The same
+            // value goes to TimedAudioBuffer below, so the two cannot drift apart.
+            AudioBufferCapacityMs = bufferCapacityMs,
+            UnpairedAccessEnabled = unpairedAccessEnabled,
+
+            // Offer dynamic pairing code alongside the mandatory Pairing PSK method: the
+            // operator reads a pairing code off this app's dialog and types it into the server.
+            // PairingCodeOutChannels (["display"]) keeps its SDK default; the code length is fixed
+            // by the spec.
+            PairingCodeMethods = new List<string> { PairMethods.DynamicPairingCode },
+            VisualizerRoleSupport = advertiseVisualizer
+                ? new VisualizerRoleSupport
+                {
+                    Types = new List<string> { VisualizerTypes.Loudness, VisualizerTypes.Beat },
+                    RateMax = visualizerRateMax,
+                    BufferCapacity = visualizerBufferCapacity,
+                }
+                : null,
+
+            // Line-sense lets the Send button drive Music Assistant's autostart.
+            SourceRoleSupport = new SourceRoleSupport { LineSense = true },
+
+            // WASAPI shared mode prefills its output buffer at start. The SDK adds this to the
+            // lead times it reports until the player has measured the real figure.
+            ExpectedOutputLatencyMs = WasapiAudioPlayer.EstimatedOutputLatencyMs,
         };
+
+        Log.Information(
+            "Buffer: {CapacityMs}ms decoded → {CapacityMB:F1}MB advertised to server",
+            bufferCapacityMs, clientCapabilities.BufferCapacity / 1024.0 / 1024.0);
 
         // Add the visualizer@v1 role so the server streams loudness/beat frames.
         // (color@v1 is included in the SDK's default roles and needs no explicit add.)
-        if (!clientCapabilities.Roles.Contains("visualizer@v1"))
+        if (advertiseVisualizer && !clientCapabilities.Roles.Contains("visualizer@v1"))
         {
             clientCapabilities.Roles.Add("visualizer@v1");
+        }
+
+        // source@v1 is always advertised. Whether real audio leaves the PC is decided by Send in
+        // the app — the capture device streams generated silence until then — because roles are
+        // negotiated per connection and cannot change once it is open.
+        if (!clientCapabilities.Roles.Contains("source@v1"))
+        {
+            clientCapabilities.Roles.Add("source@v1");
         }
 
         services.AddSingleton(clientCapabilities);
@@ -292,11 +369,9 @@ public partial class App : Application
                 adaptiveCutoff: adaptiveCutoff,
                 minSamplesForForgetting: minSamplesForForgetting);
 
-            // Apply static delay from configuration. Must be non-negative: the Sendspin server
-            // (aiosendspin) validates static_delay_ms in 0-5000 and drops the connection if a client
-            // reports a negative value, so clamp on read (a stale negative config becomes 0).
-            var staticDelayMs = Math.Max(0, _configuration!.GetValue<double>("Audio:StaticDelayMs", 0));
-            clockSync.StaticDelayMs = staticDelayMs;
+            // Apply output delay from configuration (clamped, and migrated from the pre-SDK-10
+            // "Audio:StaticDelayMs" key — see OutputDelaySettings).
+            clockSync.OutputDelayMs = _configuration!.ReadOutputDelayMs();
 
             return clockSync;
         });
@@ -304,15 +379,15 @@ public partial class App : Application
         // Audio pipeline components
         services.AddSingleton<IAudioDecoderFactory, AudioDecoderFactory>();
 
-        // Read sync correction strategy configuration
+        // How the SDK's correction source realizes the continuous correction tier. "Combined" trims
+        // playback speed through a resampler; "DropInsertOnly" steps whole frames and keeps every
+        // resampler out of the output chain. The config strings predate the SDK's own enum and are
+        // kept so existing appsettings.json files keep meaning what they meant. This is a mechanism
+        // choice only — the dead band, the speed cap and the tier thresholds are identical either way.
         var strategyStr = _configuration!.GetValue<string>("Audio:SyncCorrection:Strategy", "Combined");
-        var syncStrategy = strategyStr?.Equals("DropInsertOnly", StringComparison.OrdinalIgnoreCase) == true
-            ? SyncCorrectionStrategy.DropInsertOnly
-            : SyncCorrectionStrategy.Combined;
-        var resamplerTypeStr = _configuration!.GetValue<string>("Audio:SyncCorrection:ResamplerType", "Wdl");
-        var resamplerType = resamplerTypeStr?.Equals("SoundTouch", StringComparison.OrdinalIgnoreCase) == true
-            ? ResamplerType.SoundTouch
-            : ResamplerType.Wdl;
+        var mechanism = strategyStr?.Equals("DropInsertOnly", StringComparison.OrdinalIgnoreCase) == true
+            ? SyncCorrectionMechanism.FrameStepping
+            : SyncCorrectionMechanism.SmoothResampling;
 
         // Sync timing source. Default OFF = wall clock (HighPrecisionTimer), matching 2.1.0 which
         // synchronized correctly with no offset. The WASAPI device clock reads the DAC-RENDERED
@@ -323,6 +398,26 @@ public partial class App : Application
         // DAC clock genuinely diverges from the system clock (most report a 1.0000 ratio = no benefit).
         var useDeviceClock = _configuration!.GetValue("Audio:SyncCorrection:UseDeviceClock", false);
 
+        // Correction-loop knobs, tunable so they can be dialed by ear. The shipped config sets the
+        // spec's 0.1 ms dead band; the 1 ms fallback applies only to a settings file without the
+        // key, and is still within the spec's ±1 ms accuracy floor. The speed cap is not a comfort
+        // setting: the spec caps it at 0.5% (MUST). It is clamped here because installs of 2.2.1
+        // and 2.2.2 copied a 2% default into their user settings, which the SDK would clamp anyway
+        // while warning on every stream.
+        // Built once and shared by every buffer the pipeline creates. Consumers that need to tweak
+        // the options (WasapiAudioPlayer) clone first, so this instance stays the configured truth.
+        var syncOptions = SyncCorrectionOptions.Default;
+        syncOptions.DeadbandMicroseconds = (long)(_configuration!.GetValue("Audio:SyncCorrection:DeadbandMs", 1.0) * 1000.0);
+        syncOptions.MaxSpeedCorrection = Math.Min(
+            _configuration!.GetValue("Audio:SyncCorrection:MaxSpeedCorrectionPercent", 0.5) / 100.0,
+            SyncCorrectionOptions.SpecMaxSpeedCorrection);
+        syncOptions.CorrectionTargetSeconds = _configuration!.GetValue("Audio:SyncCorrection:CorrectionTargetSeconds", 3.0);
+
+        // The correction source reads this off the buffer it is handed, so the mechanism has to be
+        // on the options the pipeline builds its buffers with — not passed separately, or the two
+        // could disagree about whether a resampler is in the chain.
+        syncOptions.Mechanism = mechanism;
+
         // The player is transient and the stats view model holds only the pipeline, so the
         // resolved output latency (and whether it was measured at all) travels through this.
         services.AddSingleton<OutputLatencyReporter>();
@@ -332,7 +427,7 @@ public partial class App : Application
             var logger = sp.GetRequiredService<ILogger<WasapiAudioPlayer>>();
             var currentDeviceId = _configuration!.GetValue<string?>("Audio:DeviceId");
             var latencyReporter = sp.GetRequiredService<OutputLatencyReporter>();
-            return new WasapiAudioPlayer(logger, currentDeviceId, syncStrategy, resamplerType, useDeviceClock, latencyReporter);
+            return new WasapiAudioPlayer(logger, currentDeviceId, mechanism, useDeviceClock, latencyReporter);
         });
 
         // Audio pipeline - orchestrates decoder, buffer, and player
@@ -362,40 +457,90 @@ public partial class App : Application
                 clockSync,
                 bufferFactory: (format, sync) =>
                 {
-                    // Correction-loop calming knobs (default to the SDK defaults). A wider deadband
-                    // stops the corrector hunting around small per-callback jitter; a tighter max-rate
-                    // and longer target make any correction gentler. Tunable so it can be dialed by ear.
-                    // Fallbacks read off SyncCorrectionOptions.Default rather than literals, so a
-                    // config file missing a key tracks the SDK's defaults instead of pinning a value
-                    // the SDK has since moved (pre-9.3.0 these were hardcoded 1ms / 2%).
-                    var syncOptions = SyncCorrectionOptions.Default;
-                    syncOptions.DeadbandMicroseconds = (long)(_configuration!.GetValue(
-                        "Audio:SyncCorrection:DeadbandMs", syncOptions.DeadbandMicroseconds / 1000.0) * 1000.0);
-                    syncOptions.MaxSpeedCorrection = _configuration!.GetValue(
-                        "Audio:SyncCorrection:MaxSpeedCorrectionPercent", syncOptions.MaxSpeedCorrection * 100.0) / 100.0;
-                    syncOptions.CorrectionTargetSeconds = _configuration!.GetValue(
-                        "Audio:SyncCorrection:CorrectionTargetSeconds", syncOptions.CorrectionTargetSeconds);
-
                     var buffer = new TimedAudioBuffer(format, sync, bufferCapacityMs, syncOptions, bufferLogger);
                     buffer.TargetBufferMilliseconds = bufferTargetMs;
                     return buffer;
                 },
                 playerFactory: () => sp.GetRequiredService<IAudioPlayer>(),
-                sourceFactory: (buffer, timeFunc) => new BufferedAudioSampleSource(
-                    buffer, timeFunc, sp.GetRequiredService<ReadCallbackGapTracker>()),
+                sourceFactory: (buffer, timeFunc) => new BufferedAudioSampleSource(buffer, timeFunc),
                 precisionTimer: null,
                 waitForConvergence: waitForConvergence,
                 convergenceTimeoutMs: convergenceTimeoutMs);
         });
 
-        // Sync health diagnostics (issue #33): always-on episode detection + sync-health.log
-        services.AddSingleton<ReadCallbackGapTracker>();
-        services.AddSingleton(new SyncHealthLog(AppPaths.LogDirectory));
-        services.AddSingleton<SyncHealthMonitor>();
-
         // Server discovery for client-initiated mode
         // Discovers Music Assistant servers via mDNS and auto-connects
         services.AddSingleton<MdnsServerDiscovery>();
+
+        // Encrypted-protocol identity and pairing state, shared by both connection modes.
+        // The identity's public key IS the client_id, so host mode and manual mode must
+        // present the same keypair — and it must persist across restarts or every pairing
+        // is lost. FromStore generates and persists on first run, loads thereafter.
+        services.AddSingleton<ISendspinIdentityStore>(new FileSendspinIdentityStore(AppPaths.IdentityPath));
+        services.AddSingleton(sp => SendspinIdentity.FromStore(sp.GetRequiredService<ISendspinIdentityStore>()));
+        services.AddSingleton<IPairingRecordStore>(sp => new FilePairingRecordStore(
+            AppPaths.PairingRecordsPath,
+            sp.GetRequiredService<ILogger<FilePairingRecordStore>>()));
+
+        // pairing code support: the lockout store persists failed-attempt counters across
+        // restarts (a six-digit secret needs the spec's terminal lockout after 10 failures
+        // to hold) — the SDK refuses to offer the pairing code methods without it. The presenter
+        // shows the derived pairing code in a modal dialog; see PairingCodePresenter for the
+        // threading contract.
+        services.AddSingleton<IPairingCodeLockoutStore>(new FilePairingCodeLockoutStore(AppPaths.PairingCodeLockoutPath));
+        services.AddSingleton<PairingCodePresenter>();
+
+        // One window per device, not per connection: the SDK admits exactly one pairing
+        // attempt per opening no matter how many servers are connected, so the host service
+        // and the manual client must share this instance. Without it every gesture-gated
+        // attempt waits forever — a null window reads as permanently closed, and the SDK
+        // arms no timeout for the wait, so the app would sit on client/pair-pending with
+        // nothing shown to the operator. dynamic_pairing_code is gated once its failure counter
+        // reaches 10, and FilePairingCodeLockoutStore persists that across restarts.
+        services.AddSingleton<PairingWindow>();
+
+        // Output delay persistence for the SDK, backed by the same user setting as the delay
+        // slider. The configuration reloads when the user settings file changes, so Load sees
+        // what either the slider or the server last saved.
+        services.AddSingleton(sp =>
+        {
+            var settingsService = sp.GetRequiredService<IUserSettingsService>();
+            return new OutputDelayStore(
+                () => _configuration!.ReadOutputDelayMs(),
+                value => settingsService.UpdateSettingAsync("Audio", "OutputDelayMs", value),
+                sp.GetRequiredService<ILogger<OutputDelayStore>>());
+        });
+
+        // Source input (Send). One device for every connection: silence until Send, then the
+        // selected input.
+        services.AddSingleton<ICaptureInputCatalog, CaptureInputCatalog>();
+        services.AddSingleton(sp =>
+        {
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            return new WindowsAudioCaptureDevice(
+                createSilence: () => new SilenceSource(HighPrecisionTimer.Shared),
+                createInput: id => id == CaptureInputCatalog.DesktopId
+                    ? new ProcessLoopbackCaptureSource(HighPrecisionTimer.Shared, loggerFactory.CreateLogger<ProcessLoopbackCaptureSource>())
+                    : new EndpointCaptureSource(id, HighPrecisionTimer.Shared, loggerFactory.CreateLogger<EndpointCaptureSource>()),
+                loggerFactory.CreateLogger<WindowsAudioCaptureDevice>());
+        });
+        services.AddSingleton<SourceSendController>();
+
+        // Client options shared by both connection modes (host service and manual client),
+        // so both present the same identity, pairing records, capabilities, and audio pipeline
+        services.AddSingleton(sp => new SendspinClientOptions
+        {
+            OutputDelayStore = sp.GetRequiredService<OutputDelayStore>(),
+            Identity = sp.GetRequiredService<SendspinIdentity>(),
+            PairingRecordStore = sp.GetRequiredService<IPairingRecordStore>(),
+            Capabilities = sp.GetRequiredService<ClientCapabilities>(),
+            ClockSynchronizer = sp.GetRequiredService<IClockSynchronizer>(),
+            AudioPipeline = sp.GetRequiredService<IAudioPipeline>(),
+            PairingCodeLockoutStore = sp.GetRequiredService<IPairingCodeLockoutStore>(),
+            PresentPairingCodeAsync = sp.GetRequiredService<PairingCodePresenter>().PresentPairingCodeAsync,
+            PairingWindow = sp.GetRequiredService<PairingWindow>(),
+            CaptureDevice = sp.GetRequiredService<WindowsAudioCaptureDevice>(),
+        });
 
         // Host service for server-initiated mode
         // The host runs a WebSocket server and advertises via mDNS
@@ -404,14 +549,10 @@ public partial class App : Application
         services.AddSingleton<SendspinHostService>(sp =>
         {
             var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            var capabilities = sp.GetRequiredService<ClientCapabilities>();
-            var audioPipeline = sp.GetRequiredService<IAudioPipeline>();
-            var clockSynchronizer = sp.GetRequiredService<IClockSynchronizer>();
+            var options = sp.GetRequiredService<SendspinClientOptions>();
             return new SendspinHostService(
                 loggerFactory,
-                capabilities,
-                audioPipeline: audioPipeline,
-                clockSynchronizer: clockSynchronizer,
+                options,
                 lastPlayedServerId: string.IsNullOrEmpty(lastPlayedServerId) ? null : lastPlayedServerId);
         });
 
@@ -420,7 +561,10 @@ public partial class App : Application
         services.AddHttpClient("Artwork", client =>
         {
             client.Timeout = TimeSpan.FromSeconds(10);
-        });
+        })
+            // ArtworkDownloader follows redirects itself so it can validate every hop before
+            // requesting it; the handler following them would request a target first.
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 
         // Notification service for toast notifications
         // Uses Windows Toast API via Microsoft.Toolkit.Uwp.Notifications
@@ -542,8 +686,24 @@ public partial class App : Application
             // Disable logging immediately
             ReconfigureLogging("Warning", enableFileLogging: false, enableConsoleLogging: false);
 
-            // Save the settings synchronously so they persist before MainViewModel loads
-            SaveLoggingSettingsAsync("Warning", enableFileLogging: false, enableConsoleLogging: false).GetAwaiter().GetResult();
+            // Save the settings synchronously so they persist before MainViewModel loads. The
+            // service drops the dispatcher context on its awaits, so blocking here cannot deadlock.
+            try
+            {
+                _serviceProvider!.GetRequiredService<IUserSettingsService>()
+                    .UpdateSectionAsync(LoggingSettings.SectionName, new Dictionary<string, object?>
+                    {
+                        ["LogLevel"] = "Warning",
+                        ["EnableFileLogging"] = false,
+                        ["EnableConsoleLogging"] = false,
+                    })
+                    .GetAwaiter().GetResult();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                // Logging is already disabled for this run; the choice just won't persist
+                Log.Warning(ex, "Failed to save logging settings");
+            }
 
             // Reload configuration so MainViewModel sees the updated values
             // This is necessary because the IConfiguration was built before the dialog saved
@@ -628,43 +788,15 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Saves logging settings to the user's appsettings.json file.
+    /// Deliberately synchronous. As <c>async void</c>, WPF resumed its own shutdown at the
+    /// first await and the process exited before the continuation ran — so the SDK never got
+    /// to send <c>client/goodbye</c>, and a server that sees a client vanish without one is
+    /// told to assume 'restart' and auto-reconnect. That left Music Assistant reconnecting to
+    /// an app that had already exited, then colliding with the app's own connection on the
+    /// next launch. The waits below are bounded so a wedged server cannot block exit, and run
+    /// via Task.Run so the awaited continuations do not need this (blocked) UI thread.
     /// </summary>
-    private static async Task SaveLoggingSettingsAsync(string logLevel, bool enableFileLogging, bool enableConsoleLogging)
-    {
-        try
-        {
-            AppPaths.EnsureUserDataDirectoryExists();
-            var appSettingsPath = AppPaths.UserSettingsPath;
-
-            System.Text.Json.Nodes.JsonNode? root;
-            if (File.Exists(appSettingsPath))
-            {
-                var json = await File.ReadAllTextAsync(appSettingsPath).ConfigureAwait(false);
-                root = System.Text.Json.Nodes.JsonNode.Parse(json) ?? new System.Text.Json.Nodes.JsonObject();
-            }
-            else
-            {
-                root = new System.Text.Json.Nodes.JsonObject();
-            }
-
-            var loggingSection = root["Logging"]?.AsObject() ?? new System.Text.Json.Nodes.JsonObject();
-            loggingSection["LogLevel"] = logLevel;
-            loggingSection["EnableFileLogging"] = enableFileLogging;
-            loggingSection["EnableConsoleLogging"] = enableConsoleLogging;
-            root["Logging"] = loggingSection;
-
-            var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
-            var updatedJson = root.ToJsonString(options);
-            await File.WriteAllTextAsync(appSettingsPath, updatedJson).ConfigureAwait(false);
-        }
-        catch
-        {
-            // Ignore errors - settings won't persist but logging is already disabled
-        }
-    }
-
-    protected override async void OnExit(ExitEventArgs e)
+    protected override void OnExit(ExitEventArgs e)
     {
         try
         {
@@ -674,39 +806,13 @@ public partial class App : Application
             // Dispose tray icon to remove from system tray
             _trayIcon?.Dispose();
 
-            // Gracefully shutdown the host service
-            if (_mainViewModel != null)
+            // Task.Run escapes the UI SynchronizationContext: blocking this thread on a continuation
+            // that wants to come back to it would deadlock instead.
+            if (!Task.Run(ShutdownServicesAsync).Wait(ShutdownTimeout))
             {
-                try
-                {
-                    await _mainViewModel.ShutdownAsync();
-                }
-                catch (Exception ex)
-                {
-                    // Log using Serilog's static logger (still available at this point)
-                    Log.Error(ex, "Error during MainViewModel shutdown");
-                }
-            }
-
-            // Dispose service provider (may throw during service disposal)
-            try
-            {
-                _serviceProvider?.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Error disposing service provider");
-            }
-
-            // Flush and close Serilog to ensure all logs are written
-            Log.Information("Sendspin for Windows shutting down");
-            try
-            {
-                await Log.CloseAndFlushAsync();
-            }
-            catch
-            {
-                // Ignore - nothing we can do if log flush fails, and no logger available
+                Log.Warning(
+                    "Shutdown did not complete within {Timeout}s; exiting anyway. The server may not have received client/goodbye",
+                    ShutdownTimeout.TotalSeconds);
             }
         }
         catch (Exception ex)
@@ -717,9 +823,55 @@ public partial class App : Application
         }
         finally
         {
+            // Flush and close Serilog to ensure all logs are written
+            try
+            {
+                Log.CloseAndFlush();
+            }
+            catch
+            {
+                // Ignore - nothing we can do if log flush fails, and no logger available
+            }
+
             // Always call base.OnExit to ensure proper WPF shutdown
             base.OnExit(e);
         }
+    }
+
+    /// <summary>
+    /// Stops the view model's transports and disposes the services, each step isolated so one
+    /// failure cannot skip the rest.
+    /// </summary>
+    private async Task ShutdownServicesAsync()
+    {
+        if (_mainViewModel != null)
+        {
+            try
+            {
+                await _mainViewModel.ShutdownAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // Log using Serilog's static logger (still available at this point)
+                Log.Error(ex, "Error during MainViewModel shutdown");
+            }
+        }
+
+        // ServiceProvider.Dispose throws for a service that only implements IAsyncDisposable, so
+        // the services are disposed asynchronously, inside the same bound as the shutdown.
+        if (_serviceProvider != null)
+        {
+            try
+            {
+                await _serviceProvider.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error disposing service provider");
+            }
+        }
+
+        Log.Information("Sendspin for Windows shutting down");
     }
 
     private void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)

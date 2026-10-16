@@ -26,7 +26,7 @@ public static class ConnectionModeMapping
 
     /// <summary>Maps a persisted config value to a mode.</summary>
     /// <param name="configValue">The stored value, which may be legacy or absent.</param>
-    /// <returns>The mode; never <see cref="ConnectionMode.Auto"/>.</returns>
+    /// <returns>The mode: AdvertiseOnly or DiscoverOnly, the only two SDK 10 defines.</returns>
     /// <remarks>
     /// Anything unrecognized — including the legacy "Auto", which ran both transports in
     /// violation of the spec — resolves to <see cref="ConnectionMode.AdvertiseOnly"/>.
@@ -54,7 +54,7 @@ public static class ConnectionModeMapping
 
     /// <summary>Maps a settings display name to a mode.</summary>
     /// <param name="displayName">The selected display name.</param>
-    /// <returns>The mode; never <see cref="ConnectionMode.Auto"/>.</returns>
+    /// <returns>The mode: AdvertiseOnly or DiscoverOnly, the only two SDK 10 defines.</returns>
     public static ConnectionMode FromDisplayName(string? displayName)
         => displayName == DiscoverOnlyDisplayName
             ? ConnectionMode.DiscoverOnly

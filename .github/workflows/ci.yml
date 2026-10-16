@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, "release/**"]
   pull_request:
-    branches: [master, main]
+    branches: [master, main, "release/**"]
 
 # Read-only by default; only the job that publishes gets write access. Nothing here uses
 # OIDC (the signing action authenticates with a client secret), so there is no id-token grant.
@@ -41,9 +41,13 @@ jobs:
 
   # Dev builds - create signed installers for every push to branches
   dev-build:
+    # Waits for the build and test job, so no signed dev prerelease ships from a commit whose
+    # tests fail. Without this the two jobs ran in parallel and dev-build ignored the result.
+    needs: build
     runs-on: windows-latest
-    # Only run on direct branch pushes, not PRs or tags (tags use release.yml)
-    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+    # Only run on direct pushes to master, not PRs, tags (tags use release.yml) or release
+    # branches, which get the build and test job above but no dev prerelease.
+    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/heads/release/')
     permissions:
       contents: write  # Creates the dev prerelease and deletes old ones
 

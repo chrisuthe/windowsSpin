@@ -7,7 +7,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Sendspin.SDK.Audio;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Synchronization;
-using Sendspin.Windows.Services.Audio;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -23,18 +22,18 @@ namespace Sendspin.Windows.Services.Tests.Audio;
 /// <c>T</c> at <c>ServerToClientTime(T)</c>. You never need a second player to test it.
 /// </para>
 /// <para>
-/// The corollary these tests assert: <b>for a zero-drift clock, the cumulative drop/insert
-/// correction must stay near zero.</b> No drift means no correction is needed; any net correction
-/// physically stretches or compresses the stream, shifting this player's absolute output position
-/// away from the server-anchored schedule — i.e. out of sync with everyone else. Net inserted
-/// frames × frame-duration = exactly how many milliseconds late this player ends up.
+/// The corollary these tests assert: <b>for a zero-drift clock, the steady-state sync error must
+/// stay near zero.</b> No drift means no correction is needed; any net correction physically
+/// stretches or compresses the stream, shifting this player's absolute output position away from
+/// the server-anchored schedule — i.e. out of sync with everyone else.
 /// </para>
 /// <para>
-/// The harness drives the real <see cref="TimedAudioBuffer"/> + <see cref="SyncCorrectionCalculator"/>
-/// + <see cref="SyncCorrectedSampleSource"/> (the app's external-correction path) through a
-/// simulated, perfectly drift-free session. It models WASAPI's habit of gulping its ~100 ms output
-/// buffer at <c>Play()</c>, which makes the device clock lag the samples already read — the constant
-/// negative startup offset behind issue #33's "initial slowdown".
+/// The harness drives the real <see cref="TimedAudioBuffer"/> through the SDK's
+/// <see cref="SyncCorrectedSampleSource"/> — the external-correction path this app composes into
+/// <c>WasapiAudioPlayer</c> — over a simulated, perfectly drift-free session. It models WASAPI's
+/// habit of gulping its ~100 ms output buffer at <c>Play()</c>, which makes the device clock lag the
+/// samples already read — the constant negative startup offset behind issue #33's
+/// "initial slowdown".
 /// </para>
 /// </remarks>
 public class MultiRoomSyncAlignmentTests
@@ -56,15 +55,17 @@ public class MultiRoomSyncAlignmentTests
     /// </summary>
     private sealed class FixedOffsetClock : IClockSynchronizer
     {
-        private readonly long _offset; // ServerToClientTime(t) = t + offset (minus StaticDelay)
+        private readonly long _offset; // ServerToClientTime(t) = t + offset (minus OutputDelay)
 
         public FixedOffsetClock(long offset) => _offset = offset;
 
-        public double StaticDelayMs { get; set; }
+        public double OutputDelayMs { get; set; }
 
-        public long ServerToClientTime(long serverTime) => serverTime + _offset - (long)(StaticDelayMs * 1000);
+        public long ServerToClientTime(long serverTime) => serverTime + _offset - (long)(OutputDelayMs * 1000);
 
-        public long ClientToServerTime(long clientTime) => clientTime - _offset + (long)(StaticDelayMs * 1000);
+        public long ServerToClientTimeUncompensated(long serverTime) => serverTime + _offset;
+
+        public long ClientToServerTime(long clientTime) => clientTime - _offset + (long)(OutputDelayMs * 1000);
 
         public bool IsConverged => true;
 
@@ -147,10 +148,11 @@ public class MultiRoomSyncAlignmentTests
             // on the server's schedule.
             OutputLatencyMicroseconds = outputDelayMicros,
         };
-        var calculator = new SyncCorrectionCalculator(SyncCorrectionOptions.Default, SampleRate, Channels);
-
         long nowMicros = VirtualStart;
-        using var source = new SyncCorrectedSampleSource(buffer, calculator, () => nowMicros);
+
+        // No correction provider passed: the source builds a SyncCorrectionCalculator from the
+        // buffer's own SyncOptions, exactly as the player composes it.
+        using var source = new SyncCorrectedSampleSource(buffer, () => nowMicros);
 
         var prefillFrames = (long)(prefillMicros / UsPerFrame);
         var sampleData = new float[ChunkSamples];

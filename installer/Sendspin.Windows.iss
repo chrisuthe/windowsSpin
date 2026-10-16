@@ -60,6 +60,13 @@ LicenseFile=license.txt
 ; Minimum Windows version (Windows 10 1809)
 MinVersion=10.0.17763
 
+; The published payload is win-x64 only. x64compatible also admits ARM64 Windows, which runs
+; x64 apps (and the x64 .NET runtime) under emulation; 32-bit Windows is refused before any
+; file is copied. Installing in 64-bit mode puts admin installs under Program Files rather
+; than Program Files (x86); existing installs keep their directory.
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 

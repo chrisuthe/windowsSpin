@@ -40,6 +40,26 @@ public static class AppPaths
     public static string LogDirectory { get; } = Path.Combine(UserDataDirectory, "logs");
 
     /// <summary>
+    /// Gets the path to the persisted Sendspin identity (Curve25519 keypair). Its public key
+    /// is the client_id under the encrypted protocol, so it must survive restarts.
+    /// Located at %LocalAppData%\Sendspin for Windows\identity.key.
+    /// </summary>
+    public static string IdentityPath { get; } = Path.Combine(UserDataDirectory, "identity.key");
+
+    /// <summary>
+    /// Gets the path to the pairing record store (PSKs from pairing with servers).
+    /// Located at %LocalAppData%\Sendspin for Windows\pairing_records.json.
+    /// </summary>
+    public static string PairingRecordsPath { get; } = Path.Combine(UserDataDirectory, "pairing_records.json");
+
+    /// <summary>
+    /// Gets the path to the pairing code lockout store (failed-attempt counters). Must
+    /// survive restarts so the spec's terminal lockout after 10 failed pairing code attempts holds.
+    /// Located at %LocalAppData%\Sendspin for Windows\pin_lockout.json.
+    /// </summary>
+    public static string PairingCodeLockoutPath { get; } = Path.Combine(UserDataDirectory, "pin_lockout.json");
+
+    /// <summary>
     /// Gets the installation directory where the application executable is located.
     /// </summary>
     public static string InstallDirectory { get; } = AppDomain.CurrentDomain.BaseDirectory;

@@ -1,9 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Net;
 using System.Net.Http;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -20,9 +17,10 @@ using Sendspin.SDK.Extensions;
 using Sendspin.SDK.Models;
 using Sendspin.SDK.Protocol.Messages;
 using Sendspin.SDK.Synchronization;
+using Sendspin.Windows.Services.Artwork;
 using Sendspin.Windows.Services.Audio;
+using Sendspin.Windows.Services.Audio.Capture;
 using Sendspin.Windows.Services.Configuration;
-using Sendspin.Windows.Services.Diagnostics;
 using Sendspin.Windows.Services.Discord;
 using Sendspin.Windows.Services.MediaControls;
 using Sendspin.Windows.Services.Notifications;
@@ -48,14 +46,14 @@ public partial class MainViewModel : ViewModelBase
     private const int PositionTimerIntervalMs = 250;
 
     /// <summary>
-    /// Debounce delay in milliseconds before clearing the audio buffer after static delay changes.
+    /// Debounce delay in milliseconds before clearing the audio buffer after output delay changes.
     /// Prevents excessive buffer clears while the user is actively adjusting the slider.
     /// </summary>
-    private const int StaticDelayClearDebounceMs = 300;
+    private const int OutputDelayClearDebounceMs = 300;
 
     /// <summary>
     /// Debounce delay in milliseconds before auto-saving settings changes.
-    /// Used for static delay, player name, and other settings that auto-save.
+    /// Used for output delay, player name, and other settings that auto-save.
     /// </summary>
     private const int SettingsAutoSaveDebounceMs = 1000;
 
@@ -85,7 +83,8 @@ public partial class MainViewModel : ViewModelBase
     private readonly IMediaTransportControlsService _mediaControlsService;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ClientCapabilities _clientCapabilities;
-    private readonly SyncHealthMonitor _syncHealthMonitor;
+    private readonly SendspinClientOptions _clientOptions;
+    private readonly PairingCodePresenter _pairingCodePresenter;
     private readonly OutputLatencyReporter _outputLatencyReporter;
     private readonly AmbientBackdropViewModel _ambient;
 
@@ -100,8 +99,12 @@ public partial class MainViewModel : ViewModelBase
     public AmbientBackdropViewModel Ambient => _ambient;
 
     private readonly IUserSettingsService _settingsService;
+    private readonly SourceSendController _sourceSend;
+    private bool _loadingSendInputs;
     private SendspinClientService? _manualClient;
-    private ISendspinConnection? _manualConnection;
+
+    // The dial in flight, if any; see CancelPendingDial.
+    private CancellationTokenSource? _dialCts;
     private readonly SemaphoreSlim _cleanupLock = new(1, 1);
 
     /// <summary>
@@ -186,6 +189,7 @@ public partial class MainViewModel : ViewModelBase
     /// Gets or sets the current playback state (Idle, Playing, Paused, Buffering, etc.).
     /// </summary>
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PlayPauseCommand))]
     private PlaybackState _playbackState = PlaybackState.Idle;
 
     /// <summary>
@@ -239,6 +243,7 @@ public partial class MainViewModel : ViewModelBase
     /// Reflects the server's authoritative state (Sendspin spec: shuffle is group-level).
     /// </summary>
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ToggleShuffleCommand))]
     private bool _isShuffleEnabled;
 
     /// <summary>
@@ -246,8 +251,21 @@ public partial class MainViewModel : ViewModelBase
     /// Reflects the server's authoritative state (Sendspin spec: repeat is group-level).
     /// </summary>
     [NotifyPropertyChangedFor(nameof(RepeatTooltip))]
+    [NotifyCanExecuteChangedFor(nameof(CycleRepeatCommand))]
     [ObservableProperty]
     private string _repeatMode = "off";
+
+    /// <summary>
+    /// The latest group <c>supported_commands</c>, or null before any server has reported them.
+    /// The SDK drops any controller command not listed here, so each transport control is
+    /// enabled only for a command in this list, and only while connected.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not cleared on disconnect. In a host-mode handover the SDK forwards the
+    /// incoming server's state before it raises the outgoing server's disconnect, so clearing
+    /// there would discard the new server's list and leave every control disabled.
+    /// </remarks>
+    private IReadOnlyCollection<string>? _supportedCommands;
 
     /// <summary>
     /// Gets the tooltip text for the Repeat button, describing the current mode.
@@ -277,6 +295,9 @@ public partial class MainViewModel : ViewModelBase
     /// Gets or sets whether a connection attempt is currently in progress.
     /// </summary>
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ConnectToServerCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConnectOnceCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConnectAlwaysCommand))]
     private bool _isConnecting;
 
     /// <summary>
@@ -311,11 +332,11 @@ public partial class MainViewModel : ViewModelBase
     private bool _settingsEnableConsoleLogging;
 
     /// <summary>
-    /// Gets or sets the static delay in milliseconds for audio sync tuning.
+    /// Gets or sets the output delay in milliseconds for audio sync tuning.
     /// Positive values delay playback (play later), negative advance it (play earlier).
     /// </summary>
     [ObservableProperty]
-    private double _settingsStaticDelayMs;
+    private double _settingsOutputDelayMs;
 
     /// <summary>
     /// Gets or sets whether notifications are enabled.
@@ -580,6 +601,16 @@ public partial class MainViewModel : ViewModelBase
             : ts.ToString(@"m\:ss");
     }
 
+    /// <summary>
+    /// Queues <paramref name="action"/> on the UI thread. SDK events and fetch continuations can
+    /// still arrive while the application is exiting; once it has gone they are dropped instead of
+    /// dereferencing a null <see cref="System.Windows.Application.Current"/>.
+    /// </summary>
+    private static void RunOnUi(Action action)
+    {
+        System.Windows.Application.Current?.Dispatcher.BeginInvoke(action);
+    }
+
     public MainViewModel(
         ILogger<MainViewModel> logger,
         ILoggerFactory loggerFactory,
@@ -593,10 +624,13 @@ public partial class MainViewModel : ViewModelBase
         IMediaTransportControlsService mediaControlsService,
         IHttpClientFactory httpClientFactory,
         ClientCapabilities clientCapabilities,
+        SendspinClientOptions clientOptions,
         AmbientBackdropViewModel ambient,
         IUserSettingsService settingsService,
-        SyncHealthMonitor syncHealthMonitor,
-        OutputLatencyReporter outputLatencyReporter)
+        PairingCodePresenter pairingCodePresenter,
+        OutputLatencyReporter outputLatencyReporter,
+        OutputDelayStore outputDelayStore,
+        SourceSendController sourceSend)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -608,18 +642,23 @@ public partial class MainViewModel : ViewModelBase
         _notificationService = notificationService;
         _discordService = discordService;
         _mediaControlsService = mediaControlsService;
+        _sourceSend = sourceSend;
+        _sourceSend.ReportSignalAsync = ReportSourceSignalAsync;
+        _sourceSend.StateChanged += (_, _) => RunOnUi(RefreshSendState);
+        _sourceSend.SendingStopped += (_, message) => RunOnUi(() => _notificationService.ShowError("Sending stopped", message));
         _httpClientFactory = httpClientFactory;
         _clientCapabilities = clientCapabilities;
+        _clientOptions = clientOptions;
         _ambient = ambient;
         _settingsService = settingsService;
-        _syncHealthMonitor = syncHealthMonitor;
+        _pairingCodePresenter = pairingCodePresenter;
         _outputLatencyReporter = outputLatencyReporter;
         _progressTracker = new TrackProgressTracker(
             clockSynchronizer,
             loggerFactory.CreateLogger<TrackProgressTracker>());
 
         _mediaControlsService.PlayPauseRequested += (_, _) =>
-            App.Current.Dispatcher.InvokeAsync(() =>
+            RunOnUi(() =>
             {
                 _logger.LogInformation(
                     "SMTC PlayPauseRequested received: PlaybackState={State}, IsConnected={Connected}, IsMuted={Muted}",
@@ -627,9 +666,9 @@ public partial class MainViewModel : ViewModelBase
                 PlayPauseCommand.Execute(null);
             });
         _mediaControlsService.NextRequested += (_, _) =>
-            App.Current.Dispatcher.InvokeAsync(() => NextTrackCommand.Execute(null));
+            RunOnUi(() => NextTrackCommand.Execute(null));
         _mediaControlsService.PreviousRequested += (_, _) =>
-            App.Current.Dispatcher.InvokeAsync(() => PreviousTrackCommand.Execute(null));
+            RunOnUi(() => PreviousTrackCommand.Execute(null));
 
         // Load current logging settings
         LoadLoggingSettings();
@@ -639,11 +678,15 @@ public partial class MainViewModel : ViewModelBase
         _hostService.ServerDisconnected += OnServerDisconnected;
         _hostService.GroupStateChanged += OnGroupStateChanged;
         _hostService.PlayerStateChanged += OnPlayerStateChanged;
+        outputDelayStore.Saved += OnOutputDelaySavedBySdk;
         _hostService.ArtworkReceived += OnArtworkReceived;
         _hostService.ArtworkCleared += OnArtworkCleared;
         _hostService.ColorChanged += OnColorChanged;
         _hostService.VisualizationReceived += OnVisualizationReceived;
         _hostService.LastPlayedServerIdChanged += OnLastPlayedServerIdChanged;
+        _hostService.PairingCompleted += OnPairingCompleted;
+        _hostService.PairingGestureRequested += OnPairingGestureRequested;
+        _hostService.SourceRoleStateChanged += OnSourceRoleStateChanged;
 
         // Subscribe to server discovery events (client-initiated mode - primary)
         _serverDiscovery.ServerFound += OnDiscoveredServerFound;
@@ -710,6 +753,18 @@ public partial class MainViewModel : ViewModelBase
     {
         _logger.LogInformation("Initializing MainViewModel");
 
+        // Report 'absent' before any connection reports anything: MA ignores a client's first
+        // signal report, so the first Send press must be a transition, not that first report.
+        try
+        {
+            await _sourceSend.InitializeAsync(_configuration.GetValue<string>("Audio:SourceInput"));
+            LoadSendInputs();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Send input unavailable; continuing without it");
+        }
+
         await _connectionModeLock.WaitAsync();
         try
         {
@@ -757,7 +812,7 @@ public partial class MainViewModel : ViewModelBase
                 {
                     StatusMessage = "Starting host service...";
                     await _hostService.StartAsync();
-                    ClientId = _hostService.ClientId;
+                    ClientId = _clientOptions.Identity.PeerId;
                     IsHosting = true;
                     _logger.LogInformation("Host service started, advertising as {ClientId}", ClientId);
                 }
@@ -810,16 +865,69 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsSearchingForServers));
     }
 
-    [RelayCommand]
+    /// <summary>
+    /// Whether the active group lists <paramref name="command"/>. Every transport control is
+    /// gated on this, in its CanExecute and again in its body: media keys and the tray call
+    /// Execute directly, and the SDK silently drops a command the group does not list.
+    /// </summary>
+    private bool IsCommandSupported(string command) =>
+        IsConnected && TransportCommands.IsSupported(_supportedCommands, command);
+
+    private bool CanPlayPause() => IsCommandSupported(TransportCommands.ForPlayPause(PlaybackState));
+
+    private bool CanNextTrack() => IsCommandSupported(Commands.Next);
+
+    private bool CanPreviousTrack() => IsCommandSupported(Commands.Previous);
+
+    private bool CanToggleShuffle() => IsCommandSupported(TransportCommands.ForShuffleToggle(IsShuffleEnabled));
+
+    private bool CanCycleRepeat() => IsCommandSupported(TransportCommands.ForRepeatCycle(RepeatMode, _supportedCommands));
+
+    private bool CanSwitchGroup() => IsCommandSupported(Commands.Switch);
+
+    /// <summary>
+    /// Records the group's <c>supported_commands</c> and re-evaluates every transport control.
+    /// </summary>
+    private void ApplySupportedCommands(IReadOnlyCollection<string>? supportedCommands)
+    {
+        _supportedCommands = supportedCommands;
+        RefreshTransportCommands();
+    }
+
+    private void RefreshTransportCommands()
+    {
+        PlayPauseCommand.NotifyCanExecuteChanged();
+        NextTrackCommand.NotifyCanExecuteChanged();
+        PreviousTrackCommand.NotifyCanExecuteChanged();
+        ToggleShuffleCommand.NotifyCanExecuteChanged();
+        CycleRepeatCommand.NotifyCanExecuteChanged();
+        SwitchGroupCommand.NotifyCanExecuteChanged();
+        _mediaControlsService.UpdateSupportedCommands(IsConnected ? _supportedCommands : null);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <see cref="IsConnected"/> is computed, so its several change sites raise it by name; this
+    /// is the one place that re-evaluates the transport controls when it changes.
+    /// </remarks>
+    protected override void OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+
+        if (e.PropertyName == nameof(IsConnected))
+        {
+            RefreshTransportCommands();
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanPlayPause))]
     private async Task PlayPauseAsync()
     {
-        if (!IsConnected) return;
+        if (!CanPlayPause()) return;
 
         try
         {
-            var command = PlaybackState == PlaybackState.Playing
-                ? Commands.Pause
-                : Commands.Play;
+            var command = TransportCommands.ForPlayPause(PlaybackState);
             _logger.LogInformation(
                 "PlayPause -> sending {Command} (PlaybackState was {State}, IsMuted={Muted})",
                 command, PlaybackState, IsMuted);
@@ -831,10 +939,12 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanNextTrack))]
     private async Task NextTrackAsync()
     {
-        if (!IsConnected) return;
+        // Checked before the optimistic reset below: a reset for a command the SDK then drops
+        // freezes the seek bar at zero while the track plays on.
+        if (!CanNextTrack()) return;
 
         // Optimistic reset: snap the seek bar to zero now; the next fresh server
         // progress re-anchors it authoritatively.
@@ -851,10 +961,11 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanPreviousTrack))]
     private async Task PreviousTrackAsync()
     {
-        if (!IsConnected) return;
+        // Checked before the optimistic reset, as in NextTrackAsync.
+        if (!CanPreviousTrack()) return;
 
         // Optimistic reset: snap the seek bar to zero now; the next fresh server
         // progress re-anchors it. Covers the server restarting the SAME track at zero,
@@ -903,14 +1014,14 @@ public partial class MainViewModel : ViewModelBase
     /// Toggles shuffle on/off for the current group. The new state is reflected
     /// back via <see cref="GroupState.Shuffle"/> on the next group/update.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanToggleShuffle))]
     private async Task ToggleShuffleAsync()
     {
-        if (!IsConnected) return;
+        if (!CanToggleShuffle()) return;
 
         try
         {
-            var command = IsShuffleEnabled ? Commands.Unshuffle : Commands.Shuffle;
+            var command = TransportCommands.ForShuffleToggle(IsShuffleEnabled);
             _logger.LogInformation("ToggleShuffle -> sending {Command} (was {State})", command, IsShuffleEnabled);
             await SendCommandToActiveClientAsync(command);
         }
@@ -924,20 +1035,15 @@ public partial class MainViewModel : ViewModelBase
     /// Cycles the repeat mode off → all → one → off. The new state is reflected
     /// back via <see cref="GroupState.Repeat"/> on the next group/update.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanCycleRepeat))]
     private async Task CycleRepeatAsync()
     {
-        if (!IsConnected) return;
+        if (!CanCycleRepeat()) return;
 
         try
         {
             // off → all → one → off, matching the Now Playing design.
-            var command = RepeatMode switch
-            {
-                "all" => Commands.RepeatOne,
-                "one" => Commands.RepeatOff,
-                _ => Commands.RepeatAll,
-            };
+            var command = TransportCommands.ForRepeatCycle(RepeatMode, _supportedCommands);
             _logger.LogInformation("CycleRepeat -> sending {Command} (was {Mode})", command, RepeatMode);
             await SendCommandToActiveClientAsync(command);
         }
@@ -951,12 +1057,12 @@ public partial class MainViewModel : ViewModelBase
     /// Switches to the next available playback group.
     /// The server will automatically move this player to a different group.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanSwitchGroup))]
     private async Task SwitchGroupAsync()
     {
-        if (!IsConnected)
+        if (!CanSwitchGroup())
         {
-            _logger.LogWarning("Switch group command ignored - not connected");
+            _logger.LogWarning("Switch group command ignored - not connected or not supported by the group");
             return;
         }
 
@@ -1000,21 +1106,25 @@ public partial class MainViewModel : ViewModelBase
     /// Sends the current player state (volume, muted) to the server.
     /// This notifies Music Assistant of our current volume/mute state.
     /// </summary>
-    private async Task SendPlayerStateToActiveClientAsync(int volume, bool muted)
+    /// <param name="volume">Current volume level (0-100).</param>
+    /// <param name="muted">Current mute state.</param>
+    /// <param name="outputDelayMs">
+    /// A new output delay the user chose, or null for a volume or mute change. The SDK applies
+    /// and persists a supplied delay, so passing one here would overwrite a delay the server set.
+    /// </param>
+    private async Task SendPlayerStateToActiveClientAsync(int volume, bool muted, double? outputDelayMs = null)
     {
-        var staticDelay = SettingsStaticDelayMs;
-
         // Prefer manual client (discovery/manual connection mode)
         if (_manualClient?.ConnectionState == ConnectionState.Connected)
         {
             _logger.LogDebug("Sending player state via manual client: Volume={Volume}, Muted={Muted}", volume, muted);
-            await _manualClient.SendPlayerStateAsync(volume, muted, staticDelay);
+            await _manualClient.SendPlayerStateAsync(volume, muted, outputDelayMs);
         }
         // Fall back to host service (server-initiated connection mode)
         else if (ConnectedServers.Count > 0)
         {
             _logger.LogDebug("Sending player state via host service: Volume={Volume}, Muted={Muted}", volume, muted);
-            await _hostService.SendPlayerStateAsync(volume, muted, staticDelay);
+            await _hostService.SendPlayerStateAsync(volume, muted, outputDelayMs);
         }
         else
         {
@@ -1022,9 +1132,137 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Gets a value indicating whether Send is on.</summary>
+    public bool IsSending => _sourceSend.IsSending;
+
+    /// <summary>Gets a value indicating whether the red SENDING badge shows: sending, and sending can actually happen.</summary>
+    public bool ShowSendingBadge => _sourceSend.IsSending && _sourceSend.Availability == SendAvailability.Available;
+
+    /// <summary>Gets the selected input's short name.</summary>
+    public string SendInputName => _sourceSend.SelectedInput?.Name ?? "audio";
+
+    /// <summary>Gets the tray menu header.</summary>
+    public string SendMenuHeader => $"Send {SendInputName}";
+
+    /// <summary>Gets the badge text.</summary>
+    public string SendBadgeText => $"SENDING · {SendInputName}";
+
+    /// <summary>Gets the Send button tooltip: the action, or why it is unavailable.</summary>
+    public string SendButtonTooltip =>
+        _sourceSend.IsSending ? "Stop sending" : _sourceSend.UnavailableReason ?? $"Send {SendInputName}";
+
+    /// <summary>Gets the inputs offered in Settings.</summary>
+    public ObservableCollection<CaptureInput> AvailableSendInputs { get; } = new();
+
+    /// <summary>Gets or sets the input selected in Settings.</summary>
+    [ObservableProperty]
+    private CaptureInput? _settingsSelectedSendInput;
+
+    /// <summary>Gets a value indicating whether to warn about feedback: any input except desktop audio.</summary>
+    public bool ShowSendInputFeedbackHint =>
+        SettingsSelectedSendInput is { } input && input.Id != CaptureInputCatalog.DesktopId;
+
+    private bool CanToggleSend() => _sourceSend.IsSending || _sourceSend.Availability == SendAvailability.Available;
+
+    [RelayCommand(CanExecute = nameof(CanToggleSend))]
+    private Task ToggleSendAsync() => _sourceSend.SetSendingAsync(!_sourceSend.IsSending);
+
+    private void RefreshSendState()
+    {
+        OnPropertyChanged(nameof(IsSending));
+        OnPropertyChanged(nameof(ShowSendingBadge));
+        OnPropertyChanged(nameof(SendInputName));
+        OnPropertyChanged(nameof(SendMenuHeader));
+        OnPropertyChanged(nameof(SendBadgeText));
+        OnPropertyChanged(nameof(SendButtonTooltip));
+        ToggleSendCommand.NotifyCanExecuteChanged();
+    }
+
+    private void LoadSendInputs()
+    {
+        _loadingSendInputs = true;
+        try
+        {
+            _sourceSend.RefreshInputs();
+            AvailableSendInputs.Clear();
+            foreach (var input in _sourceSend.Inputs)
+            {
+                AvailableSendInputs.Add(input);
+            }
+
+            // A saved input that is unplugged stays visible, so the choice is never silently replaced.
+            if (_sourceSend.InputId is { } id && _sourceSend.SelectedInput is null
+                && _sourceSend.DescribeInput(id) is { } missing)
+            {
+                AvailableSendInputs.Add(missing with { IsAvailable = false });
+            }
+
+            SettingsSelectedSendInput = AvailableSendInputs.FirstOrDefault(i => i.Id == _sourceSend.InputId);
+        }
+        finally
+        {
+            _loadingSendInputs = false;
+        }
+    }
+
+    partial void OnSettingsSelectedSendInputChanged(CaptureInput? value)
+    {
+        OnPropertyChanged(nameof(ShowSendInputFeedbackHint));
+        if (_loadingSendInputs || value is null || value.Id == _sourceSend.InputId)
+        {
+            return;
+        }
+
+        ApplySendInputAsync(value.Id).SafeFireAndForget(_logger);
+    }
+
+    private async Task ApplySendInputAsync(string inputId)
+    {
+        await _sourceSend.SelectInputAsync(inputId);
+        await _settingsService.UpdateSettingAsync("Audio", "SourceInput", inputId);
+    }
+
+    private async Task ReportSourceSignalAsync(bool present)
+    {
+        // Always to the host: it remembers the signal for every connection it accepts later.
+        await _hostService.SetSourceSignalAsync(present);
+
+        if (_manualClient is { } client)
+        {
+            try
+            {
+                await client.SetSourceSignalAsync(present);
+            }
+            catch (Exception ex) when (client.ConnectionState != ConnectionState.Connected)
+            {
+                // Not connected: the next dial client is seeded in CreateAndConfigureManualClient.
+                _logger.LogDebug(ex, "Source signal not sent to a disconnected dial client");
+            }
+        }
+    }
+
+    private void OnSourceRoleStateChanged(object? sender, SourceRoleState state) =>
+        RunOnUi(() => _sourceSend.UpdateServer(state));
+
+    private void OnManualClientServerActivate(object? sender, ServerActivatePayload activate)
+    {
+        if (sender is not SendspinClientService client)
+        {
+            return;
+        }
+
+        var state = new SourceRoleState(
+            client.ServerId ?? "dial",
+            client.LastServerHello?.ActiveRoles.Any(r => r.StartsWith("source@", StringComparison.Ordinal)) ?? false,
+            client.TrustLevel);
+        RunOnUi(() => _sourceSend.UpdateServer(state));
+    }
+
     /// <summary>
     /// Creates and configures the manual client for connecting to a server.
-    /// This handles creation of the connection, client service, and event subscriptions.
+    /// This handles creation of the client service (which owns its connection) and event
+    /// subscriptions. Uses the shared client options so the manual client presents the
+    /// same identity and pairing records as the host service.
     /// </summary>
     /// <remarks>
     /// Invariant: every caller must confirm <see cref="CanInitiateOutboundConnection"/> before
@@ -1035,16 +1273,10 @@ public partial class MainViewModel : ViewModelBase
     /// </remarks>
     private void CreateAndConfigureManualClient()
     {
-        _manualConnection = new SendspinConnection(
-            _loggerFactory.CreateLogger<SendspinConnection>(),
+        _manualClient = SendspinClientService.CreateForDial(
+            _loggerFactory,
+            _clientOptions,
             new ConnectionOptions { AutoReconnect = false });
-
-        _manualClient = new SendspinClientService(
-            _loggerFactory.CreateLogger<SendspinClientService>(),
-            _manualConnection,
-            clockSynchronizer: _clockSynchronizer,
-            capabilities: _clientCapabilities,
-            audioPipeline: _audioPipeline);
 
         _manualClient.ConnectionStateChanged += OnManualClientConnectionStateChanged;
         _manualClient.GroupStateChanged += OnManualClientGroupStateChanged;
@@ -1053,14 +1285,48 @@ public partial class MainViewModel : ViewModelBase
         _manualClient.ArtworkCleared += OnArtworkCleared;
         _manualClient.ColorChanged += OnColorChanged;
         _manualClient.VisualizationReceived += OnVisualizationReceived;
+        _manualClient.PairingCompleted += OnPairingCompleted;
+        _manualClient.PairingGestureRequested += OnPairingGestureRequested;
+        _manualClient.ServerActivateReceived += OnManualClientServerActivate;
+
+        // Seeded before connecting: the dial client's initial client/state reads it live.
+        _manualClient.SetSourceSignalAsync(_sourceSend.IsSending).SafeFireAndForget(_logger);
     }
 
     /// <summary>
     /// Manually connect to a Sendspin server by URL (for cross-subnet scenarios).
     /// </summary>
-    [RelayCommand]
+    /// <summary>
+    /// Whether a dial may start: one at a time.
+    /// </summary>
+    private bool CanStartDial() => !IsConnecting;
+
+    /// <summary>
+    /// Refuses a dial while another is in flight. A second dial used to replace
+    /// <c>_manualClient</c> while the first was still connecting, leaving that client undisposed
+    /// with its handlers still firing into this view model. Every entry point (Connect, the server
+    /// picker, discovery auto-connect) runs on the UI thread and sets <see cref="IsConnecting"/>
+    /// before its first await, so this check cannot race.
+    /// </summary>
+    private bool IsDialInFlight(string attempt)
+    {
+        if (!IsConnecting)
+        {
+            return false;
+        }
+
+        _logger.LogInformation("Ignoring {Attempt}: a connection attempt is already in progress", attempt);
+        return true;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanStartDial))]
     private async Task ConnectToServerAsync()
     {
+        if (IsDialInFlight("manual connect"))
+        {
+            return;
+        }
+
         if (!CanInitiateOutboundConnection)
         {
             _logger.LogWarning(
@@ -1087,6 +1353,8 @@ public partial class MainViewModel : ViewModelBase
 
         IsConnecting = true;
         StatusMessage = $"Connecting to {ManualServerUrl}...";
+        using var dialCts = new CancellationTokenSource();
+        _dialCts = dialCts;
 
         try
         {
@@ -1122,28 +1390,60 @@ public partial class MainViewModel : ViewModelBase
 
             _logger.LogInformation("Normalized URL: {OriginalUrl} -> {NormalizedUrl}", ManualServerUrl, serverUri);
 
+            // A client left from a dial that already ended may still be waiting for its queued
+            // cleanup; dispose it now rather than orphan it with its handlers attached.
+            if (_manualClient != null)
+            {
+                await CleanupManualClientAsync(_manualClient);
+            }
+
             // Create and configure the client
             CreateAndConfigureManualClient();
 
             // Connect (null-forgiving: CreateAndConfigureManualClient always sets _manualClient)
-            await _manualClient!.ConnectAsync(serverUri);
+            await _manualClient!.ConnectAsync(serverUri, dialCts.Token);
 
             _logger.LogInformation("Manual connection initiated to {ServerUri}", serverUri);
         }
+        catch (OperationCanceledException ex) when (dialCts.IsCancellationRequested)
+        {
+            // The app abandoned this dial (see CancelPendingDial), and whatever cancelled it owns
+            // the teardown. Not a failure to report.
+            _logger.LogInformation(ex, "Connect to {ServerUrl} cancelled", ManualServerUrl);
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to connect to {ServerUrl}", ManualServerUrl);
-            StatusMessage = $"Connection failed: {ex.Message}";
-            SetError($"Failed to connect: {ex.Message}");
+            var message = DescribeConnectFailure(ex, ManualServerUrl);
+            StatusMessage = message;
+            SetError(message);
 
             // Cleanup on failure
             await CleanupManualClientAsync();
         }
         finally
         {
+            if (ReferenceEquals(_dialCts, dialCts))
+            {
+                _dialCts = null;
+            }
+
             IsConnecting = false;
         }
     }
+
+    /// <summary>
+    /// Abandons a dial in flight. Call before the app tears the manual client down on its own
+    /// initiative (disconnect, mode switch, shutdown), so the dial ends in
+    /// <see cref="OperationCanceledException"/> instead of a handshake failure the user is shown.
+    /// </summary>
+    /// <remarks>
+    /// Not called from the manual client's Disconnected handler: that disconnect comes from the
+    /// server, and its handshake failure — <see cref="HandshakeFailureKind.PairingRequired"/>
+    /// above all — is exactly what the dial's caller must report. Identity of the client cannot
+    /// tell the two apart: the SDK raises Disconnected before it completes the handshake wait, so
+    /// that handler has already cleared <c>_manualClient</c> by the time the dial resumes.
+    /// </remarks>
+    private void CancelPendingDial() => _dialCts?.Cancel();
 
     /// <summary>
     /// Disconnect from the manually connected server.
@@ -1155,6 +1455,7 @@ public partial class MainViewModel : ViewModelBase
         {
             _logger.LogInformation("Disconnecting from manual server");
             StatusMessage = "Disconnecting...";
+            CancelPendingDial();
             await CleanupManualClientAsync();
         }
         else if (ConnectedServers.Count > 0)
@@ -1179,7 +1480,43 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsConnected));
     }
 
-    private async Task CleanupManualClientAsync()
+    /// <summary>
+    /// Logs a failed dial and returns the status-line message for it.
+    /// </summary>
+    /// <remarks>
+    /// Since SDK 10, <see cref="SendspinClientService.ConnectAsync"/> throws
+    /// <see cref="SendspinHandshakeException"/> when the connection closes before the server
+    /// admits it, where it used to return as though connected. The kind says whether the user
+    /// can act: <see cref="HandshakeFailureKind.PairingRequired"/> is the expected outcome of a
+    /// first dial to a server this player has not paired with, not an error.
+    /// </remarks>
+    private string DescribeConnectFailure(Exception ex, string serverName)
+    {
+        switch (ex)
+        {
+            case SendspinHandshakeException { Kind: HandshakeFailureKind.PairingRequired }:
+                _logger.LogInformation("{Server} requires pairing before this player can connect", serverName);
+                return $"{serverName} requires pairing. In Settings, choose Show Pairing Token and add the token on your server, then connect again.";
+
+            case SendspinHandshakeException { Kind: HandshakeFailureKind.PairingStateDiverged }:
+                _logger.LogWarning(ex, "The pairing with {Server} is out of date", serverName);
+                return $"The pairing with {serverName} is out of date. In Settings, choose Show Pairing Token and pair again.";
+
+            default:
+                _logger.LogError(ex, "Failed to connect to {Server}", serverName);
+                return $"Failed to connect to {serverName}: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Unsubscribes, disconnects and disposes the manual client.
+    /// </summary>
+    /// <param name="only">
+    /// When given, clean up only if <c>_manualClient</c> is still this client. The Disconnected
+    /// handler queues its cleanup, and by the time it runs a new dial may have created another
+    /// client, which this must not dispose.
+    /// </param>
+    private async Task CleanupManualClientAsync(SendspinClientService? only = null)
     {
         // Use semaphore to prevent concurrent cleanup calls from racing
         // This can happen when connection failure triggers both an event handler
@@ -1187,30 +1524,41 @@ public partial class MainViewModel : ViewModelBase
         await _cleanupLock.WaitAsync();
         try
         {
-            if (_manualClient == null)
+            // A local, so the awaits below can't end up acting on a client created meanwhile
+            var client = _manualClient;
+            if (client == null || (only != null && !ReferenceEquals(client, only)))
                 return;
 
-            _manualClient.ConnectionStateChanged -= OnManualClientConnectionStateChanged;
-            _manualClient.GroupStateChanged -= OnManualClientGroupStateChanged;
-            _manualClient.PlayerStateChanged -= OnManualClientPlayerStateChanged;
-            _manualClient.ArtworkReceived -= OnManualClientArtworkReceived;
-            _manualClient.ArtworkCleared -= OnArtworkCleared;
-            _manualClient.ColorChanged -= OnColorChanged;
-            _manualClient.VisualizationReceived -= OnVisualizationReceived;
+            // ConnectionStateChanged is unsubscribed just below, so the Disconnected handler never
+            // runs for a teardown started here (user disconnect, failed connect, shutdown).
+            RunOnUi(() => _sourceSend.UpdateServer(null));
+
+            client.ConnectionStateChanged -= OnManualClientConnectionStateChanged;
+            client.GroupStateChanged -= OnManualClientGroupStateChanged;
+            client.PlayerStateChanged -= OnManualClientPlayerStateChanged;
+            client.ArtworkReceived -= OnManualClientArtworkReceived;
+            client.ArtworkCleared -= OnArtworkCleared;
+            client.ColorChanged -= OnColorChanged;
+            client.VisualizationReceived -= OnVisualizationReceived;
+            client.PairingCompleted -= OnPairingCompleted;
+            client.PairingGestureRequested -= OnPairingGestureRequested;
+            client.ServerActivateReceived -= OnManualClientServerActivate;
             _ambient.Reset();
 
             try
             {
-                await _manualClient.DisconnectAsync();
-                await _manualClient.DisposeAsync();
+                await client.DisconnectAsync();
+                await client.DisposeAsync();
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error during manual client cleanup");
             }
 
-            _manualClient = null;
-            _manualConnection = null;
+            if (ReferenceEquals(_manualClient, client))
+            {
+                _manualClient = null;
+            }
         }
         finally
         {
@@ -1220,7 +1568,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnManualClientConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs e)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             _logger.LogInformation("Client state: {OldState} -> {NewState}",
                 e.OldState, e.NewState);
@@ -1236,6 +1584,7 @@ public partial class MainViewModel : ViewModelBase
             }
             else if (e.NewState == ConnectionState.Disconnected)
             {
+                _sourceSend.UpdateServer(null);
                 var wasAutoConnected = _autoConnectedServerId != null;
                 ConnectedServerName = null;
                 CurrentTrack = null;
@@ -1263,14 +1612,14 @@ public partial class MainViewModel : ViewModelBase
                 // ApplyConnectionModeAsync alone.
 
                 // Cleanup in background to avoid blocking UI
-                CleanupManualClientAsync().SafeFireAndForget(_logger);
+                CleanupManualClientAsync(sender as SendspinClientService).SafeFireAndForget(_logger);
             }
         });
     }
 
     private void OnManualClientGroupStateChanged(object? sender, GroupState group)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             _isUpdatingFromServer = true;
             try
@@ -1292,6 +1641,7 @@ public partial class MainViewModel : ViewModelBase
                 // Reflect the group's shuffle/repeat state on the transport buttons.
                 IsShuffleEnabled = group.Shuffle;
                 RepeatMode = group.Repeat ?? "off";
+                ApplySupportedCommands(group.SupportedCommands);
 
                 // Position/duration: tri-state progress handling and track-change resets
                 ApplyTrackProgress(group.Metadata, group.PlaybackState);
@@ -1325,20 +1675,19 @@ public partial class MainViewModel : ViewModelBase
 
     private async Task FetchArtworkAsync(string url)
     {
-        // Validate URL before fetching to prevent SSRF attacks
-        if (!IsValidArtworkUrl(url, out var artworkUri))
-        {
-            _logger.LogWarning("Blocked artwork fetch from invalid or unsafe URL: {Url}", url);
-            return;
-        }
-
         try
         {
             _logger.LogDebug("Fetching artwork from {Url}", url);
             using var httpClient = _httpClientFactory.CreateClient("Artwork");
-            var imageData = await httpClient.GetByteArrayAsync(artworkUri);
 
-            App.Current.Dispatcher.BeginInvoke(() =>
+            // Validates the URL and every redirect hop, and caps the body (see ArtworkDownloader).
+            var imageData = await new ArtworkDownloader(httpClient, _logger).DownloadAsync(url);
+            if (imageData == null)
+            {
+                return;
+            }
+
+            RunOnUi(() =>
             {
                 // Discard stale results: a track change (or newer artwork) may have
                 // superseded this fetch while it was in flight.
@@ -1358,42 +1707,10 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    /// <summary>
-    /// Validates that an artwork URL is safe to fetch.
-    /// Blocks non-HTTP schemes and localhost to prevent SSRF attacks.
-    /// </summary>
-    /// <param name="url">The URL to validate.</param>
-    /// <param name="uri">The parsed URI if valid.</param>
-    /// <returns>True if the URL is safe to fetch.</returns>
-    private static bool IsValidArtworkUrl(string url, out Uri? uri)
-    {
-        uri = null;
-
-        if (string.IsNullOrWhiteSpace(url))
-            return false;
-
-        if (!Uri.TryCreate(url, UriKind.Absolute, out uri))
-            return false;
-
-        // Only allow HTTP/HTTPS schemes
-        if (uri.Scheme != "http" && uri.Scheme != "https")
-            return false;
-
-        // Block localhost and loopback addresses to prevent accessing local services
-        var host = uri.Host.ToLowerInvariant();
-        if (host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]")
-            return false;
-
-        // Check for loopback IP addresses
-        if (IPAddress.TryParse(uri.Host, out var ip) && IPAddress.IsLoopback(ip))
-            return false;
-
-        return true;
-    }
 
     private void OnManualClientArtworkReceived(object? sender, ArtworkReceivedEventArgs e)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             AlbumArtwork = e.ImageData;
             _logger.LogDebug("Manual client artwork received: channel {Channel}, {Length} bytes", e.Channel, e.ImageData.Length);
@@ -1402,7 +1719,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnServerConnected(object? sender, ConnectedServerInfo server)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             // No app-side arbitration. SendspinHostService already applies the spec's admission
             // rules (activity ranking, LastPlayedServerId tiebreak) and disconnects only the
@@ -1424,7 +1741,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnServerDisconnected(object? sender, string serverId)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             var server = ConnectedServers.FirstOrDefault(s => s.ServerId == serverId);
             string? disconnectedServerName = server?.ServerName;
@@ -1437,6 +1754,7 @@ public partial class MainViewModel : ViewModelBase
 
             if (ConnectedServers.Count == 0)
             {
+                _sourceSend.UpdateServer(null);
                 ConnectedServerName = null;
                 CurrentTrack = null;
                 PlaybackState = PlaybackState.Idle;
@@ -1460,7 +1778,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnGroupStateChanged(object? sender, GroupState group)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             _isUpdatingFromServer = true;
             try
@@ -1476,6 +1794,7 @@ public partial class MainViewModel : ViewModelBase
                 // Reflect the group's shuffle/repeat state on the transport buttons.
                 IsShuffleEnabled = group.Shuffle;
                 RepeatMode = group.Repeat ?? "off";
+                ApplySupportedCommands(group.SupportedCommands);
 
                 // Position/duration: tri-state progress handling and track-change resets
                 ApplyTrackProgress(group.Metadata, group.PlaybackState);
@@ -1511,7 +1830,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnArtworkReceived(object? sender, ArtworkReceivedEventArgs e)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             AlbumArtwork = e.ImageData;
             _logger.LogDebug("Artwork received: channel {Channel}, {Length} bytes", e.Channel, e.ImageData.Length);
@@ -1520,7 +1839,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnArtworkCleared(object? sender, ArtworkClearedEventArgs e)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             AlbumArtwork = null;
             _logger.LogDebug("Artwork cleared on channel {Channel} (no artwork available)", e.Channel);
@@ -1529,7 +1848,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnColorChanged(object? sender, ColorPalette palette)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             _ambient.ApplyColorPalette(palette);
             _logger.LogDebug(
@@ -1540,7 +1859,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnVisualizationReceived(object? sender, VisualizerFrame frame)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             _ambient.ApplyVisualizerFrame(frame);
             LogVisualizationDiagnostics(frame);
@@ -1594,7 +1913,7 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     private void OnPlayerStateChanged(object? sender, PlayerState state)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             _isUpdatingFromServer = true;
             try
@@ -1629,7 +1948,7 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     private void OnManualClientPlayerStateChanged(object? sender, PlayerState state)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             _isUpdatingFromServer = true;
             try
@@ -1659,12 +1978,70 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Handles an output delay the SDK saved, which is how a server-set delay
+    /// (server/command set_output_delay) reaches the slider. The store has already persisted it.
+    /// </summary>
+    private void OnOutputDelaySavedBySdk(double outputDelayMs)
+    {
+        RunOnUi(() =>
+        {
+            _isUpdatingFromServer = true;
+            try
+            {
+                SettingsOutputDelayMs = outputDelayMs;
+            }
+            finally
+            {
+                _isUpdatingFromServer = false;
+            }
+        });
+    }
+
+    /// <summary>
     /// Persists the last-played server ID when it changes.
     /// This is used for tie-breaking when multiple servers try to connect.
     /// </summary>
     private void OnLastPlayedServerIdChanged(object? sender, string serverId)
     {
         SaveLastPlayedServerIdAsync(serverId).SafeFireAndForget(_logger);
+    }
+
+    /// <summary>
+    /// Handles a completed pairing exchange (Pairing PSK or pairing code) in either connection
+    /// mode. Closes the pairing code dialog: once the record is persisted the displayed pairing code is
+    /// spent. Raised on a connection's receive thread; the presenter marshals its own
+    /// UI work to the dispatcher.
+    /// </summary>
+    private void OnPairingCompleted(object? sender, string serverId)
+    {
+        _logger.LogInformation("Pairing completed with server {ServerId}", serverId);
+        _pairingCodePresenter.CloseDialog();
+    }
+
+    /// <summary>
+    /// A server asked to pair with a method that needs a deliberate operator gesture, and no
+    /// pairing window is open. The SDK has sent client/pair-pending and is waiting: it arms no
+    /// timeout for this wait, so without a prompt the attempt would sit silently until the
+    /// server gave up. Tell the operator to open the pairing dialog, which opens the window.
+    /// </summary>
+    /// <remarks>
+    /// dynamic_pairing_code reaches here once its failure counter hits the spec's escalation threshold
+    /// of 10, and FilePairingCodeLockoutStore persists that across restarts — so this fires on a
+    /// device that paired fine for weeks, not only on a fresh one.
+    /// Raised on a connection's receive thread; SetError marshals its own UI work.
+    /// </remarks>
+    private void OnPairingGestureRequested(object? sender, PairingGestureRequestedEventArgs e)
+    {
+        _logger.LogInformation(
+            "Pairing gesture required for {Method} (pairing index {PairingIndex}): waiting for the operator to open the pairing window",
+            e.Method,
+            e.PairingIndex);
+
+        SetError("A server is asking to pair. Open Settings → Pairing to allow it.");
+
+        _notificationService.ShowInfo(
+            "Pairing request",
+            "A server is asking to pair. Open Settings → Pairing to allow it.");
     }
 
     /// <summary>
@@ -1685,7 +2062,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnAudioPipelineStateChanged(object? sender, AudioPipelineState state)
     {
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             var format = _audioPipeline.CurrentFormat;
             if (state == AudioPipelineState.Idle || format == null)
@@ -1714,7 +2091,7 @@ public partial class MainViewModel : ViewModelBase
         _logger.LogInformation("Discovered server: {Name} at {Host}:{Port}",
             server.Name, server.IpAddresses.FirstOrDefault(), server.Port);
 
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             // Add to discovered servers list for UI display
             if (!DiscoveredServers.Any(s => s.ServerId == server.ServerId))
@@ -1739,7 +2116,7 @@ public partial class MainViewModel : ViewModelBase
     {
         _logger.LogInformation("Server lost: {Name} ({ServerId})", server.Name, server.ServerId);
 
-        App.Current.Dispatcher.BeginInvoke(() =>
+        RunOnUi(() =>
         {
             // Remove from discovered servers list
             var existing = DiscoveredServers.FirstOrDefault(s => s.ServerId == server.ServerId);
@@ -1753,7 +2130,7 @@ public partial class MainViewModel : ViewModelBase
         // If we were connected to this server, mark for reconnection
         if (_autoConnectedServerId == server.ServerId)
         {
-            App.Current.Dispatcher.BeginInvoke(() =>
+            RunOnUi(() =>
             {
                 StatusMessage = $"Server {server.Name} went offline. Searching for servers...";
             });
@@ -1762,6 +2139,11 @@ public partial class MainViewModel : ViewModelBase
 
     private async Task AutoConnectToServerAsync(DiscoveredServer server)
     {
+        if (IsDialInFlight($"auto-connect to {server.Name}"))
+        {
+            return;
+        }
+
         if (!CanInitiateOutboundConnection)
         {
             _logger.LogWarning(
@@ -1797,26 +2179,44 @@ public partial class MainViewModel : ViewModelBase
 
         IsConnecting = true;
         StatusMessage = $"Connecting to {server.Name}...";
+        using var dialCts = new CancellationTokenSource();
+        _dialCts = dialCts;
 
         try
         {
+            // A client left from a dial that already ended may still be waiting for its queued
+            // cleanup; dispose it now rather than orphan it with its handlers attached.
+            if (_manualClient != null)
+            {
+                await CleanupManualClientAsync(_manualClient);
+            }
+
             // Create and configure the client
             CreateAndConfigureManualClient();
 
             // Connect (null-forgiving: CreateAndConfigureManualClient always sets _manualClient)
-            await _manualClient!.ConnectAsync(new Uri(url));
+            await _manualClient!.ConnectAsync(new Uri(url), dialCts.Token);
 
             _autoConnectedServerId = server.ServerId;
             _logger.LogInformation("Auto-connected to {Name}", server.Name);
         }
+        catch (OperationCanceledException ex) when (dialCts.IsCancellationRequested)
+        {
+            // Abandoned by the app; see CancelPendingDial.
+            _logger.LogInformation(ex, "Auto-connect to {Name} cancelled", server.Name);
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to auto-connect to {Name}", server.Name);
-            StatusMessage = $"Failed to connect to {server.Name}. Searching for servers...";
+            StatusMessage = DescribeConnectFailure(ex, server.Name);
             await CleanupManualClientAsync();
         }
         finally
         {
+            if (ReferenceEquals(_dialCts, dialCts))
+            {
+                _dialCts = null;
+            }
+
             IsConnecting = false;
         }
     }
@@ -1959,55 +2359,74 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(CurrentGroupTooltip));
     }
 
-    private CancellationTokenSource? _staticDelayClearCts;
-    private CancellationTokenSource? _staticDelaySaveCts;
+    private CancellationTokenSource? _outputDelayClearCts;
+    private CancellationTokenSource? _outputDelaySaveCts;
     private CancellationTokenSource? _playerNameSaveCts;
 
     /// <summary>
-    /// Called when the static delay setting changes.
+    /// Called when the output delay setting changes.
     /// Applies the new delay immediately to the clock synchronizer.
     /// Buffer clear and save are debounced to avoid issues while dragging slider.
     /// </summary>
-    partial void OnSettingsStaticDelayMsChanged(double value)
+    partial void OnSettingsOutputDelayMsChanged(double value)
     {
-        // Static delay must be non-negative — the server rejects a negative static_delay_ms
+        // Output delay must be non-negative — the server rejects a negative output_delay_ms
         // (valid range 0-5000) and drops the connection. Clamp before applying/persisting.
         value = Math.Max(0, value);
 
+        // A server-set delay arrives here through OnOutputDelaySavedBySdk. The SDK has already
+        // applied it and acknowledged it to the server, so it is neither applied nor reported
+        // again; reporting it would send the server's own value back as if the user had chosen it.
+        var changedByUser = !_isUpdatingFromServer;
+
         // Apply delay value immediately (this is cheap)
-        _clockSynchronizer.StaticDelayMs = value;
+        if (changedByUser)
+        {
+            _clockSynchronizer.OutputDelayMs = value;
+        }
 
         // Debounce the re-anchor - only apply after the user stops adjusting the slider.
         // Re-anchor (not Clear): applies the new delay to the already-buffered audio in place.
         // Clear() would dump the buffer and, with a server that transmits far ahead of playback,
         // stall for the full transmit-ahead window (tens of seconds of silence) while it refills.
-        _staticDelayClearCts?.Cancel();
-        _staticDelayClearCts?.Dispose();
-        _staticDelayClearCts = new CancellationTokenSource();
-        var clearCts = _staticDelayClearCts;
+        _outputDelayClearCts?.Cancel();
+        _outputDelayClearCts?.Dispose();
+        _outputDelayClearCts = new CancellationTokenSource();
+        var clearCts = _outputDelayClearCts;
 
         _ = Task.Run(async () =>
         {
             try
             {
-                await Task.Delay(StaticDelayClearDebounceMs, clearCts.Token);
+                await Task.Delay(OutputDelayClearDebounceMs, clearCts.Token);
                 if (!clearCts.Token.IsCancellationRequested)
                 {
                     _audioPipeline.ReanchorTiming();
-                    _logger.LogDebug("Static delay changed to {DelayMs}ms, sync timing re-anchored (buffer preserved)", value);
+                    _logger.LogDebug("Output delay changed to {DelayMs}ms, sync timing re-anchored (buffer preserved)", value);
+
+                    // Tell the server, so it schedules with the new delay now rather than
+                    // after the next reconnect.
+                    if (changedByUser && IsConnected)
+                    {
+                        await SendPlayerStateToActiveClientAsync(Volume, IsMuted, value);
+                    }
                 }
             }
             catch (OperationCanceledException)
             {
                 // Slider still being adjusted, ignore
             }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send output delay change");
+            }
         });
 
         // Debounce auto-save - save after user stops adjusting the slider
-        _staticDelaySaveCts?.Cancel();
-        _staticDelaySaveCts?.Dispose();
-        _staticDelaySaveCts = new CancellationTokenSource();
-        var saveCts = _staticDelaySaveCts;
+        _outputDelaySaveCts?.Cancel();
+        _outputDelaySaveCts?.Dispose();
+        _outputDelaySaveCts = new CancellationTokenSource();
+        var saveCts = _outputDelaySaveCts;
 
         _ = Task.Run(async () =>
         {
@@ -2016,7 +2435,7 @@ public partial class MainViewModel : ViewModelBase
                 await Task.Delay(SettingsAutoSaveDebounceMs, saveCts.Token);
                 if (!saveCts.Token.IsCancellationRequested)
                 {
-                    await SaveStaticDelayAsync(value);
+                    await SaveOutputDelayAsync(value);
                 }
             }
             catch (OperationCanceledException)
@@ -2027,18 +2446,18 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Saves only the static delay setting to user appsettings.json.
+    /// Saves only the output delay setting to user appsettings.json.
     /// </summary>
-    private async Task SaveStaticDelayAsync(double value)
+    private async Task SaveOutputDelayAsync(double value)
     {
         try
         {
-            await _settingsService.UpdateSettingAsync("Audio", "StaticDelayMs", value);
-            _logger.LogInformation("Static delay saved: {DelayMs}ms", value);
+            await _settingsService.UpdateSettingAsync("Audio", "OutputDelayMs", value);
+            _logger.LogInformation("Output delay saved: {DelayMs}ms", value);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to auto-save static delay");
+            _logger.LogWarning(ex, "Failed to auto-save output delay");
         }
     }
 
@@ -2317,6 +2736,7 @@ public partial class MainViewModel : ViewModelBase
         {
             try
             {
+                CancelPendingDial();
                 await _manualClient.DisconnectAsync();
                 _logger.LogInformation("Manual client disconnected");
             }
@@ -2334,7 +2754,7 @@ public partial class MainViewModel : ViewModelBase
             try
             {
                 await _serverDiscovery.StopAsync();
-                App.Current.Dispatcher.BeginInvoke(() => DiscoveredServers.Clear());
+                RunOnUi(() => DiscoveredServers.Clear());
                 _logger.LogInformation("Server discovery stopped");
             }
             catch (Exception ex)
@@ -2383,7 +2803,7 @@ public partial class MainViewModel : ViewModelBase
             try
             {
                 await _hostService.StartAsync();
-                ClientId = _hostService.ClientId;
+                ClientId = _clientOptions.Identity.PeerId;
                 IsHosting = true;
                 _logger.LogInformation("Host service started, advertising as {ClientId}", ClientId);
             }
@@ -2572,7 +2992,7 @@ public partial class MainViewModel : ViewModelBase
         SettingsEnableConsoleLogging = settings.EnableConsoleLogging;
 
         // Load audio settings
-        SettingsStaticDelayMs = Math.Max(0, _configuration.GetValue<double>("Audio:StaticDelayMs", 0));
+        SettingsOutputDelayMs = _configuration.ReadOutputDelayMs();
 
         // Load persisted player volume/mute (these get applied via OnVolumeChanged/OnIsMutedChanged).
         // 50% is the default when nothing has been saved/overridden yet.
@@ -2703,21 +3123,21 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Increments the static delay by 10ms.
+    /// Increments the output delay by 10ms.
     /// </summary>
     [RelayCommand]
-    private void IncrementStaticDelay()
+    private void IncrementOutputDelay()
     {
-        SettingsStaticDelayMs = Math.Min(5000, SettingsStaticDelayMs + 10);
+        SettingsOutputDelayMs = Math.Min(5000, SettingsOutputDelayMs + 10);
     }
 
     /// <summary>
-    /// Decrements the static delay by 10ms.
+    /// Decrements the output delay by 10ms.
     /// </summary>
     [RelayCommand]
-    private void DecrementStaticDelay()
+    private void DecrementOutputDelay()
     {
-        SettingsStaticDelayMs = Math.Max(0, SettingsStaticDelayMs - 10);
+        SettingsOutputDelayMs = Math.Max(0, SettingsOutputDelayMs - 10);
     }
 
     /// <summary>
@@ -2727,6 +3147,18 @@ public partial class MainViewModel : ViewModelBase
     private void ToggleSettings()
     {
         IsSettingsOpen = !IsSettingsOpen;
+        if (IsSettingsOpen)
+        {
+            // Inputs come and go (USB interfaces); re-read them whenever Settings opens.
+            try
+            {
+                LoadSendInputs();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Send input unavailable; continuing without it");
+            }
+        }
     }
 
     /// <summary>
@@ -2752,7 +3184,7 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>
     /// Connects to the pending server without saving auto-connect preference.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanStartDial))]
     private async Task ConnectOnceAsync()
     {
         if (PendingConnectionServer == null) return;
@@ -2767,7 +3199,7 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>
     /// Connects to the pending server and saves it as the auto-connect preference.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanStartDial))]
     private async Task ConnectAlwaysAsync()
     {
         if (PendingConnectionServer == null) return;
@@ -2828,72 +3260,39 @@ public partial class MainViewModel : ViewModelBase
     {
         try
         {
-            AppPaths.EnsureUserDataDirectoryExists();
-            var appSettingsPath = AppPaths.UserSettingsPath;
-
-            // Read existing settings or create new
-            JsonNode? root;
-            if (File.Exists(appSettingsPath))
-            {
-                var json = await File.ReadAllTextAsync(appSettingsPath);
-                root = JsonNode.Parse(json) ?? new JsonObject();
-            }
-            else
-            {
-                root = new JsonObject();
-            }
-
-            // Update logging section
-            var loggingSection = root["Logging"]?.AsObject() ?? new JsonObject();
-            loggingSection["LogLevel"] = SettingsLogLevel;
-            loggingSection["EnableFileLogging"] = SettingsEnableFileLogging;
-            loggingSection["EnableConsoleLogging"] = SettingsEnableConsoleLogging;
-            root["Logging"] = loggingSection;
-
-            // Update audio section
-            var audioSection = root["Audio"]?.AsObject() ?? new JsonObject();
-            audioSection["StaticDelayMs"] = SettingsStaticDelayMs;
-            audioSection["DeviceId"] = SettingsSelectedAudioDevice?.DeviceId;
+            // One update through the settings service, so this shares its file lock with every
+            // other settings save instead of racing them with a read-modify-write of its own.
             var preferredCodec = SettingsStreamType.StartsWith("FLAC", StringComparison.OrdinalIgnoreCase) ? "flac" : "opus";
-            audioSection["PreferredCodec"] = preferredCodec;
-            root["Audio"] = audioSection;
-
-            // Update notifications section
-            var notificationsSection = root["Notifications"]?.AsObject() ?? new JsonObject();
-            notificationsSection["Enabled"] = SettingsShowNotifications;
-            root["Notifications"] = notificationsSection;
-
-            // Update Discord section
-            var discordSection = root["Discord"]?.AsObject() ?? new JsonObject();
-            discordSection["Enabled"] = SettingsShowDiscordPresence;
-            root["Discord"] = discordSection;
-
-            // Update Visualizer section
-            var visualizerSection = root["Visualizer"]?.AsObject() ?? new JsonObject();
-            visualizerSection["Mode"] = StyleToToken(SettingsBackdropStyle);
-            visualizerSection["Enabled"] = SettingsBackdropStyle != "Off";
-            visualizerSection["Intensity"] = SettingsAmbientBackdropIntensity;
-            root["Visualizer"] = visualizerSection;
-
-            // Update MediaControls section
-            var mediaControlsSection = root["MediaControls"]?.AsObject() ?? new JsonObject();
-            mediaControlsSection["Enabled"] = SettingsEnableMediaKeys;
-            root["MediaControls"] = mediaControlsSection;
-
-            var appSection = root["App"]?.AsObject() ?? new JsonObject();
-            appSection["StartMinimized"] = SettingsStartMinimized;
-            appSection["ShowSwitchGroupButton"] = SettingsShowSwitchGroupButton;
-            root["App"] = appSection;
-
-            // Update player section
-            var playerSection = root["Player"]?.AsObject() ?? new JsonObject();
-            playerSection["Name"] = SettingsPlayerName;
-            root["Player"] = playerSection;
-
-            // Write back with nice formatting
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            var updatedJson = root.ToJsonString(options);
-            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+            await _settingsService.UpdateMultipleSectionsAsync(new Dictionary<string, Dictionary<string, object?>>
+            {
+                ["Logging"] = new()
+                {
+                    ["LogLevel"] = SettingsLogLevel,
+                    ["EnableFileLogging"] = SettingsEnableFileLogging,
+                    ["EnableConsoleLogging"] = SettingsEnableConsoleLogging,
+                },
+                ["Audio"] = new()
+                {
+                    ["OutputDelayMs"] = SettingsOutputDelayMs,
+                    ["DeviceId"] = SettingsSelectedAudioDevice?.DeviceId,
+                    ["PreferredCodec"] = preferredCodec,
+                },
+                ["Notifications"] = new() { ["Enabled"] = SettingsShowNotifications },
+                ["Discord"] = new() { ["Enabled"] = SettingsShowDiscordPresence },
+                ["Visualizer"] = new()
+                {
+                    ["Mode"] = StyleToToken(SettingsBackdropStyle),
+                    ["Enabled"] = SettingsBackdropStyle != "Off",
+                    ["Intensity"] = SettingsAmbientBackdropIntensity,
+                },
+                ["MediaControls"] = new() { ["Enabled"] = SettingsEnableMediaKeys },
+                ["App"] = new()
+                {
+                    ["StartMinimized"] = SettingsStartMinimized,
+                    ["ShowSwitchGroupButton"] = SettingsShowSwitchGroupButton,
+                },
+                ["Player"] = new() { ["Name"] = SettingsPlayerName },
+            });
 
             // Apply notification setting immediately
             _notificationService.IsEnabled = SettingsShowNotifications;
@@ -2909,8 +3308,8 @@ public partial class MainViewModel : ViewModelBase
                 _logger.LogInformation("Player name changed to: {PlayerName}", SettingsPlayerName);
             }
 
-            _logger.LogInformation("Settings saved: LogLevel={LogLevel}, FileLogging={FileLogging}, ConsoleLogging={ConsoleLogging}, StaticDelayMs={StaticDelayMs}, Notifications={Notifications}, Discord={Discord}, MediaKeys={MediaKeys}, PlayerName={PlayerName}, DeviceId={DeviceId}, StartMinimized={StartMinimized}",
-                SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging, SettingsStaticDelayMs, SettingsShowNotifications, SettingsShowDiscordPresence, SettingsEnableMediaKeys, SettingsPlayerName, SettingsSelectedAudioDevice?.DeviceId ?? "default", SettingsStartMinimized);
+            _logger.LogInformation("Settings saved: LogLevel={LogLevel}, FileLogging={FileLogging}, ConsoleLogging={ConsoleLogging}, OutputDelayMs={OutputDelayMs}, Notifications={Notifications}, Discord={Discord}, MediaKeys={MediaKeys}, PlayerName={PlayerName}, DeviceId={DeviceId}, StartMinimized={StartMinimized}",
+                SettingsLogLevel, SettingsEnableFileLogging, SettingsEnableConsoleLogging, SettingsOutputDelayMs, SettingsShowNotifications, SettingsShowDiscordPresence, SettingsEnableMediaKeys, SettingsPlayerName, SettingsSelectedAudioDevice?.DeviceId ?? "default", SettingsStartMinimized);
 
             // Close settings panel first
             IsSettingsOpen = false;
@@ -3001,7 +3400,7 @@ public partial class MainViewModel : ViewModelBase
     {
         try
         {
-            var statsViewModel = new StatsViewModel(_audioPipeline, _clockSynchronizer, _clientCapabilities, _syncHealthMonitor, _outputLatencyReporter);
+            var statsViewModel = new StatsViewModel(_audioPipeline, _clockSynchronizer, _clientCapabilities, _outputLatencyReporter);
             var statsWindow = new StatsWindow(statsViewModel)
             {
                 Owner = App.Current.MainWindow,
@@ -3013,6 +3412,36 @@ public partial class MainViewModel : ViewModelBase
         {
             _logger.LogError(ex, "Failed to open stats window");
             SetError($"Failed to open stats window: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Opens the pairing token dialog. The token contains the Pairing PSK, so it is
+    /// handled entirely inside the dialog and never logged.
+    /// </summary>
+    [RelayCommand]
+    private void OpenPairingDialog()
+    {
+        try
+        {
+            // Opening this dialog IS the operator gesture the spec asks for: a deliberate,
+            // local action that cannot be induced remotely. It admits exactly one gesture-gated
+            // attempt (static_pairing_code always, dynamic_pairing_code once escalated) and lapses after the
+            // window's lifetime, so leaving it open is not a standing invitation.
+            _clientOptions.PairingWindow?.Open();
+            _logger.LogInformation("Pairing window opened by operator gesture");
+
+            var dialog = new PairingTokenDialog(_hostService)
+            {
+                Owner = App.Current.MainWindow,
+            };
+            _logger.LogDebug("Pairing token dialog opened");
+            dialog.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to open pairing token dialog");
+            SetError($"Failed to open pairing dialog: {ex.Message}");
         }
     }
 
@@ -3130,7 +3559,25 @@ public partial class MainViewModel : ViewModelBase
     {
         _logger.LogInformation("Shutting down MainViewModel");
 
-        // Stop position interpolation timer
+        // Detach from the SDK first: its services keep raising events while they wind down, and
+        // nothing below must reach the UI thread.
+        _hostService.ServerConnected -= OnServerConnected;
+        _hostService.ServerDisconnected -= OnServerDisconnected;
+        _hostService.GroupStateChanged -= OnGroupStateChanged;
+        _hostService.PlayerStateChanged -= OnPlayerStateChanged;
+        _hostService.ArtworkReceived -= OnArtworkReceived;
+        _hostService.ArtworkCleared -= OnArtworkCleared;
+        _hostService.ColorChanged -= OnColorChanged;
+        _hostService.VisualizationReceived -= OnVisualizationReceived;
+        _hostService.LastPlayedServerIdChanged -= OnLastPlayedServerIdChanged;
+        _hostService.PairingCompleted -= OnPairingCompleted;
+        _hostService.PairingGestureRequested -= OnPairingGestureRequested;
+        _hostService.SourceRoleStateChanged -= OnSourceRoleStateChanged;
+        _serverDiscovery.ServerFound -= OnDiscoveredServerFound;
+        _serverDiscovery.ServerLost -= OnDiscoveredServerLost;
+        _audioPipeline.StateChanged -= OnAudioPipelineStateChanged;
+
+        // Stop position interpolation timer (a DispatcherTimer may be stopped from any thread)
         _positionTimer.Stop();
 
         // Cancel any pending volume changes
@@ -3141,26 +3588,45 @@ public partial class MainViewModel : ViewModelBase
         _volumeSaveCts?.Dispose();
         _volumeSaveCts = null;
 
-        // Cancel any pending static delay debounce
-        _staticDelayClearCts?.Cancel();
-        _staticDelayClearCts?.Dispose();
-        _staticDelaySaveCts?.Cancel();
-        _staticDelaySaveCts?.Dispose();
+        // Cancel any pending output delay debounce
+        _outputDelayClearCts?.Cancel();
+        _outputDelayClearCts?.Dispose();
+        _outputDelaySaveCts?.Cancel();
+        _outputDelaySaveCts?.Dispose();
 
-        // Stop server discovery
-        await _serverDiscovery.StopAsync();
+        // Each transport is stopped on its own so a failure in one cannot leave the next running.
+        try
+        {
+            await StopStepAsync(() => _serverDiscovery.StopAsync(), "server discovery").ConfigureAwait(false);
+            CancelPendingDial();
+            await StopStepAsync(() => CleanupManualClientAsync(), "manual client").ConfigureAwait(false);
+            await StopStepAsync(() => _hostService.StopAsync(), "host service").ConfigureAwait(false);
+            await StopStepAsync(() => _sourceSend.StopAsync(), "source input").ConfigureAwait(false);
 
-        // Cleanup manual client
-        await CleanupManualClientAsync();
-        _cleanupLock.Dispose();
-        _connectionModeLock.Dispose();
-
-        // Stop host service
-        await _hostService.StopAsync();
-
-        // Dispose Discord Rich Presence service (clears presence)
-        _discordService.Dispose();
+            // Dispose Discord Rich Presence service (clears presence)
+            _discordService.Dispose();
+        }
+        finally
+        {
+            _cleanupLock.Dispose();
+            _connectionModeLock.Dispose();
+        }
 
         // Note: HttpClient is managed by IHttpClientFactory, no manual disposal needed
+    }
+
+    /// <summary>
+    /// Runs one shutdown step, logging a failure instead of letting it abort the remaining steps.
+    /// </summary>
+    private async Task StopStepAsync(Func<Task> step, string name)
+    {
+        try
+        {
+            await step().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to stop {Step} during shutdown", name);
+        }
     }
 }
