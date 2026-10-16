@@ -516,22 +516,29 @@
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"/>
                                 </Border>
+
+                                <!-- Sending badge: a red pulsing light while this PC's input goes to Music
+                                     Assistant. Overlaid on the art rather than stacked under it: the window is
+                                     a fixed height, so an extra row pushed the transport controls off screen. -->
+                                <Border HorizontalAlignment="Center"
+                                        VerticalAlignment="Bottom"
+                                        Margin="0,0,0,12"
+                                        Padding="10,4"
+                                        CornerRadius="10"
+                                        Background="#CC000000"
+                                        Visibility="{Binding ShowSendingBadge, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse Style="{StaticResource SendingIndicator}"/>
+                                        <TextBlock Text="{Binding SendBadgeText}"
+                                                   Style="{StaticResource CaptionText}"
+                                                   Foreground="{StaticResource ErrorBrush}"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
                             </Grid>
                         </Border>
                     </Border>
-
-                    <!-- Sending badge: a red pulsing light while this PC's input goes to Music Assistant -->
-                    <StackPanel Orientation="Horizontal"
-                                HorizontalAlignment="Center"
-                                Margin="0,0,0,6"
-                                Visibility="{Binding ShowSendingBadge, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <Ellipse Style="{StaticResource SendingIndicator}"/>
-                        <TextBlock Text="{Binding SendBadgeText}"
-                                   Style="{StaticResource CaptionText}"
-                                   Foreground="{StaticResource ErrorBrush}"
-                                   FontWeight="SemiBold"
-                                   VerticalAlignment="Center"/>
-                    </StackPanel>
 
                     <!-- Track Title -->
                     <TextBlock Text="{Binding DisplayTitle}"
