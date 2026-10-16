@@ -4,7 +4,7 @@
 
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using Sendspin.SDK.Audio.Source;
 using Sendspin.Windows.Services.Audio.Capture;
 using Xunit;
@@ -24,6 +24,21 @@ public class WindowsAudioCaptureDeviceTests
 
         Assert.True(Assert.Single(h.Silences).Running);
         Assert.Empty(h.Inputs);
+    }
+
+    [Fact]
+    public async Task AStartWhileSendIsOff_IsLoggedOnce()
+    {
+        var h = new Harness();
+        await h.Device.SetInputAsync("mic");
+
+        await h.Device.StartAsync();
+        await h.Device.SetSendEnabledAsync(true);
+        await h.Device.SetSendEnabledAsync(false);
+
+        Assert.Equal(
+            ["Music Assistant started the input stream; sending silence until Send is on"],
+            h.Logger.Lines.Where(l => l.Level == LogLevel.Information).Select(l => l.Message));
     }
 
     [Fact]
@@ -255,12 +270,14 @@ public class WindowsAudioCaptureDeviceTests
                     YieldOnStartStop = yieldOnStartStop,
                     Counter = counter,
                 }),
-                NullLogger<WindowsAudioCaptureDevice>.Instance);
+                Logger);
             Device.AudioCaptured += (_, a) => Delivered.Add(a);
             Device.Faulted += (_, f) => Faults.Enqueue(f);
         }
 
         public WindowsAudioCaptureDevice Device { get; }
+
+        public CapturingLogger Logger { get; } = new();
 
         public List<FakeCaptureSource> Silences { get; } = new();
 
@@ -283,5 +300,23 @@ public class WindowsAudioCaptureDeviceTests
 
             return source;
         }
+    }
+
+    private sealed class CapturingLogger : ILogger<WindowsAudioCaptureDevice>
+    {
+        public ConcurrentQueue<(LogLevel Level, string Message)> Lines { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Lines.Enqueue((logLevel, formatter(state, exception)));
     }
 }

@@ -21,6 +21,9 @@ public class CaptureErrorMessagesTests
     [Theory]
     [InlineData(CaptureErrorMessages.DeviceInUse, "Line In is in use by another app.")]
     [InlineData(CaptureErrorMessages.DeviceInvalidated, "Line In was disconnected.")]
+    [InlineData(CaptureErrorMessages.NotFound, "Line In was disconnected.")]
+    [InlineData(CaptureErrorMessages.ResourcesInvalidated, "Line In was disconnected.")]
+    [InlineData(CaptureErrorMessages.ServiceNotRunning, "The Windows audio service isn't running.")]
     [InlineData(unchecked((int)0x80004005), "Line In stopped unexpectedly.")]
     public void DeviceErrors_NameTheInput(int hresult, string expected)
     {

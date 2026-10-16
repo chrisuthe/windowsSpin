@@ -113,10 +113,11 @@ public sealed class SourceSendController
     /// <returns>A task that completes once applied.</returns>
     public async Task InitializeAsync(string? savedInputId)
     {
+        // First, so a failure to enumerate below cannot skip it.
+        await ReportAsync(false).ConfigureAwait(false);
         _inputs = _catalog.GetInputs();
         InputId = !string.IsNullOrEmpty(savedInputId) ? savedInputId : _inputs.FirstOrDefault()?.Id;
         await _device.SetInputAsync(InputId).ConfigureAwait(false);
-        await ReportAsync(false).ConfigureAwait(false);
         RaiseStateChanged();
     }
 
@@ -168,7 +169,18 @@ public sealed class SourceSendController
 
             if (sending)
             {
-                _inputs = _catalog.GetInputs();
+                try
+                {
+                    _inputs = _catalog.GetInputs();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not enumerate audio inputs; Send stays off");
+                    _inputs = [];
+                    RaiseStateChanged();
+                    return;
+                }
+
                 if (Availability != SendAvailability.Available)
                 {
                     RaiseStateChanged();

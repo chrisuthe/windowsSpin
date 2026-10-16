@@ -12,6 +12,15 @@ public static class CaptureErrorMessages
     /// <summary><c>AUDCLNT_E_DEVICE_INVALIDATED</c>: the endpoint was removed.</summary>
     public const int DeviceInvalidated = unchecked((int)0x88890004);
 
+    /// <summary><c>HRESULT_FROM_WIN32(ERROR_NOT_FOUND)</c>: the endpoint no longer exists.</summary>
+    public const int NotFound = unchecked((int)0x80070490);
+
+    /// <summary><c>AUDCLNT_E_RESOURCES_INVALIDATED</c>: the endpoint's resources went away.</summary>
+    public const int ResourcesInvalidated = unchecked((int)0x88890026);
+
+    /// <summary><c>AUDCLNT_E_SERVICE_NOT_RUNNING</c>: the Windows Audio service is stopped.</summary>
+    public const int ServiceNotRunning = unchecked((int)0x88890010);
+
     /// <summary>Describes why capture from <paramref name="inputName"/> stopped.</summary>
     /// <param name="inputName">The input's display name.</param>
     /// <param name="exception">The failure.</param>
@@ -21,7 +30,8 @@ public static class CaptureErrorMessages
         AccessDenied =>
             "Windows privacy settings are blocking recording. Turn on \"Let desktop apps access your microphone\" in Settings › Privacy & security › Microphone.",
         DeviceInUse => $"{inputName} is in use by another app.",
-        DeviceInvalidated => $"{inputName} was disconnected.",
+        DeviceInvalidated or NotFound or ResourcesInvalidated => $"{inputName} was disconnected.",
+        ServiceNotRunning => "The Windows audio service isn't running.",
         _ => $"{inputName} stopped unexpectedly.",
     };
 }

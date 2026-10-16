@@ -30,6 +30,37 @@ public class SourceSendControllerTests
     }
 
     [Fact]
+    public async Task Initialize_ReportsAbsent_EvenWhenEnumeratingInputsThrows()
+    {
+        var h = new Harness();
+        h.Catalog.ThrowOnGetInputs = true;
+
+        await Assert.ThrowsAsync<COMException>(() => h.Controller.InitializeAsync(null));
+
+        Assert.Equal(new[] { false }, h.Signals);
+    }
+
+    [Fact]
+    public async Task SendOn_StaysOff_WhenEnumeratingInputsThrows()
+    {
+        var h = new Harness();
+        await h.Controller.InitializeAsync(null);
+        h.Controller.UpdateServer(Active);
+        await h.Device.StartAsync();
+        h.Catalog.ThrowOnGetInputs = true;
+        int changes = 0;
+        h.Controller.StateChanged += (_, _) => changes++;
+
+        await h.Controller.SetSendingAsync(true);
+
+        Assert.False(h.Controller.IsSending);
+        Assert.Equal(SendAvailability.NoInputs, h.Controller.Availability);
+        Assert.Equal(1, changes);
+        Assert.Empty(h.Inputs);
+        Assert.Equal(new[] { false }, h.Signals);
+    }
+
+    [Fact]
     public async Task ASavedInputThatIsUnplugged_IsKept_AndExplained()
     {
         var h = new Harness();

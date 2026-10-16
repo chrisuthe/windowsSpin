@@ -147,6 +147,11 @@ public sealed class WindowsAudioCaptureDevice : IAudioCaptureDevice
 
         if (!wantsInput)
         {
+            if (!running && !_sendEnabled)
+            {
+                _logger.LogInformation("Music Assistant started the input stream; sending silence until Send is on");
+            }
+
             await StartSourceAsync(_createSilence(), null).ConfigureAwait(false);
             return null;
         }
