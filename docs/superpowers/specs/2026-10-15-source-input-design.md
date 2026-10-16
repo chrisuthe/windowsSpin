@@ -54,18 +54,34 @@ Success looks like:
   through untouched — the device must deliver integer little-endian PCM.
 - `ISendspinClient.SetSourceSignalAsync(bool)` (requires `SourceRoleSupport.LineSense = true`),
   `TrustLevel`, and `LastServerHello.ActiveRoles` are public.
+- **Gap: none of that is reachable in server-initiated mode.** `SendspinHostService` keeps each
+  connection's `SendspinClientService` private and exposes only `SendCommandAsync` and
+  `SendPlayerStateAsync`; `ConnectedServerInfo` carries id, name, connect time and clock status.
+  This design therefore depends on **SDK 10.1.0**, which adds to the host:
+  - `SetSourceSignalAsync(bool present)` — applied to every open connection and remembered, so
+    each new connection carries it in its initial `client/state`.
+  - `SourceRoleStateChanged` (`SourceRoleState(ServerId, IsActive, TrustLevel)`) — raised on
+    admission and on every later `server/activate`.
+- Disposing a client with `ownsPipelines: true` (the dial cleanup, and the host's stop) disposes
+  the shared `CaptureDevice`. The device must treat `DisposeAsync` as "stop" and stay reusable.
 
 ### Music Assistant
 
-From the `sendspin_source` provider's README, as recorded in the container project's verified
-design notes (2026-08-27). **Re-verify against 2.10.7 before implementation.**
+Verified 2026-10-15 against `music_assistant/providers/sendspin_source` on `dev` (README,
+`provider.py`, `constants.py`); the provider is also on `stable`.
 
 - Every connected client with an active `source` role is one AudioSource under **Live Inputs**.
 - The source role activates only on paired connections.
-- MA holds silence when source audio stops rather than ending the stream.
-- `line_sense` drives autostart: signal present → MA starts playback on a chosen target;
-  ~1 minute of absence → MA stops it. A device that is also a player defaults to playing its own
-  input.
+- MA holds silence when source audio stops rather than ending the stream, for up to
+  `SOURCE_TIMEOUT_S` = 30 s. A client that never answers `start` within `COLD_START_TIMEOUT_S`
+  = 5 s is treated as broken — so refusing a `start` would look like a fault.
+- `line_sense` drives autostart, configured per device in MA: signal present → playback on the
+  chosen target after a 2 s debounce; absent → stop after 60 s. A device that is also a player
+  defaults to playing its own input.
+- **Only transitions act, and the first report for a client is recorded silently**
+  (`_on_signal_reported`: `if previous is None: return`). So the client must report `absent`
+  from the moment it connects; otherwise the first Send press is that silent first report and
+  nothing starts.
 
 ## Decisions
 
@@ -79,7 +95,8 @@ design notes (2026-08-27). **Re-verify against 2.10.7 before implementation.**
 | Desktop capture | WASAPI process loopback excluding Sendspin's process tree | Feedback-free by construction when MA plays the input back on this PC. |
 | Wire format | Fixed 48 kHz / 16-bit / stereo PCM for every source | `Format` never changes, so switching input mid-stream needs no new `client_stream/start`; Windows does the conversion; matches what MA converts to. |
 | Failure while sending | Send turns off, stream falls back to silence, toast with reason | Never silently capture something the user didn't pick; MA's stream stays up. |
-| Send at launch | Always off | Consent is per session. |
+| Send at launch | Always off, and `absent` reported before any connection | Consent is per session; MA ignores a client's first signal report. |
+| SDK surface | Add host-level signal and source-role state in SDK 10.1.0 | The host owns its connections; the app must not reach around it. |
 
 ## UX
 
@@ -131,16 +148,21 @@ bridge absorbs them. The SDK's stream stays open throughout.
   `SendspinClientOptions.CaptureDevice`, adds `"source@v1"` to `ClientCapabilities.Roles`, and
   sets `SourceRoleSupport = new() { LineSense = true }` — the same shape as the existing
   `visualizer@v1` registration.
-- **Setting** `Audio:Source:Input`: `"desktop"` or an endpoint ID. Default `"desktop"` when
-  supported, otherwise the first active endpoint, otherwise empty.
-- **`SourceSendController`** (new, outside `MainViewModel`) owns `IsSending`:
-  - Send on → open the gate, then `SetSourceSignalAsync(true)` on the admitted client.
-  - Send off → `SetSourceSignalAsync(false)`, close the gate (back to silence).
-  - New connection while sending → re-assert `SetSourceSignalAsync(true)`. Each incoming
-    connection is a new `SendspinClientService`, so the SDK's remembered signal does not carry
-    across.
+- **Setting** `Audio:SourceInput`: `"desktop"` or an endpoint ID. Default `"desktop"` when
+  supported, otherwise the first active endpoint, otherwise empty. (Flat key: the settings
+  service merges properties within a top-level section only.)
+- **`SourceSendController`** (new, in the Services project so it is unit-testable) owns
+  `IsSending`:
+  - At startup, before any transport starts → report `absent` (seeds every connection).
+  - Send on → open the gate, then report `present`.
+  - Send off → report `absent`, close the gate (back to silence).
+  - Reporting goes to `SendspinHostService.SetSourceSignalAsync` (which remembers it for new
+    connections) and, in client-initiated mode, to the dial client, which is seeded the same
+    way before it connects.
   - Device `Faulted` → Send off, notification with the reason.
-  - Computes `CanSend` and the reason it is false (see below).
+  - Computes availability and the reason Send is unavailable (see below), from the
+    `SourceRoleState` the host raises or, in client-initiated mode, from the dial client's
+    `ServerActivateReceived`.
 - **`MainViewModel`** surfaces `IsSending`, `CanSend`, `SendUnavailableReason`, `SendInputName`,
   and `ToggleSendCommand`, delegating to the controller. Tray and volume bar bind to these.
 
@@ -169,7 +191,9 @@ inner source ─ PCM 48k/16/2 + µs ─▶ AudioCaptured ─▶ SDK chunks/encod
 
 - Endpoint removed: "Sending stopped — <name> was disconnected."
 - Windows microphone privacy denies capture (`E_ACCESSDENIED`; applies to every recording
-  endpoint, line-in included): message deep-links `ms-settings:privacy-microphone`.
+  endpoint, line-in included): the message names Settings › Privacy & security › Microphone ›
+  "Let desktop apps access your microphone". (The toast service has no action buttons, so no
+  deep link.)
 - Endpoint held in exclusive mode (`AUDCLNT_E_DEVICE_IN_USE`): "<name> is in use by another app."
 - New input fails to start after a switch: Send off; no fallback to the previous input.
 
@@ -177,7 +201,10 @@ inner source ─ PCM 48k/16/2 + µs ─▶ AudioCaptured ─▶ SDK chunks/encod
 
 - `start` while Send is off: stream opens with generated silence; logged at Information.
 - Send stays on across a reconnect within the session; the badge shows only while connected.
-- Shutdown disposes the device through the existing `StopStepAsync` sequence.
+  The new connection reports `present` in its first `client/state`, which MA records without
+  acting; MA's own reconnect recovery resumes a stream that was already playing.
+- `DisposeAsync` on the device stops it and leaves it reusable (the SDK disposes it with each
+  owning client). Shutdown stops it through the existing `StopStepAsync` sequence.
 
 **Known limitation.** Desktop audio is feedback-free by construction. A microphone or a
 "Stereo Mix"-type endpoint is not: if MA plays this PC's input back on this PC — MA's default
@@ -194,9 +221,12 @@ can be detected reliably, so the picker hint above is the mitigation.
   change mid-send; inner-source fault → `Faulted` and silence.
 - `SilenceSource`: 20 ms zero frames, timestamp contiguity, no accumulated drift over thousands
   of frames.
-- `SourceSendController` against a fake `ISendspinClient`: on/off → `SetSourceSignalAsync`;
-  re-assert on a new connection; fault → off + notification; each `CanSend` reason.
-- Settings: `Audio:Source:Input` round-trip and defaults.
+- `SourceSendController` with a recording signal delegate: `absent` reported at startup;
+  on/off → `present`/`absent`; fault → off + notification; each availability reason.
+- SDK 10.1.0 (in sendspin-dotnet, loopback `FakeServer`): a signal set before a connection rides
+  its initial `client/state`; a later one reaches the admitted server; `SourceRoleStateChanged`
+  reports the active role and trust on admission and on a later activate.
+- Settings: `Audio:SourceInput` default selection.
 
 **SDK contract**: the device driven through SDK 10.0.0's public `SourceStreamPipeline` with the
 send delegates recorded — `start` announces pcm/48000/16/2; chunks are zero while the gate is
@@ -211,14 +241,17 @@ this probe and by hand, not in CI.
 MA → silence; Send → audio, badge, tray check; switch input while live; unplug a USB input →
 toast and silence; MA start with Send off → no capture, microphone indicator dark.
 
-## Open items for planning
+## Resolved during planning
 
-- Confirm the MA facts above against 2.10.7's `sendspin_source` provider, in particular how it
-  reacts to silence and where the autostart target is configured.
-- Confirm NAudio exposes `AudioCaptureClient.GetBuffer` with the QPC position, or call
-  `IAudioCaptureClient` directly.
-- Confirm `AUTOCONVERTPCM` delivers 48k/16/2 from a float32 mix format on endpoint capture.
+- MA facts: verified against the provider source (see Ground truth); this added the
+  "report absent first" requirement.
+- NAudio 2.2.1 exposes `AudioCaptureClient.GetBuffer(out frames, out flags, out devicePosition,
+  out qpcPosition)` and `AudioClientStreamFlags.AutoConvertPcm | SrcDefaultQuality`, so endpoint
+  capture stays on NAudio. Its `AudioClient` constructor is internal, so process loopback uses
+  its own minimal COM interop.
+- `AUTOCONVERTPCM` producing 48k/16/2 is confirmed by the interop probe (plan Task 3) and the
+  manual source check (plan Task 6), not assumed.
 - The spec text the SDK cites for source activation on unpaired sessions differs from spec
   @ `914981d` ("MUST only run on a paired connection"). Not a blocker — the app leaves
-  `Connection:UnpairedAccessEnabled` off by default and MA requires pairing — but `CanSend` keys
-  on `ActiveRoles`, which is correct either way.
+  `Connection:UnpairedAccessEnabled` off by default and MA requires pairing — and availability
+  keys on the source role being active, which is correct either way.
