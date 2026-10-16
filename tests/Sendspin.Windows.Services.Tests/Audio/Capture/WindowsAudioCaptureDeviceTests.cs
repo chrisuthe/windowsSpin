@@ -218,12 +218,18 @@ public class WindowsAudioCaptureDeviceTests
     [Fact]
     public async Task ConcurrentToggles_LeaveExactlyOneSourceRunning()
     {
-        var h = new Harness();
+        // The sources yield inside start and stop, so without the switch gate two toggles
+        // interleave and both start a source.
+        var counter = new RunningCounter();
+        var h = new Harness(yieldOnStartStop: true, counter);
         await h.Device.SetInputAsync("mic");
         await h.Device.StartAsync();
 
-        await Task.WhenAll(Enumerable.Range(0, 20).Select(i => h.Device.SetSendEnabledAsync(i % 2 == 0)));
+        await Task.WhenAll(Enumerable.Range(0, 20)
+            .Select(i => Task.Run(() => h.Device.SetSendEnabledAsync(i % 2 == 0))));
 
+        Assert.True(counter.Peak <= 1, $"{counter.Peak} sources ran at once");
+        Assert.Equal(1, counter.Current);
         Assert.Equal(1, h.Running);
     }
 
@@ -239,11 +245,16 @@ public class WindowsAudioCaptureDeviceTests
 
     private sealed class Harness
     {
-        public Harness()
+        public Harness(bool yieldOnStartStop = false, RunningCounter? counter = null)
         {
             Device = new WindowsAudioCaptureDevice(
-                () => Add(Silences, new FakeCaptureSource("silence")),
-                id => Add(Inputs, new FakeCaptureSource(id) { ThrowOnStart = FailingInputs.Contains(id) }),
+                () => Add(Silences, new FakeCaptureSource("silence") { YieldOnStartStop = yieldOnStartStop, Counter = counter }),
+                id => Add(Inputs, new FakeCaptureSource(id)
+                {
+                    ThrowOnStart = FailingInputs.Contains(id),
+                    YieldOnStartStop = yieldOnStartStop,
+                    Counter = counter,
+                }),
                 NullLogger<WindowsAudioCaptureDevice>.Instance);
             Device.AudioCaptured += (_, a) => Delivered.Add(a);
             Device.Faulted += (_, f) => Faults.Enqueue(f);
