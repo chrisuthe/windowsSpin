@@ -71,6 +71,11 @@ public sealed class EndpointCaptureSource : WasapiCaptureSource
         {
             IntPtr data = capture.GetBuffer(out frames, out AudioClientBufferFlags flags, out _, out qpcPosition);
             silent = (flags & AudioClientBufferFlags.Silent) != 0;
+            if ((flags & AudioClientBufferFlags.TimestampError) != 0)
+            {
+                qpcPosition = 0;
+            }
+
             return data;
         }
 

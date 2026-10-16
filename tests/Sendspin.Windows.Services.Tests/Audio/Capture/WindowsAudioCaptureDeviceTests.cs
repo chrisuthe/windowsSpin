@@ -139,6 +139,40 @@ public class WindowsAudioCaptureDeviceTests
     }
 
     [Fact]
+    public async Task OverlapsWithinOneSource_AreRestamped_AndLoseNoAudio()
+    {
+        // Packet ends are floor-rounded to µs and starts come from truncated QPC, so a healthy
+        // single source overlaps itself by a µs or two. That must never cost a frame.
+        var h = new Harness();
+        await h.Device.SetInputAsync("mic");
+        await h.Device.StartAsync();
+        await h.Device.SetSendEnabledAsync(true);
+        var input = h.Inputs[0];
+
+        input.Emit(captureTime: 0, frames: 960);
+        input.Emit(captureTime: 19_999, frames: 960); // 1 µs overlap
+        input.Emit(captureTime: 40_000, frames: 960);
+        input.Emit(captureTime: 59_980, frames: 960); // 20 µs overlap
+
+        Assert.Equal(new long[] { 0, 20_000, 40_000, 60_000 }, h.Delivered.Select(d => d.CaptureTimeMicroseconds));
+        Assert.All(h.Delivered, d => Assert.Equal(960 * CaptureFormat.BytesPerFrame, d.Pcm.Length));
+    }
+
+    [Fact]
+    public async Task AGapWithinOneSource_KeepsTheSourcesStart()
+    {
+        var h = new Harness();
+        await h.Device.StartAsync();
+        var silence = h.Silences[0];
+
+        silence.Emit(captureTime: 0, frames: 960);
+        silence.Emit(captureTime: 30_000, frames: 960);
+
+        Assert.Equal(new long[] { 0, 30_000 }, h.Delivered.Select(d => d.CaptureTimeMicroseconds));
+        Assert.All(h.Delivered, d => Assert.Equal(960 * CaptureFormat.BytesPerFrame, d.Pcm.Length));
+    }
+
+    [Fact]
     public async Task AStop_ResetsTheTimeline()
     {
         // MA may stop and later restart the stream; the next stream's frames are not "overlaps".

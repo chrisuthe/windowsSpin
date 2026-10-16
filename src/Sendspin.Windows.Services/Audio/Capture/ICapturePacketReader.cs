@@ -13,7 +13,7 @@ public interface ICapturePacketReader
     /// <summary>Locks the next packet. Must be followed by <see cref="ReleaseBuffer"/>.</summary>
     /// <param name="frames">Frames in the packet.</param>
     /// <param name="silent">True when Windows marked the packet silent; its contents are then undefined.</param>
-    /// <param name="qpcPosition">Capture time of the first frame in 100-ns QPC units, or 0 when unknown.</param>
+    /// <param name="qpcPosition">Capture time of the first frame in 100-ns QPC units, or 0 when unknown or when Windows flagged it as a timestamp error.</param>
     /// <returns>The packet's data.</returns>
     IntPtr GetBuffer(out int frames, out bool silent, out long qpcPosition);
 

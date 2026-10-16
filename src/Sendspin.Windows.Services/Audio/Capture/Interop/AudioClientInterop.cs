@@ -18,6 +18,7 @@ internal static class AudioClientInterop
     public const uint StreamFlagsSrcDefaultQuality = 0x08000000;
     public const uint StreamFlagsAutoConvertPcm = 0x80000000;
     public const uint BufferFlagsSilent = 0x2;
+    public const uint BufferFlagsTimestampError = 0x4;
 
     public const int ActivationTypeProcessLoopback = 1;
     public const int ProcessLoopbackModeExcludeTargetProcessTree = 1;

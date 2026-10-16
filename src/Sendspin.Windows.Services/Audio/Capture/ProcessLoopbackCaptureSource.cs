@@ -99,7 +99,7 @@ public sealed class ProcessLoopbackCaptureSource : WasapiCaptureSource
             Check(capture.GetBuffer(out IntPtr data, out uint count, out uint flags, out _, out ulong qpc));
             frames = (int)count;
             silent = (flags & AudioClientInterop.BufferFlagsSilent) != 0;
-            qpcPosition = (long)qpc;
+            qpcPosition = (flags & AudioClientInterop.BufferFlagsTimestampError) != 0 ? 0 : (long)qpc;
             return data;
         }
 

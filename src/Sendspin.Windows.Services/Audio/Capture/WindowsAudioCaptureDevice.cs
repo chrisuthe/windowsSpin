@@ -17,8 +17,10 @@ namespace Sendspin.Windows.Services.Audio.Capture;
 /// stream.
 /// </para>
 /// <para>
-/// Emitted capture times are monotonic and never overlap: a frame that starts before the
-/// previous one ended is trimmed. Gaps are allowed; MA's source bridge absorbs them.
+/// Emitted capture times are monotonic and never overlap. Across a switch, a frame that starts
+/// before the previous one ended is trimmed by whole frames. Within one source an overlap is
+/// only timestamp rounding and jitter, so the frame is re-stamped to start where the previous
+/// one ended and keeps every sample. Gaps are allowed; MA's source bridge absorbs them.
 /// </para>
 /// <para>
 /// <see cref="DisposeAsync"/> only stops. The SDK disposes this device whenever it disposes a
@@ -47,6 +49,7 @@ public sealed class WindowsAudioCaptureDevice : IAudioCaptureDevice
 
     // Guarded by _frameLock.
     private long _lastFrameEnd = NoFrames;
+    private object? _lastSender;
 
     /// <summary>Initializes a new instance of the <see cref="WindowsAudioCaptureDevice"/> class.</summary>
     /// <param name="createSilence">Creates the generated-silence source.</param>
@@ -136,6 +139,7 @@ public sealed class WindowsAudioCaptureDevice : IAudioCaptureDevice
             lock (_frameLock)
             {
                 _lastFrameEnd = NoFrames;
+                _lastSender = null;
             }
 
             return null;
@@ -217,19 +221,30 @@ public sealed class WindowsAudioCaptureDevice : IAudioCaptureDevice
 
             if (_lastFrameEnd != NoFrames && start < _lastFrameEnd)
             {
-                long overlap = _lastFrameEnd - start;
-                long drop = ((overlap * CaptureFormat.SampleRate) + 999_999) / 1_000_000;
-                if (drop >= frames)
+                if (ReferenceEquals(sender, _lastSender))
                 {
-                    return;
+                    // One continuous source: the overlap is µs rounding and QPC jitter, not
+                    // repeated audio. Re-stamp rather than cut a frame out of the signal.
+                    start = _lastFrameEnd;
                 }
+                else
+                {
+                    long overlap = _lastFrameEnd - start;
+                    long drop = ((overlap * CaptureFormat.SampleRate) + 999_999) / 1_000_000;
+                    _logger.LogDebug("Trimmed {Frames} overlapping frames across a capture switch", Math.Min(drop, frames));
+                    if (drop >= frames)
+                    {
+                        return;
+                    }
 
-                pcm = pcm.Slice((int)drop * CaptureFormat.BytesPerFrame);
-                start += CaptureFormat.FramesToMicroseconds(drop);
-                frames -= (int)drop;
+                    pcm = pcm.Slice((int)drop * CaptureFormat.BytesPerFrame);
+                    start += CaptureFormat.FramesToMicroseconds(drop);
+                    frames -= (int)drop;
+                }
             }
 
             _lastFrameEnd = start + CaptureFormat.FramesToMicroseconds(frames);
+            _lastSender = sender;
 
             // Inside the lock so frames reach the SDK in timeline order across a switch.
             AudioCaptured?.Invoke(this, new CapturedAudio(pcm, start));
