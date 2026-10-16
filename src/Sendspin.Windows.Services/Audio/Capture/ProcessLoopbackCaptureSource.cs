@@ -61,28 +61,27 @@ public sealed class ProcessLoopbackCaptureSource : WasapiCaptureSource
     /// <inheritdoc/>
     protected override void Close()
     {
-        if (_client is not null)
+        try
         {
-            try
-            {
-                _client.Stop();
-            }
-            catch (COMException)
-            {
-                // Not started, or the session is already gone.
-            }
+            _client?.Stop();
         }
-
-        if (_capture is not null)
+        catch (COMException)
         {
-            Marshal.ReleaseComObject(_capture);
-            _capture = null;
+            // Not started, or the session is already gone.
         }
-
-        if (_client is not null)
+        finally
         {
-            Marshal.ReleaseComObject(_client);
-            _client = null;
+            if (_capture is not null)
+            {
+                Marshal.ReleaseComObject(_capture);
+                _capture = null;
+            }
+
+            if (_client is not null)
+            {
+                Marshal.ReleaseComObject(_client);
+                _client = null;
+            }
         }
     }
 

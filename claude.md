@@ -353,8 +353,8 @@ MA playing it back here cannot feed back) or a recording endpoint. Spec:
 - **Consent lives in the device, not the protocol.** MA owns whether a stream is open
   (`start`/`stop`); the user owns what fills it. `WindowsAudioCaptureDevice` answers every
   `start` with generated silence (`SilenceSource`, which opens nothing) until Send opens its
-  gate. Refusing a `start` instead would look broken to MA, which drops a silent-from-the-start
-  source after 5 s.
+  gate. Refusing a `start` instead would look broken to MA, which treats a client that never
+  answers `start` within 5 s as a broken source.
 - **Report `absent` before the first `present`.** MA records a client's first line-sense report
   without acting on it, so `SourceSendController.InitializeAsync` reports `absent` before any
   transport starts; otherwise the first Send press autostarts nothing.
@@ -467,7 +467,7 @@ Settings are stored in two locations:
 ### Audio Buffer Configuration
 - `Buffer.TargetMs`: Target buffer depth before starting playback (default: 250ms)
 - `Buffer.CapacityMs`: Maximum buffer capacity (default: 30000ms / 30s — sized to absorb server's initial burst)
-- `SourceInput`: what Send captures — `"desktop"` or a WASAPI recording endpoint ID (default: desktop when supported)
+- `SourceInput`: what Send captures — `"desktop"` or a WASAPI recording endpoint ID (default: desktop when supported) (not shipped in appsettings.json; the default is chosen at runtime)
 
 ### Clock Sync Configuration
 - `ClockSync.WaitForConvergence`: Wait for Kalman filter to converge before playback (default: true)
