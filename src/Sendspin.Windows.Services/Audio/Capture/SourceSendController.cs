@@ -215,7 +215,7 @@ public sealed class SourceSendController
 
     /// <summary>Stops capture at shutdown.</summary>
     /// <returns>A task that completes once stopped.</returns>
-    public Task StopAsync() => _device.StopAsync();
+    public Task StopAsync() => _device.StopAllAsync();
 
     private async Task ReportAsync(bool present)
     {

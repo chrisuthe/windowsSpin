@@ -216,18 +216,55 @@ public class WindowsAudioCaptureDeviceTests
     }
 
     [Fact]
-    public async Task DisposeIsNotTerminal()
+    public async Task DisposeIsNotTerminal_AndStopsNothing()
     {
         // The SDK disposes the shared device whenever it disposes an owning client — the dial
-        // cleanup, the host's stop. The next connection's start must still work.
+        // cleanup, the host's stop — after that client's pipeline has already paired its stop
+        // with its start. Disposal must neither stop another connection's stream nor prevent the
+        // next connection's start.
         var h = new Harness();
         await h.Device.StartAsync();
 
         await h.Device.DisposeAsync();
+        Assert.Equal(1, h.Running);
+
+        await h.Device.StopAsync();
         Assert.Equal(0, h.Running);
 
         await h.Device.StartAsync();
         Assert.True(h.Silences[^1].Running);
+    }
+
+    [Fact]
+    public async Task AStaleConnectionsStop_DoesNotStopTheNewConnectionsStream()
+    {
+        // Redial: Music Assistant's new connection starts the shared device before the stale
+        // connection's pipeline is torn down. Each SDK pipeline pairs its stop with its own start.
+        var h = new Harness();
+        await h.Device.StartAsync(); // stale connection
+        await h.Device.StartAsync(); // new connection
+
+        await h.Device.StopAsync(); // stale connection torn down
+        Assert.Equal(1, h.Running);
+        Assert.Single(h.Silences);
+
+        await h.Device.StopAsync(); // new connection's stream ends
+        Assert.Equal(0, h.Running);
+    }
+
+    [Fact]
+    public async Task StopAll_StopsEveryStream_AndAnUnmatchedStopIsHarmless()
+    {
+        var h = new Harness();
+        await h.Device.StartAsync();
+        await h.Device.StartAsync();
+
+        await h.Device.StopAllAsync();
+        Assert.Equal(0, h.Running);
+
+        await h.Device.StopAsync();
+        await h.Device.StartAsync();
+        Assert.Equal(1, h.Running);
     }
 
     [Fact]

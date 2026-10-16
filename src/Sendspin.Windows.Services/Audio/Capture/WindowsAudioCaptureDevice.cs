@@ -23,9 +23,16 @@ namespace Sendspin.Windows.Services.Audio.Capture;
 /// one ended and keeps every sample. Gaps are allowed; MA's source bridge absorbs them.
 /// </para>
 /// <para>
-/// <see cref="DisposeAsync"/> only stops. The SDK disposes this device whenever it disposes a
-/// client that owns its pipelines — every dial cleanup and host stop — and the next connection
-/// must still be able to start it.
+/// One device serves every connection, and each connection's SDK pipeline pairs its own
+/// <see cref="StopAsync"/> with its own <see cref="StartAsync"/>. Starts are therefore counted and
+/// capture runs until each has been stopped: on a redial, the stale connection's teardown can
+/// arrive after the new connection's start and must not silence it.
+/// </para>
+/// <para>
+/// <see cref="DisposeAsync"/> stops nothing. The SDK disposes this device whenever it disposes a
+/// client that owns its pipelines — every dial cleanup and host stop — after that pipeline has
+/// already stopped; the device stays usable for the next connection. Shutdown uses
+/// <see cref="StopAllAsync"/>.
 /// </para>
 /// </remarks>
 public sealed class WindowsAudioCaptureDevice : IAudioCaptureDevice
@@ -41,7 +48,7 @@ public sealed class WindowsAudioCaptureDevice : IAudioCaptureDevice
     // Guarded by _switchGate.
     private string? _inputId;
     private bool _sendEnabled;
-    private bool _started;
+    private int _startCount;
     private string? _activeInputId;
 
     // Written under _switchGate, read on capture threads.
@@ -88,13 +95,20 @@ public sealed class WindowsAudioCaptureDevice : IAudioCaptureDevice
     public Task SetSendEnabledAsync(bool enabled) => SwitchAsync(() => _sendEnabled = enabled);
 
     /// <inheritdoc/>
-    public Task StartAsync(CancellationToken cancellationToken = default) => SwitchAsync(() => _started = true);
+    public Task StartAsync(CancellationToken cancellationToken = default) => SwitchAsync(() => _startCount++);
 
     /// <inheritdoc/>
-    public Task StopAsync(CancellationToken cancellationToken = default) => SwitchAsync(() => _started = false);
+    public Task StopAsync(CancellationToken cancellationToken = default) =>
+        SwitchAsync(() => _startCount = Math.Max(0, _startCount - 1));
+
+    /// <summary>Stops capture whatever the outstanding starts. For shutdown.</summary>
+    /// <returns>A task that completes once nothing is running.</returns>
+    public Task StopAllAsync() => SwitchAsync(() => _startCount = 0);
 
     /// <inheritdoc/>
-    public ValueTask DisposeAsync() => new(StopAsync());
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+    private bool IsStarted => _startCount > 0;
 
     private async Task SwitchAsync(Action change)
     {
@@ -119,22 +133,22 @@ public sealed class WindowsAudioCaptureDevice : IAudioCaptureDevice
 
     private async Task<CaptureFaultedEventArgs?> ApplyAsync()
     {
-        bool wantsInput = _started && _sendEnabled && _inputId is not null;
+        bool wantsInput = IsStarted && _sendEnabled && _inputId is not null;
         string? wantedInput = wantsInput ? _inputId : null;
         bool running = _active is not null;
 
-        if (!_started && !running)
+        if (!IsStarted && !running)
         {
             return null;
         }
 
-        if (_started && running && _activeInputId == wantedInput)
+        if (IsStarted && running && _activeInputId == wantedInput)
         {
             return null;
         }
 
         await StopActiveAsync().ConfigureAwait(false);
-        if (!_started)
+        if (!IsStarted)
         {
             lock (_frameLock)
             {
