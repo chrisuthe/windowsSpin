@@ -23,20 +23,11 @@ public sealed class SingleInstanceGuard : IDisposable
     /// <summary>The mutex that marks a running instance in this session.</summary>
     public const string DefaultMutexName = @"Local\Sendspin_SingleInstance";
 
-    /// <summary>Gets the pipe a second launch uses to ask the running instance to show its window.</summary>
-    public static string DefaultPipeName { get; } = $"Sendspin_ShowWindow_{CurrentSessionId()}";
-
     private readonly string _mutexName;
     private readonly string _pipeName;
 
     private Mutex? _mutex;
     private CancellationTokenSource? _pipeCts;
-
-    /// <summary>
-    /// Raised when another instance requests this instance to show its window.
-    /// Always raised on a background thread — callers must dispatch to the UI thread.
-    /// </summary>
-    public event EventHandler? ShowWindowRequested;
 
     /// <summary>
     /// Creates a guard on the app's own mutex and pipe.
@@ -56,6 +47,15 @@ public sealed class SingleInstanceGuard : IDisposable
         _mutexName = mutexName;
         _pipeName = pipeName;
     }
+
+    /// <summary>
+    /// Raised when another instance requests this instance to show its window.
+    /// Always raised on a background thread — callers must dispatch to the UI thread.
+    /// </summary>
+    public event EventHandler? ShowWindowRequested;
+
+    /// <summary>Gets the pipe a second launch uses to ask the running instance to show its window.</summary>
+    public static string DefaultPipeName { get; } = $"Sendspin_ShowWindow_{CurrentSessionId()}";
 
     /// <summary>
     /// Attempts to become the single running instance.
@@ -79,6 +79,12 @@ public sealed class SingleInstanceGuard : IDisposable
         // Another instance owns the mutex — signal it to show its window
         SignalExistingInstance();
         return false;
+    }
+
+    private static int CurrentSessionId()
+    {
+        using var process = Process.GetCurrentProcess();
+        return process.SessionId;
     }
 
     /// <summary>
@@ -134,12 +140,6 @@ public sealed class SingleInstanceGuard : IDisposable
             // If pipe connect fails, the existing instance may be shutting down.
             // Either way, we exit — worst case the user clicks the tray icon.
         }
-    }
-
-    private static int CurrentSessionId()
-    {
-        using var process = Process.GetCurrentProcess();
-        return process.SessionId;
     }
 
     public void Dispose()
