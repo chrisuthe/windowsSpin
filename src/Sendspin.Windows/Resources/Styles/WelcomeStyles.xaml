@@ -61,6 +61,11 @@
         </Style.Triggers>
     </Style>
 
+    <!-- Red sibling of BroadcastingIndicator: shown while this PC's input is being sent -->
+    <Style x:Key="SendingIndicator" TargetType="Ellipse" BasedOn="{StaticResource BroadcastingIndicator}">
+        <Setter Property="Fill" Value="{StaticResource ErrorBrush}"/>
+    </Style>
+
     <!-- Indeterminate progress spinner: a brand-green arc sweeping a faint track.
          Used wherever the client is waiting on the network (waiting for a server to
          connect to us, or searching for servers to connect to).
