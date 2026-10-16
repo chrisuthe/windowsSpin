@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net.Http;
 using System.Windows;
 using System.Windows.Interop;
 using Hardcodet.Wpf.TaskbarNotification;
@@ -532,7 +533,10 @@ public partial class App : Application
         services.AddHttpClient("Artwork", client =>
         {
             client.Timeout = TimeSpan.FromSeconds(10);
-        });
+        })
+            // ArtworkDownloader follows redirects itself so it can validate every hop before
+            // requesting it; the handler following them would request a target first.
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 
         // Notification service for toast notifications
         // Uses Windows Toast API via Microsoft.Toolkit.Uwp.Notifications
